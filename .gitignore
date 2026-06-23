@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# KiCad
+pcb/**/*-backups/
+pcb/**/*.000
+pcb/**/*.bak
+pcb/**/fp-info-cache
+pcb/**/_autosave-*
+pcb/**/*.kicad_prl
+
+/sdkconfig
+/sdkconfig.old
+/build/
+

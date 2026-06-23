@@ -1,0 +1,58 @@
+menu "Danger Gadget Configuration"
+
+    config DANGER_GADGET_WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            接続先WiFiアクセスポイントのSSID。
+
+    config DANGER_GADGET_WIFI_PASSWORD
+        string "WiFi Password"
+        default ""
+        help
+            接続先WiFiアクセスポイントのパスワード。
+
+    config DANGER_GADGET_WEBSOCKET_URI
+        string "WebSocket URI"
+        default "ws://192.168.100.1:8080"
+        help
+            接続先WebSocketサーバーのURI。
+
+    config DANGER_GADGET_GPIO_I2C_PORT_NO
+        int "I2C Port Number"
+        default 0
+        help
+            I2Cポート番号。
+
+    config DANGER_GADGET_GPIO_I2C_SDA
+        int "I2C SDA GPIO Number"
+        default 21
+        help
+            I2C SDAに接続するGPIO番号。
+
+    config DANGER_GADGET_GPIO_I2C_SCL
+        int "I2C SCL GPIO Number"
+        default 22
+        help
+            I2C SCLに接続するGPIO番号。
+
+    config DANGER_GADGET_MCP23017_I2C_ADDRESS
+        hex "MCP23017 I2C Address"
+        default 0x20
+        help
+            MCP23017のI2Cクライアントアドレス。
+
+    config DANGER_GADGET_GPIO_MCP23017_INTA
+        int "MCP23017 INTA GPIO Number"
+        default 19
+        help
+            MCP23017のINTA(ミラー設定によりA/B共通)が接続されているGPIO番号。
+
+    config DANGER_GADGET_GPIO_SOLENOID
+        int "Solenoid output GPIO Number"
+        default 23
+        help
+            ソレノイド稼働用出力
+
+
+endmenu
