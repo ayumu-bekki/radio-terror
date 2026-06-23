@@ -10,8 +10,12 @@ pcb/**/*.bak
 pcb/**/fp-info-cache
 pcb/**/_autosave-*
 pcb/**/*.kicad_prl
+pcb/**/*.lck
+pcb/**/.history
 
 /sdkconfig
 /sdkconfig.old
-/build/
+build/
+managed_components/
+
 
