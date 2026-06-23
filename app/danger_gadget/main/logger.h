@@ -9,6 +9,6 @@
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 
 /// Application Log Tag
-static constexpr char TAG[] = "BusyBoard";
+static constexpr char TAG[] = "DangerGadget";
 
 #endif  // LOGGER_H_
