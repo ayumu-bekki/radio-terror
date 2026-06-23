@@ -4951,16 +4951,6 @@
 	)
 	(wire
 		(pts
-			(xy 55.88 81.28) (xy 59.69 81.28)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "26c00978-6d72-4f26-ba01-2b948c233ef6")
-	)
-	(wire
-		(pts
 			(xy 104.14 138.43) (xy 104.14 144.78)
 		)
 		(stroke
@@ -5241,7 +5231,7 @@
 	)
 	(wire
 		(pts
-			(xy 55.88 78.74) (xy 69.85 78.74)
+			(xy 55.88 78.74) (xy 76.2 78.74)
 		)
 		(stroke
 			(width 0)
@@ -5298,6 +5288,16 @@
 			(type default)
 		)
 		(uuid "651b315d-1a81-4751-9b7e-b0ff31865e80")
+	)
+	(wire
+		(pts
+			(xy 55.88 81.28) (xy 59.69 81.28)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "675791db-7a3b-497c-94f3-cc0f766fbbe9")
 	)
 	(wire
 		(pts
@@ -5521,16 +5521,6 @@
 	)
 	(wire
 		(pts
-			(xy 55.88 48.26) (xy 69.85 48.26)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "9e5c79a0-285b-4c56-be5d-355d7ded7b8f")
-	)
-	(wire
-		(pts
 			(xy 55.88 60.96) (xy 59.69 60.96)
 		)
 		(stroke
@@ -5631,6 +5621,16 @@
 	)
 	(wire
 		(pts
+			(xy 55.88 43.18) (xy 73.66 43.18)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a74e06d5-5c7e-4e18-a762-171b70689397")
+	)
+	(wire
+		(pts
 			(xy 191.77 118.11) (xy 191.77 120.65)
 		)
 		(stroke
@@ -5638,26 +5638,6 @@
 			(type default)
 		)
 		(uuid "a9ba475e-0720-4e16-acf2-213d4aaf7de6")
-	)
-	(wire
-		(pts
-			(xy 55.88 73.66) (xy 74.93 73.66)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "aaf17070-5a77-4c85-9f11-c685ee809890")
-	)
-	(wire
-		(pts
-			(xy 55.88 83.82) (xy 68.58 83.82)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "b6ff1fae-2167-4420-a7cd-7e4b44222c96")
 	)
 	(wire
 		(pts
@@ -5768,6 +5748,16 @@
 			(type default)
 		)
 		(uuid "d3cb5a17-3272-4d78-9a89-f5a068732f3a")
+	)
+	(wire
+		(pts
+			(xy 55.88 55.88) (xy 59.69 55.88)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d8050e0a-6d69-4f45-8d9d-edb7f080cb4a")
 	)
 	(wire
 		(pts
@@ -5921,6 +5911,16 @@
 	)
 	(wire
 		(pts
+			(xy 55.88 58.42) (xy 73.66 58.42)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "fe0e641f-3936-4e7b-a0c8-5804a748946e")
+	)
+	(wire
+		(pts
 			(xy 104.14 133.35) (xy 104.14 135.89)
 		)
 		(stroke
@@ -5942,30 +5942,6 @@
 		(uuid "043e0e94-3452-4fdd-98b9-3eb38cd82053")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 86.7447 68.58 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-	)
-	(global_label "Battery ADC"
-		(shape input)
-		(at 69.85 48.26 0)
-		(fields_autoplaced yes)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "05925e8c-d751-4465-b00d-9f4b78408750")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 84.1442 48.26 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6099,7 +6075,7 @@
 	)
 	(global_label "LED C"
 		(shape output)
-		(at 74.93 73.66 0)
+		(at 59.69 55.88 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6109,7 +6085,31 @@
 		)
 		(uuid "2fe5c10c-af87-4507-9ad7-6030def129af")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 83.5999 73.66 0)
+			(at 68.3599 55.88 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+	)
+	(global_label "Battery ADC"
+		(shape input)
+		(at 59.69 81.28 0)
+		(fields_autoplaced yes)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "30f5b955-6d61-499f-9fc6-428e7ac0c8fe")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 73.9842 81.28 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6243,7 +6243,7 @@
 	)
 	(global_label "LED B"
 		(shape output)
-		(at 68.58 83.82 0)
+		(at 73.66 58.42 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6253,7 +6253,7 @@
 		)
 		(uuid "855154c6-c501-454f-aa68-4c7c5577ae8e")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 77.2499 83.82 0)
+			(at 82.3299 58.42 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6267,7 +6267,7 @@
 	)
 	(global_label "LED A"
 		(shape output)
-		(at 59.69 81.28 0)
+		(at 73.66 43.18 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6277,7 +6277,7 @@
 		)
 		(uuid "8c9d5d8f-b669-4282-8b3f-c8ba02ccab40")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 68.1785 81.28 0)
+			(at 82.1485 43.18 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6315,7 +6315,7 @@
 	)
 	(global_label "Push B"
 		(shape input)
-		(at 69.85 78.74 0)
+		(at 76.2 78.74 0)
 		(fields_autoplaced yes)
 		(effects
 			(font
@@ -6325,7 +6325,7 @@
 		)
 		(uuid "973a7715-25f5-4205-8ea3-ceae56b52b6f")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 79.6689 78.74 0)
+			(at 86.0189 78.74 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
