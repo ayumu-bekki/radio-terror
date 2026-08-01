@@ -5,7 +5,9 @@
 
 // Include ----------------------
 #include "mcp23017.h"
+#include "ht16k33.h"
 #include "gpio_input_watch_task.h"
+#include "pl9823_task.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -28,11 +30,15 @@ class DangerGadgetSystem final
 
  private:
   void CheckMCP23017Input();
+  void StartCountdownTask();
 
  private:
   MCP23017 mcp23017_;
   bool last_level_[MCP23017::GPIO_GROUP_NUM][MCP23017::GPIO_NUM];
+  HT16K33 ht16k33_;
+  Pl9823Task pl9823_task_;
 
+  friend void CountdownTaskEntry(void* arg);
 };
 
 }  // namespace DangerGadget

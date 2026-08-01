@@ -48,6 +48,12 @@ menu "Danger Gadget Configuration"
         help
             MCP23017のINTA(ミラー設定によりA/B共通)が接続されているGPIO番号。
 
+    config DANGER_GADGET_HT16K33_I2C_ADDRESS
+        hex "HT16K33 I2C Address"
+        default 0x70
+        help
+            HT16K33のI2Cクライアントアドレス (0x70-0x77の範囲、A0-A2ピンで選択)。
+
     config DANGER_GADGET_GPIO_SOLENOID
         int "Solenoid output GPIO Number"
         default 23
