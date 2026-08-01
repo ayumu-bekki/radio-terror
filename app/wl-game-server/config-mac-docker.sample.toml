@@ -1,5 +1,5 @@
 [radio_bridge]
-host = "radio-bridge"
+host = "host.docker.internal"
 port = 50051
 reconnect_interval_secs = 5
 max_reconnect_attempts  = 0   # 0 = 無制限
