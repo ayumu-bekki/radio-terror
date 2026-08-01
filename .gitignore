@@ -12,10 +12,12 @@ pcb/**/_autosave-*
 pcb/**/*.kicad_prl
 pcb/**/*.lck
 pcb/**/.history
+pcb/**/gerber/
 
 /sdkconfig
 /sdkconfig.old
 build/
 managed_components/
+.cache/
 
 

@@ -1,0 +1,28 @@
+[package]
+name = "radio-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "radio-bridge"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["rt"] }
+tonic = "0.12"
+prost = "0.13"
+rppal = "0.18"
+alsa = "0.9"
+ogg = "0.9"
+opus = "0.3"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "1"
+bytes = "1"
+
+[build-dependencies]
+tonic-build = "0.12"

@@ -1,0 +1,14 @@
+{
+  "id": "a3006e5f-f723-4fcd-93dd-daa4fa7083df",
+  "name": "/Users/sabagara/Project/whisper-link/app/wl-game-server",
+  "projectResources": {
+    "resources": [
+      {
+        "gitFolder": {
+          "folderUri": "file:///Users/sabagara/Project/whisper-link/app/wl-game-server",
+          "allowWrite": true
+        }
+      }
+    ]
+  }
+}
