@@ -20,4 +20,12 @@ build/
 managed_components/
 .cache/
 
+# Rust
+target/
+
+# wl-game-server (contains API keys, use *.sample.toml as templates)
+app/wl-game-server/config.toml
+app/wl-game-server/config-mac-docker.toml
+app/wl-game-server/wl-game-server
+
 
