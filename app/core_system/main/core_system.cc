@@ -1,8 +1,8 @@
-// Danger Gadget
+// Core System
 // (C)2026 bekki.jp
 
 // Include ----------------------
-#include "danger_gadget_system.h"
+#include "core_system.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -14,59 +14,68 @@
 #include "gpio_input_watch_task.h"
 #include "i2c_util.h"
 #include "logger.h"
+#include "hardware_config.h"
 #include "wifi_util.h"
 #include "ws_client.h"
 
-namespace DangerGadget {
+namespace CoreSystem {
 
 namespace {
 /// PL9823デイジーチェーン制御GPIO・接続数
-constexpr gpio_num_t kPl9823Gpio = GPIO_NUM_4;
+constexpr gpio_num_t kPl9823Gpio = Esp32Pin::kFullColorLed;
 constexpr uint32_t kPl9823LedNum = 1;
 }  // namespace
 
-DangerGadgetSystem::DangerGadgetSystem()
+System::System()
     : pl9823_task_(kPl9823Gpio, kPl9823LedNum) {}
 
-DangerGadgetSystem::~DangerGadgetSystem() = default;
+System::~System() = default;
 
-void DangerGadgetSystem::Start() {
+void System::Start() {
   ESP_LOGI(TAG, "Start");
 
   // WiFi接続
-  WifiUtil::ConnectStaAndWait(CONFIG_DANGER_GADGET_WIFI_SSID, CONFIG_DANGER_GADGET_WIFI_PASSWORD);
+  WifiUtil::ConnectStaAndWait(CONFIG_CORE_SYSTEM_WIFI_SSID, CONFIG_CORE_SYSTEM_WIFI_PASSWORD);
 
   // I2C初期化
   i2c_master_bus_handle_t bus_handle =
-      I2CUtil::InitializeMaster(static_cast<i2c_port_t>(CONFIG_DANGER_GADGET_GPIO_I2C_PORT_NO), static_cast<gpio_num_t>(CONFIG_DANGER_GADGET_GPIO_I2C_SDA), static_cast<gpio_num_t>(CONFIG_DANGER_GADGET_GPIO_I2C_SCL));
+      I2CUtil::InitializeMaster(Esp32Pin::kI2cPortNo, Esp32Pin::kI2cSda, Esp32Pin::kI2cScl);
 
-  // Input設定 (全ピン内部プルアップ有効のInputとして利用)
+  // Input/Output設定 (LED以外は全ピン内部プルアップ有効のInputとして利用)
   for (uint8_t group = 0; group < MCP23017::GPIO_GROUP_NUM; ++group) {
     for (uint8_t gpio_no = 0; gpio_no < MCP23017::GPIO_NUM; ++gpio_no) {
       mcp23017_.SetInputOutput(group, gpio_no, true);
     }
   }
+  for (const auto& output_pin : Mcp23017Pin::kOutputPins) {
+    mcp23017_.SetInputOutput(output_pin[0], output_pin[1], false);
+  }
 
   // MCP23017設定・初期化 (IOCON.MIRROR有効化によりGroup Bの変化もINTAで通知される)
-  mcp23017_.Setup(bus_handle, CONFIG_DANGER_GADGET_MCP23017_I2C_ADDRESS);
+  mcp23017_.Setup(bus_handle, I2cAddress::kMcp23017);
+
+  // [テスト実装] LED A-Eを全点灯
+  for (const auto& led_pin : Mcp23017Pin::kOutputPins) {
+    mcp23017_.SetOutputGpio(led_pin[0], led_pin[1], true);
+  }
 
   // HT16K33設定・初期化 (発振器ON, 表示ON, 輝度最大, 表示クリア)
-  ht16k33_.Setup(bus_handle, CONFIG_DANGER_GADGET_HT16K33_I2C_ADDRESS);
+  ht16k33_.Setup(bus_handle, I2cAddress::kHt16k33);
 
   // 初期状態を取得
   CheckMCP23017Input();
 
-  // MCP23017のINTAピン(GPIO19)をESP32側で監視し、変化検知時に読み直す
+  // MCP23017のINTAピン(Esp32Pin::kMcp23017Interrupt)をESP32側で監視し、変化検知時に読み直す
   GpioInputWatchTask gpio_watcher;
   gpio_watcher.AddMonitor(
-      GpioInputWatchTask::GpioInfo(static_cast<gpio_num_t>(CONFIG_DANGER_GADGET_GPIO_MCP23017_INTA), std::bind(&DangerGadgetSystem::CheckMCP23017Input, this), nullptr),
+      GpioInputWatchTask::GpioInfo(Esp32Pin::kMcp23017Interrupt, std::bind(&System::CheckMCP23017Input, this), nullptr),
       GpioInputWatchTask::PULL_UP_REGISTOR_ENABLE);
   gpio_watcher.Start();
 
   // [テスト実装] 30秒からのカウントダウンタスクを起動
   StartCountdownTask();
 
-  // PL9823制御タスク起動 (赤色100ms点滅でデモ)
+  // PL9823制御タスク起動 (赤色点滅デモ)
   pl9823_task_.Start();
   pl9823_task_.SendCommand(
       {Pl9823Task::PATTERN_BLINK, 255, 0, 0, 20, 1480});
@@ -97,14 +106,14 @@ void DangerGadgetSystem::Start() {
 }
 
 namespace {
-constexpr gpio_num_t kSolenoidGpio = GPIO_NUM_23;
+constexpr gpio_num_t kSolenoidGpio = Esp32Pin::kSolenoid;
 
 /// [テスト実装] カウントダウン開始秒数 (0.1秒単位、30.0秒)
 constexpr int kCountdownStartTenths = 300;
 }  // namespace
 
 void CountdownTaskEntry(void* arg) {
-  auto* self = static_cast<DangerGadgetSystem*>(arg);
+  auto* self = static_cast<System*>(arg);
 
   int remaining_tenths = kCountdownStartTenths;
   while (true) {
@@ -126,7 +135,7 @@ void CountdownTaskEntry(void* arg) {
     self->ht16k33_.WriteDisplay();
 
     if (remaining_tenths <= 0) {
-      // ソレノイド(GPIO23)を200msだけHIGHにする
+      // ソレノイド(kSolenoidGpio)を200msだけHIGHにする
       gpio_set_level(kSolenoidGpio, true);
       vTaskDelay(200 / portTICK_PERIOD_MS);
       gpio_set_level(kSolenoidGpio, false);
@@ -141,7 +150,7 @@ void CountdownTaskEntry(void* arg) {
 }
 
 /// [テスト実装] 30秒からカウントダウンしHT16K33に100ms毎に表示、0でソレノイドを駆動するタスクを生成する
-void DangerGadgetSystem::StartCountdownTask() {
+void System::StartCountdownTask() {
   gpio_config_t io_conf = {
       .pin_bit_mask = 1ULL << kSolenoidGpio,
       .mode = GPIO_MODE_OUTPUT,
@@ -155,7 +164,7 @@ void DangerGadgetSystem::StartCountdownTask() {
 }
 
 /// MCP23017の全ピンを読み直し、前回値と差分があったピンのみログ出力する
-void DangerGadgetSystem::CheckMCP23017Input() {
+void System::CheckMCP23017Input() {
   for (uint8_t group = 0; group < MCP23017::GPIO_GROUP_NUM; ++group) {
     // グループ単位でI2Cを読み直す
     mcp23017_.RefreshInputGroup(group);
@@ -166,12 +175,19 @@ void DangerGadgetSystem::CheckMCP23017Input() {
         last_level_[group][gpio_no] = level;
         ESP_LOGI(TAG, "MCP23017 Changed Group:%d Gpio:%d Level:%d", group,
                  gpio_no, level);
+
+        // [テスト実装] PushA・Rotary6がHIGHになったらイベントを発行する
+        if (level && group == Mcp23017Pin::kGroupB && gpio_no == Mcp23017Pin::kPushA) {
+          ESP_LOGI(TAG, "Event: PushA High");
+        }
+        if (level && group == Mcp23017Pin::kGroupA && gpio_no == Mcp23017Pin::kRotary6) {
+          ESP_LOGI(TAG, "Event: Rotary6 High");
+        }
       }
     }
   }
 }
 
-} // namespace DangerGadget
+} // namespace CoreSystem
 
 // EOF
-

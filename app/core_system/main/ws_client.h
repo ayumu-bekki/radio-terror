@@ -1,6 +1,6 @@
 #ifndef WS_CLIENT_H_
 #define WS_CLIENT_H_
-// Danger Gadget
+// Core System
 // (C)2026 bekki.jp
 
 // Include ----------------------
@@ -8,7 +8,7 @@
 
 #include <string>
 
-namespace DangerGadget {
+namespace CoreSystem {
 
 class WSClient final {
  public:
@@ -25,7 +25,7 @@ class WSClient final {
   esp_websocket_client_handle_t websocket_client_;
 };
 
-}  // namespace DangerGadget
+}  // namespace CoreSystem
 
 #endif  // WS_CLIENT_H_
 // EOF

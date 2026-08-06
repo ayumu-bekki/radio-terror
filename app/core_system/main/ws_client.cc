@@ -1,4 +1,4 @@
-// Danger Gadget
+// Core System
 // (C)2026 bekki.jp
 
 // Include ----------------------
@@ -11,14 +11,14 @@ namespace {
 void OnWebSocketEvent(void* handler_args, esp_event_base_t base,
                       int32_t event_id, void* event_data) {
   if (handler_args) {
-    static_cast<DangerGadget::WSClient*>(handler_args)->OnEvent(base, event_id, event_data);
+    static_cast<CoreSystem::WSClient*>(handler_args)->OnEvent(base, event_id, event_data);
   }
 }
 
 }
 
 
-namespace DangerGadget {
+namespace CoreSystem {
 
 WSClient::WSClient() = default;
 
@@ -26,7 +26,7 @@ WSClient::~WSClient() = default;
 
 void WSClient::Connect() {
   esp_websocket_client_config_t websocket_config = {};
-  websocket_config.uri = CONFIG_DANGER_GADGET_WEBSOCKET_URI;
+  websocket_config.uri = CONFIG_CORE_SYSTEM_WEBSOCKET_URI;
 
   websocket_client_ = esp_websocket_client_init(&websocket_config);
   esp_websocket_register_events(websocket_client_, WEBSOCKET_EVENT_ANY,
@@ -61,7 +61,7 @@ void WSClient::OnEvent(esp_event_base_t base,
 }
 
 
-} // namespace DangerGadget
+} // namespace CoreSystem
 
 // EOF
 

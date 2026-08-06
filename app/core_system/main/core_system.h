@@ -1,6 +1,6 @@
-#ifndef DANGER_GADGET_SYSTEM_H_ 
-#define DANGER_GADGET_SYSTEM_H_ 
-// Danger Gadget
+#ifndef CORE_SYSTEM_H_
+#define CORE_SYSTEM_H_
+// Core System
 // (C)2026 bekki.jp
 
 // Include ----------------------
@@ -17,14 +17,13 @@
 #include "i2c_util.h"
 #include "logger.h"
 
-namespace DangerGadget {
+namespace CoreSystem {
 
-/// IrrigationController
-class DangerGadgetSystem final
-    : public std::enable_shared_from_this<DangerGadgetSystem> {
+class System final
+    : public std::enable_shared_from_this<System> {
  public:
-  DangerGadgetSystem();
-  ~DangerGadgetSystem();
+  System();
+  ~System();
 
   void Start();
 
@@ -41,8 +40,8 @@ class DangerGadgetSystem final
   friend void CountdownTaskEntry(void* arg);
 };
 
-}  // namespace DangerGadget
+}  // namespace CoreSystem
 
-#endif  // DANGER_GADGET_SYSTEM_H_
+#endif  // CORE_SYSTEM_H_
 // EOF
 

@@ -1,13 +1,13 @@
-// Danger Gadget
+// Core System
 // (C)2026 bekki.jp
 
 // Include ----------------------
-#include "danger_gadget_system.h"
+#include "core_system.h"
 
 
 /// Entry Point
 extern "C" void app_main() {
-  const auto system = std::make_shared<DangerGadget::DangerGadgetSystem>();
+  const auto system = std::make_shared<CoreSystem::System>();
   system->Start();
 }
 
