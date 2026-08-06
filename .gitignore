@@ -14,11 +14,9 @@ pcb/**/*.lck
 pcb/**/.history
 pcb/**/gerber/
 
-/sdkconfig
-/sdkconfig.old
-build/
-managed_components/
-.cache/
+
+# FreeCAD
+**/*.FCBak
 
 # Rust
 target/
@@ -27,5 +25,12 @@ target/
 app/wl-game-server/config.toml
 app/wl-game-server/config-mac-docker.toml
 app/wl-game-server/wl-game-server
+
+# esp32
+**/sdkconfig
+**/sdkconfig.old
+**/build/
+**/managed_components/
+**/.cache/
 
 
