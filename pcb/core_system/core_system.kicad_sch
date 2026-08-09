@@ -12633,7 +12633,7 @@
 				)
 			)
 		)
-		(property "Value" "YELLOW"
+		(property "Value" "GREEN"
 			(at 260.35 186.69 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -14554,7 +14554,7 @@
 				)
 			)
 		)
-		(property "Value" "GREEN"
+		(property "Value" "YELLOW"
 			(at 260.35 176.53 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -17051,7 +17051,7 @@
 				)
 			)
 		)
-		(property "Value" "GREEN"
+		(property "Value" "YELLOW"
 			(at 319.9765 177.8 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -19915,7 +19915,7 @@
 				)
 			)
 		)
-		(property "Value" "YELLOW"
+		(property "Value" "GREEN"
 			(at 319.9765 187.96 0)
 			(show_name no)
 			(do_not_autoplace no)

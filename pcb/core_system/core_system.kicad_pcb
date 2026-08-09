@@ -1251,7 +1251,7 @@
 		(descr "JST XH series connector, B2B-XH-A (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
 		(tags "connector JST XH vertical")
 		(property "Reference" "J1"
-			(at 1.25 -3.55 270)
+			(at 4.4 4.8 0)
 			(layer "F.SilkS")
 			(uuid "08b145dd-46b7-4c86-a89c-9b9cbf7db2db")
 			(effects
@@ -7736,7 +7736,7 @@
 		(descr "JST XH series connector, B8B-XH-A (http://www.jst-mfg.com/product/pdf/eng/eXH.pdf)")
 		(tags "connector JST XH vertical")
 		(property "Reference" "J8"
-			(at -3.9 0.6 0)
+			(at -2 4.9 0)
 			(layer "F.SilkS")
 			(uuid "4b7f1765-f5ec-4d87-9486-66c6250d7c60")
 			(effects
@@ -8077,7 +8077,7 @@
 		(descr "SMD capacitor, aluminum electrolytic, Nichicon, 6.3x5.8mm")
 		(tags "capacitor electrolytic")
 		(property "Reference" "C1"
-			(at 2.4 -5.1 180)
+			(at 0.2 4.3 180)
 			(layer "F.SilkS")
 			(uuid "99951211-0822-47a3-a780-53a64aa12ea0")
 			(effects
@@ -8088,7 +8088,7 @@
 			)
 		)
 		(property "Value" "100μ"
-			(at 0 4.35 180)
+			(at 3.1 4.5 180)
 			(layer "F.Fab")
 			(uuid "eb8de55a-91d0-4976-80ff-ca39eb5254ce")
 			(effects
@@ -9814,7 +9814,7 @@
 		(descr "Capacitor SMD 0603 (1608 Metric), square (rectangular) end terminal, IPC-7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf)")
 		(tags "capacitor handsolder")
 		(property "Reference" "C2"
-			(at -0.2 -9 0)
+			(at -2.8 0 0)
 			(layer "F.SilkS")
 			(uuid "2d0609e7-d595-4ae2-814d-5faa9fe3065f")
 			(effects
@@ -11662,7 +11662,7 @@
 		(layer "Edge.Cuts")
 		(uuid "6cb7e6d5-476e-41ee-9f28-0a6a7808614d")
 	)
-	(gr_text "v100\n"
+	(gr_text "v101"
 		(at 42.2 90.1 0)
 		(layer "F.SilkS" knockout)
 		(uuid "1e1392d7-f3b5-416b-9ad4-6011db36cf69")
