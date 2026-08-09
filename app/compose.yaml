@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: wl-game-server/Dockerfile
     ports:
-      - 8080:8080   # WebSocket (core_system デバイス) + マネージャー向け Web 画面 (/manager)
+      - 8080:8080   # 通信用WebSocket (/ws) + マネージャー向け Web 画面 (/manager)
       - 50051:50051 # gRPC (radio-bridge からのダイヤルイン)
     volumes:
       - type: bind
@@ -18,17 +18,14 @@ services:
       - type: bind
         source: ./wl-game-server/transcribe_schema.json
         target: /app/transcribe_schema.json
-      # シナリオを編集したらコンテナ再ビルドなしで差し替えられるようにする
       - type: bind
         source: ./wl-game-server/scenarios
         target: /app/scenarios
         read_only: true
-      # ナビゲーターの口調・プロンプトも再ビルドなしで差し替えられるようにする
       - type: bind
         source: ./wl-game-server/navigator
         target: /app/navigator
         read_only: true
-      # 混線音声・効果音アセット (未制作でも起動する)
       - type: bind
         source: ./wl-game-server/assets
         target: /app/assets
@@ -39,19 +36,36 @@ services:
     networks:
       - whisperlink-network
 
-  radio-bridge:
+  radio-bridge-br01:
     build:
       context: .
       dockerfile: radio-bridge/Dockerfile
-    # 接続方向は反転済み: radio-bridge が wl-game-server へダイヤルインする
-    # (docs/bridge_connection_design.md §2 決定1)
-    #
-    # プロセスごとに変わる設定 (bridge ID・オーディオIF) は環境変数で指定する。
-    # チーム(周波数)を増やす場合は、同じ config.toml のまま environment だけ
-    # 変えたサービスを追加する (docs/operation_flow.md §8)。
-    # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
     environment:
       RADIO_BRIDGE_ID: BR01
+      # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
+      RADIO_BRIDGE_INPUT_DEVICE: "hw:0,0"
+      RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:0,0"
+    depends_on:
+      - wl-game-server
+    volumes:
+      - type: bind
+        source: ./radio-bridge/config.toml
+        target: /app/config.toml
+        read_only: true
+      #- type: bind
+      #  source: ./radio-bridge/dump_audio
+      #  target: /app/dump_audio
+    privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
+    networks:
+      - whisperlink-network
+
+  radio-bridge-br02:
+    build:
+      context: .
+      dockerfile: radio-bridge/Dockerfile
+    environment:
+      RADIO_BRIDGE_ID: BR02
+      # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
       RADIO_BRIDGE_INPUT_DEVICE: "hw:2,0"
       RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:2,0"
     depends_on:
@@ -68,7 +82,6 @@ services:
     networks:
       - whisperlink-network
 
-  # セッション状態・会話ログ・スコアの永続化 (docs/game_session_design.md §9)
   valkey:
     image: valkey/valkey:8-alpine
     command: valkey-server --save 60 1
