@@ -9,14 +9,10 @@
 #include <driver/gpio.h>
 
 #include <string>
-#include <cJSON.h>
 
-#include "gpio_input_watch_task.h"
-#include "i2c_util.h"
-#include "logger.h"
 #include "hardware_config.h"
+#include "logger.h"
 #include "wifi_util.h"
-#include "ws_client.h"
 
 namespace CoreSystem {
 
@@ -24,15 +20,36 @@ namespace {
 /// PL9823デイジーチェーン制御GPIO・接続数
 constexpr gpio_num_t kPl9823Gpio = Esp32Pin::kFullColorLed;
 constexpr uint32_t kPl9823LedNum = 1;
+
+/// kLine A-E のESP32 GPIO割り当て (ColorId順)
+constexpr gpio_num_t kLineGpios[kColorNum] = {
+    Esp32Pin::kLineA, Esp32Pin::kLineB, Esp32Pin::kLineC,
+    Esp32Pin::kLineD, Esp32Pin::kLineE,
+};
+
+/// kPush A-E のMCP23017 GPIO番号 (全てGroup B)
+constexpr uint8_t kPushGpios[kColorNum] = {
+    Mcp23017Pin::kPushA, Mcp23017Pin::kPushB, Mcp23017Pin::kPushC,
+    Mcp23017Pin::kPushD, Mcp23017Pin::kPushE,
+};
+
+/// ロータリー6接点のMCP23017 GPIO番号 (位置0-5の順。全てGroup A)
+/// パネル表記0-5に対して、基板上は kRotary1-6 が対応する
+constexpr uint8_t kRotaryGpios[kRotaryPositionNum] = {
+    Mcp23017Pin::kRotary1, Mcp23017Pin::kRotary2, Mcp23017Pin::kRotary3,
+    Mcp23017Pin::kRotary4, Mcp23017Pin::kRotary5, Mcp23017Pin::kRotary6,
+};
 }  // namespace
 
 System::System()
-    : pl9823_task_(kPl9823Gpio, kPl9823LedNum) {}
+    : pl9823_task_(kPl9823Gpio, kPl9823LedNum),
+      game_task_(&mcp23017_, &ht16k33_, &pl9823_task_,
+                 CONFIG_CORE_SYSTEM_DEVICE_ID) {}
 
 System::~System() = default;
 
 void System::Start() {
-  ESP_LOGI(TAG, "Start");
+  ESP_LOGI(TAG, "Start device_id=%s", CONFIG_CORE_SYSTEM_DEVICE_ID);
 
   // WiFi接続
   WifiUtil::ConnectStaAndWait(CONFIG_CORE_SYSTEM_WIFI_SSID, CONFIG_CORE_SYSTEM_WIFI_PASSWORD);
@@ -54,138 +71,170 @@ void System::Start() {
   // MCP23017設定・初期化 (IOCON.MIRROR有効化によりGroup Bの変化もINTAで通知される)
   mcp23017_.Setup(bus_handle, I2cAddress::kMcp23017);
 
-  // [テスト実装] LED A-Eを全点灯
+  // kLED A-Eを消灯状態から開始する
   for (const auto& led_pin : Mcp23017Pin::kOutputPins) {
-    mcp23017_.SetOutputGpio(led_pin[0], led_pin[1], true);
+    mcp23017_.SetOutputGpio(led_pin[0], led_pin[1], false, true);
   }
 
   // HT16K33設定・初期化 (発振器ON, 表示ON, 輝度最大, 表示クリア)
   ht16k33_.Setup(bus_handle, I2cAddress::kHt16k33);
 
-  // 初期状態を取得
+  // PL9823制御タスク起動 (状態表示はGameTaskから指示する)
+  pl9823_task_.Start();
+
+  // WebSocketの受信・接続状態をGameTaskのイベントとして流す (§8.1)
+  ws_client_.SetMessageHandler([this](const std::string& message) {
+    GameEvent event;
+    event.type = EVENT_WS_MESSAGE;
+    // 所有権をGameTaskへ渡す。キューが満杯で積めなかった場合はここで解放する
+    event.payload = new std::string(message);
+    if (!game_task_.PostEvent(event)) {
+      ESP_LOGW(TAG, "GameTask queue full: dropping WS message");
+      delete event.payload;
+    }
+  });
+  ws_client_.SetConnectionHandler([this](bool connected) {
+    GameEvent event;
+    event.type = connected ? EVENT_WS_CONNECTED : EVENT_WS_DISCONNECTED;
+    game_task_.PostEvent(event);
+  });
+
+  // GameTaskからの送信をWSClientへ繋ぐ
+  game_task_.SetSendFunc([this](const std::string& data) {
+    if (ws_client_.IsConnected()) {
+      ws_client_.Send(data);
+    }
+  });
+
+  // 入力の初期状態を取得してからGameTaskを起動する
   CheckMCP23017Input();
 
-  // MCP23017のINTAピン(Esp32Pin::kMcp23017Interrupt)をESP32側で監視し、変化検知時に読み直す
-  GpioInputWatchTask gpio_watcher;
-  gpio_watcher.AddMonitor(
-      GpioInputWatchTask::GpioInfo(Esp32Pin::kMcp23017Interrupt, std::bind(&System::CheckMCP23017Input, this), nullptr),
+  game_task_.Start();
+
+  // kLine A-E と MCP23017のINTAピンを監視する
+  SetupLineWatchers();
+  gpio_watcher_.AddMonitor(
+      GpioInputWatchTask::GpioInfo(Esp32Pin::kMcp23017Interrupt,
+                                   std::bind(&System::CheckMCP23017Input, this), nullptr),
       GpioInputWatchTask::PULL_UP_REGISTOR_ENABLE);
-  gpio_watcher.Start();
+  gpio_watcher_.Start();
 
-  // [テスト実装] 30秒からのカウントダウンタスクを起動
-  StartCountdownTask();
+  // バッテリー電圧監視 (§8.5)
+  battery_monitor_task_ = std::make_unique<BatteryMonitorTask>(
+      [this](float voltage) { game_task_.UpdateBatteryVoltage(voltage); },
+      [this]() {
+        GameEvent event;
+        event.type = EVENT_LOW_BATTERY;
+        game_task_.PostEvent(event);
+      });
+  battery_monitor_task_->Start();
 
-  // PL9823制御タスク起動 (赤色点滅デモ)
-  pl9823_task_.Start();
-  pl9823_task_.SendCommand(
-      {Pl9823Task::PATTERN_BLINK, 255, 0, 0, 20, 1480});
+  // WebSocketクライアント接続 (再接続は esp_websocket_client が行う)
+  ws_client_.Connect();
 
-  // WebSocketクライアント初期化
-  WSClient ws_client;
-  ws_client.Connect();
-
+  // 以降の進行は各タスクが担うため、このタスクは待機するだけにする
   while (true) {
-    if (ws_client.IsConnected()) {
-      cJSON* root = cJSON_CreateObject();
-      cJSON_AddStringToObject(root, "type", "sample");
-      cJSON_AddNumberToObject(root, "uptime_sec",
-                              static_cast<double>(xTaskGetTickCount()) *
-                                  portTICK_PERIOD_MS / 1000.0);
-
-      char* json_text = cJSON_PrintUnformatted(root);
-      ws_client.Send(json_text);
-      ESP_LOGI(TAG, "WebSocket Send: %s", json_text);
-
-      cJSON_free(json_text);
-      cJSON_Delete(root);
-    }
-
-    TickType_t lastWakeTime = xTaskGetTickCount();
-    vTaskDelayUntil(&lastWakeTime, 5000 / portTICK_PERIOD_MS);
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
 
-namespace {
-constexpr gpio_num_t kSolenoidGpio = Esp32Pin::kSolenoid;
+/// kLine A-E のGPIO監視を登録する。
+/// プルアップ有効で「GND接続の線が切れる → HIGH」で切断を検知する (§5.2)。
+/// GpioInputWatchTask は 5ms x 3回 のエッジカウンタでデバウンスする。
+void System::SetupLineWatchers() {
+  for (int i = 0; i < kColorNum; ++i) {
+    const ColorId color = static_cast<ColorId>(i);
 
-/// [テスト実装] カウントダウン開始秒数 (0.1秒単位、30.0秒)
-constexpr int kCountdownStartTenths = 300;
-}  // namespace
+    // on_up は「LOWで安定した = 結線」、on_down は「HIGHで安定した = 切断」
+    auto on_connected = [this, color]() {
+      GameEvent event;
+      event.type = EVENT_LINE_CHANGED;
+      event.color = color;
+      event.level = true;
+      game_task_.PostEvent(event);
+    };
+    auto on_cut = [this, color]() {
+      GameEvent event;
+      event.type = EVENT_LINE_CHANGED;
+      event.color = color;
+      event.level = false;
+      game_task_.PostEvent(event);
+    };
 
-void CountdownTaskEntry(void* arg) {
-  auto* self = static_cast<System*>(arg);
-
-  int remaining_tenths = kCountdownStartTenths;
-  while (true) {
-    const int seconds = remaining_tenths / 10;
-    const int tenths = remaining_tenths % 10;
-
-    // 整数部(3桁)+小数点1桁を右詰めで表示 (一の位を除く先頭の不要なゼロは消灯)
-    const int int_digits[3] = {seconds / 100 % 10, seconds / 10 % 10, seconds % 10};
-    self->ht16k33_.Clear();
-    bool leading = true;
-    for (int i = 0; i < 3; ++i) {
-      if (leading && int_digits[i] == 0 && i < 2) {
-        continue;
-      }
-      leading = false;
-      self->ht16k33_.WriteDigitNum(i, int_digits[i], i == 2);
-    }
-    self->ht16k33_.WriteDigitNum(3, tenths);
-    self->ht16k33_.WriteDisplay();
-
-    if (remaining_tenths <= 0) {
-      // ソレノイド(kSolenoidGpio)を200msだけHIGHにする
-      gpio_set_level(kSolenoidGpio, true);
-      vTaskDelay(200 / portTICK_PERIOD_MS);
-      gpio_set_level(kSolenoidGpio, false);
-      break;
-    }
-
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-    --remaining_tenths;
+    gpio_watcher_.AddMonitor(
+        GpioInputWatchTask::GpioInfo(kLineGpios[i], on_connected, on_cut),
+        GpioInputWatchTask::PULL_UP_REGISTOR_ENABLE);
   }
-
-  vTaskDelete(nullptr);
 }
 
-/// [テスト実装] 30秒からカウントダウンしHT16K33に100ms毎に表示、0でソレノイドを駆動するタスクを生成する
-void System::StartCountdownTask() {
-  gpio_config_t io_conf = {
-      .pin_bit_mask = 1ULL << kSolenoidGpio,
-      .mode = GPIO_MODE_OUTPUT,
-      .pull_up_en = GPIO_PULLUP_DISABLE,
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,
-      .intr_type = GPIO_INTR_DISABLE,
-  };
-  gpio_config(&io_conf);
-
-  xTaskCreate(CountdownTaskEntry, "countdown", 2048, this, tskIDLE_PRIORITY + 1, nullptr);
-}
-
-/// MCP23017の全ピンを読み直し、前回値と差分があったピンのみログ出力する
+/// MCP23017の全ピンを読み直し、前回値と差分があったピンをGameEventとして通知する
 void System::CheckMCP23017Input() {
+  bool rotary_changed = false;
+
   for (uint8_t group = 0; group < MCP23017::GPIO_GROUP_NUM; ++group) {
     // グループ単位でI2Cを読み直す
     mcp23017_.RefreshInputGroup(group);
 
     for (uint8_t gpio_no = 0; gpio_no < MCP23017::GPIO_NUM; ++gpio_no) {
       const bool level = mcp23017_.GetCachedInputGpio(group, gpio_no);
-      if (level != last_level_[group][gpio_no]) {
-        last_level_[group][gpio_no] = level;
-        ESP_LOGI(TAG, "MCP23017 Changed Group:%d Gpio:%d Level:%d", group,
-                 gpio_no, level);
+      if (has_last_level_ && level == last_level_[group][gpio_no]) {
+        continue;
+      }
+      last_level_[group][gpio_no] = level;
 
-        // [テスト実装] PushA・Rotary6がHIGHになったらイベントを発行する
-        if (level && group == Mcp23017Pin::kGroupB && gpio_no == Mcp23017Pin::kPushA) {
-          ESP_LOGI(TAG, "Event: PushA High");
+      if (group == Mcp23017Pin::kGroupB) {
+        // kPush: プルアップ入力のため LOW = 押下
+        for (int i = 0; i < kColorNum; ++i) {
+          if (kPushGpios[i] != gpio_no) {
+            continue;
+          }
+          GameEvent event;
+          event.type = EVENT_PUSH_CHANGED;
+          event.color = static_cast<ColorId>(i);
+          event.level = !level;
+          game_task_.PostEvent(event);
         }
-        if (level && group == Mcp23017Pin::kGroupA && gpio_no == Mcp23017Pin::kRotary6) {
-          ESP_LOGI(TAG, "Event: Rotary6 High");
+      }
+
+      if (group == Mcp23017Pin::kGroupA) {
+        for (const uint8_t rotary_gpio : kRotaryGpios) {
+          if (rotary_gpio == gpio_no) {
+            rotary_changed = true;
+          }
         }
       }
     }
   }
+
+  has_last_level_ = true;
+
+  if (rotary_changed) {
+    UpdateRotaryPosition();
+  }
+}
+
+/// ロータリーは「ちょうど1つがLOW」のときだけ値を確定する。
+/// 接点間の全OFF・複数ON等の過渡状態では最後に確定した値を保持する (§5.2)。
+void System::UpdateRotaryPosition() {
+  int8_t low_position = -1;
+  int low_count = 0;
+
+  for (int position = 0; position < kRotaryPositionNum; ++position) {
+    if (!mcp23017_.GetCachedInputGpio(Mcp23017Pin::kGroupA, kRotaryGpios[position])) {
+      low_position = static_cast<int8_t>(position);
+      ++low_count;
+    }
+  }
+
+  if (low_count != 1 || low_position == rotary_position_) {
+    return;
+  }
+  rotary_position_ = low_position;
+
+  GameEvent event;
+  event.type = EVENT_ROTARY_CHANGED;
+  event.rotary = low_position;
+  game_task_.PostEvent(event);
 }
 
 } // namespace CoreSystem

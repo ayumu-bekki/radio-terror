@@ -1,5 +1,14 @@
 [server]
-listen_addr = "0.0.0.0:50051"
+# 接続先 wl-game-server の gRPC エンドポイント。
+# 接続方向は反転済みのため、エミュレータ側は listen しない
+# (docs/bridge_connection_design.md §2 決定1)。
+server_addr = "localhost:50051"
+
+# この bridge の ID。環境変数 RADIO_BRIDGE_ID があればそちらが優先される。
+bridge_id = "EMU01"
+
+# 切断時の再接続待機間隔(秒)
+reconnect_interval_secs = 5
 
 [audio]
 input_threshold_rms      = 1000  # 録音開始 RMS 閾値 (0-32767)

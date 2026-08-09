@@ -1,0 +1,20 @@
+# イージー (docs/scenario_design.md §4・§4.1)
+# 構成: 簡単 ×2 (01を先頭固定 + 残り抽選)
+
+name = "イージー"
+countdown_ms = 300000 # 5分
+detonate_delay_ms = 2000
+
+[compose]
+fixed_head = ["01"] # 先頭固定 (解体デビュー)
+random = { easy = 1 } # 残り枠を「簡単」タグから抽選
+
+[crosstalk] # 混線の系統別再生回数上限
+jamming = 0 # イージーは邪魔者系なし (誤切断explodeで即失敗する事故を防ぐ)
+ambient = 1
+uneasy = 0
+
+[hints] # ステージ予算(countdown÷ステージ数)に対する比率(%)
+l2_pct = 25
+l3_pct = 50
+l4_pct = 75

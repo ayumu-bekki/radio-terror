@@ -1,0 +1,39 @@
+# 04. 復唱 (docs/puzzle_stage_ideas.md §2.2)
+# 「赤赤黄黄赤黄緑の順でボタンを押してから、○色の線を切ってください」
+# 長さで難度調整する (普通タグは7個前後)。ミスは列の先頭からやり直し。
+
+id = "04"
+name = "復唱"
+difficulty = "normal"
+
+[random]
+cut = { pick = "line" }
+p1 = { pick = "color" }
+p2 = { pick = "color" }
+p3 = { pick = "color" }
+p4 = { pick = "color" }
+p5 = { pick = "color" }
+p6 = { pick = "color" }
+p7 = { pick = "color" }
+
+[core]
+leds = { "${cut}" = "on" }
+cut = "${cut}"
+precondition = { push_seq = { entries = [
+  { push = "${p1}" },
+  { push = "${p2}" },
+  { push = "${p3}" },
+  { push = "${p4}" },
+  { push = "${p5}" },
+  { push = "${p6}" },
+  { push = "${p7}" },
+], on_wrong_press = { action = "retry" } } }
+on_wrong_cut = { action = "explode" }
+
+[navigator]
+briefing = "7個のボタン列を順番どおりに押し切る必要がある。1つでも間違えると最初からやり直しになる。"
+answer = "正解はボタンを${p1}→${p2}→${p3}→${p4}→${p5}→${p6}→${p7}の順に押してから、${cut}色の線を切ること。"
+procedure = "列は長いので、聞き返されたら何度でも繰り返す。3つずつなど区切って伝えてもよい。ミスしたら先頭からやり直しになることを伝える。"
+hint_l1 = "長いボタン列を順番に押す必要があることを伝える"
+hint_l2 = "列を区切って読み上げ、押せたところまで確認しながら進める"
+hint_l3 = "列を最初から通しで読み上げ、押し終わったら切る線も伝えてよい"

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
@@ -23,22 +24,31 @@ type wsResponse struct {
 }
 
 // wsSession は1つの WebSocket 接続のセッション状態を保持する。
+//
+// /ws は1ストリームにトランシーバー用とデバイス (core_system) 用の両方が相乗りする。
+// 接続種別は最初のメッセージで判定する (login → トランシーバー、
+// device_status → core_system デバイス。docs/game_session_design.md §7)。
 type wsSession struct {
 	conn      *websocket.Conn
+	connMu    sync.Mutex // WriteMessage を直列化する (複数 goroutine から送るため)
 	callsigns *CallsignManager
 	registry  *SessionRegistry
 	processor *GeminiProcessor
 	ttsClient *TTSClient
-	sendCh    chan<- outgoingAudio
 
-	sharedLog  *ConversationLog // 全接続で共有する会話ログ
-	scenario Scenario         // NPC に割り当てるペルソナのリスト（共有）
+	sharedLog *ConversationLog // 全接続で共有する会話ログ
+	scenario  Scenario         // NPC に割り当てるペルソナのリスト（共有）
 
 	callsign      string   // 自分CS
 	peerCallsigns []string // 相手CS 0..n（将来複数前提）
 
 	// personaByCallsign は払い出した相手NPC CS → 割り当てペルソナ。
 	personaByCallsign map[string]Persona
+
+	// --- core_system デバイス接続として使われる場合 ---
+	devices  *DeviceRegistry  // デバイス接続・状態の登録先
+	game     *GameCoordinator // デバイスイベントを演出へ繋ぐ
+	deviceID string           // この接続が名乗った device_id (空ならデバイスではない)
 }
 
 func newWSSession(
@@ -47,9 +57,10 @@ func newWSSession(
 	registry *SessionRegistry,
 	processor *GeminiProcessor,
 	ttsClient *TTSClient,
-	sendCh chan<- outgoingAudio,
 	sharedLog *ConversationLog,
 	scenario Scenario,
+	devices *DeviceRegistry,
+	game *GameCoordinator,
 ) *wsSession {
 	return &wsSession{
 		conn:              conn,
@@ -57,10 +68,11 @@ func newWSSession(
 		registry:          registry,
 		processor:         processor,
 		ttsClient:         ttsClient,
-		sendCh:            sendCh,
-		sharedLog:           sharedLog,
+		sharedLog:         sharedLog,
 		scenario:          scenario,
 		personaByCallsign: make(map[string]Persona),
+		devices:           devices,
+		game:              game,
 	}
 }
 
@@ -74,6 +86,11 @@ func (s *wsSession) run(ctx context.Context) {
 			s.callsigns.Release(cs)
 			s.registry.Unregister(cs)
 			log.Printf("[WS] callsign released: %s", cs)
+		}
+		// デバイス接続だった場合は device_id の登録を解除する。
+		// 状態はサーバー側に残し、再接続時の device_status で再同期する (§7.3)。
+		if s.deviceID != "" && s.devices != nil {
+			s.devices.Unregister(s.deviceID, s)
 		}
 		s.conn.Close()
 	}()
@@ -96,6 +113,9 @@ func (s *wsSession) run(ctx context.Context) {
 		switch cmd.Type {
 		case "login":
 			s.handleLogin()
+		case msgDeviceStatus, msgSessionAccepted, msgSessionRejected, msgStageCleared,
+			msgWhackCompleted, msgPushProgress, msgWrongAction, msgExploded, msgDefused:
+			s.handleDeviceMessage(ctx, msg)
 		default:
 			s.sendError("unknown command type: " + cmd.Type)
 		}
@@ -152,7 +172,7 @@ func (s *wsSession) handleLogin() {
 // item.Receiver（応答する NPC）のペルソナで応答を生成し、TTS 送信する。
 // 会話ログへの発話追記は Dispatcher 側に集約しているため、ここでは行わない。
 // genai.Chat を使わずワンショットの GenerateContent を呼ぶ（ステートレス・スレッドセーフ）。
-func (s *wsSession) HandleMessage(ctx context.Context, item TranscriptionItem) error {
+func (s *wsSession) HandleMessage(ctx context.Context, sender *AudioSender, item TranscriptionItem) error {
 	persona := s.personaByCallsign[item.Receiver]
 
 	answer, err := s.processor.GenerateReply(ctx, persona, item.Receiver, s.sharedLog.Render())
@@ -169,7 +189,48 @@ func (s *wsSession) HandleMessage(ctx context.Context, item TranscriptionItem) e
 	// stream_id を 1 区間で連続再生するため、先頭チャンクが鳴るまでの体感レイテンシが小さい。
 	chunks := splitAnswerForTTS(answer)
 	buildPrompt := func(text string) string { return fmt.Sprintf(ttsPromptTemplateS4CQ, text) }
-	return streamTTSChunks(ctx, s.ttsClient, s.sendCh, chunks, buildPrompt, "[WS chat]")
+	return streamTTSChunks(ctx, s.ttsClient, sender, chunks, buildPrompt, "[WS chat]")
+}
+
+// handleDeviceMessage は core_system デバイスからのメッセージを処理する (§7.2)。
+// 最初の device_status でこの接続をデバイスとして登録する。
+func (s *wsSession) handleDeviceMessage(ctx context.Context, raw []byte) {
+	var msg deviceMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		s.sendError("invalid device message")
+		return
+	}
+	if msg.DeviceID == "" {
+		s.sendError("device_id is required")
+		return
+	}
+
+	// 接続種別の確定。以降この接続は device_id 宛の送信先になる。
+	if s.deviceID == "" {
+		s.deviceID = msg.DeviceID
+		if s.devices != nil {
+			s.devices.Register(msg.DeviceID, s)
+		}
+	}
+
+	if s.devices != nil {
+		s.devices.UpdateStatus(&msg)
+	}
+	if s.game != nil {
+		s.game.HandleDeviceMessage(ctx, &msg)
+	}
+}
+
+// SendJSON は DeviceConn の実装。サーバー → デバイスの送信に使う。
+func (s *wsSession) SendJSON(v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("json.Marshal: %w", err)
+	}
+
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	return s.conn.WriteMessage(websocket.TextMessage, data)
 }
 
 func (s *wsSession) sendError(msg string) {
@@ -177,12 +238,7 @@ func (s *wsSession) sendError(msg string) {
 }
 
 func (s *wsSession) sendJSON(v any) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		log.Printf("[WS] marshal error: %v", err)
-		return
-	}
-	if err := s.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+	if err := s.SendJSON(v); err != nil {
 		log.Printf("[WS] write error: %v", err)
 	}
 }

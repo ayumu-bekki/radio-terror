@@ -45,7 +45,7 @@ max_reconnect_attempts = 0  # 0 = 無制限
 [gemini]
 api_key = "..."
 transcribe_model = "gemini-3.1-flash-lite"
-reasoning_model  = "gemini-3.5-flash"
+reasoning_model  = "gemini-3.5-flash-lite"
 tts_model        = "gemini-3.1-flash-tts-preview"
 transcribe_prompt_file = "transcribe_prompt.txt"
 transcribe_schema_file = "transcribe_schema.json"

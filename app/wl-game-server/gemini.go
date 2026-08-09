@@ -26,6 +26,25 @@ type GeminiProcessor struct {
 	client           *genai.Client
 	transcribePrompt string
 	transcribeSchema *genai.Schema
+
+	// health は外部APIの成否を記録し、マネージャー向け Web 画面で
+	// 障害を検知できるようにする (docs/game_session_design.md §9)。
+	health *APIHealth
+}
+
+// SetHealth は外部API状況の記録先を設定する。
+func (p *GeminiProcessor) SetHealth(health *APIHealth) { p.health = health }
+
+// noteResult は API 呼び出しの成否を記録する。
+func (p *GeminiProcessor) noteResult(err error) {
+	if p.health == nil {
+		return
+	}
+	if err != nil {
+		p.health.NoteError(err)
+		return
+	}
+	p.health.NoteSuccess()
 }
 
 func NewGeminiProcessor(ctx context.Context, cfg GeminiConfig) (*GeminiProcessor, error) {
@@ -79,6 +98,7 @@ func (p *GeminiProcessor) Transcribe(ctx context.Context, oggData []byte) (*Tran
 	start := time.Now()
 	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.TranscribeModel, contents, config)
 	log.Printf("[gemini] Transcribe latency: %v", time.Since(start))
+	p.noteResult(err)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateContent: %w", err)
 	}
@@ -259,4 +279,39 @@ func convertSchema(raw map[string]any) (*genai.Schema, error) {
 	}
 
 	return s, nil
+}
+
+// GenerateNavigatorReply はナビゲーターの発話を1つ生成する
+// (docs/navigator_design.md §3.3 のプロンプト構成)。
+//
+// systemPrompt は BuildNavigatorPrompt が組み立てた [A]〜[F] の全ブロック、
+// instruction は発話トリガーごとの指示 (§3.5)。
+// 会話ターンごとに呼ぶため、低レイテンシの ReasoningModel を使う。
+func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemPrompt, instruction string) (string, error) {
+	contents := []*genai.Content{
+		genai.NewContentFromText(instruction, genai.RoleUser),
+	}
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
+	}
+
+	start := time.Now()
+	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, config)
+	log.Printf("[gemini] GenerateNavigatorReply latency: %v", time.Since(start))
+	p.noteResult(err)
+	if err != nil {
+		return "", fmt.Errorf("GenerateContent (Navigator): %w", err)
+	}
+
+	if resp == nil || len(resp.Candidates) == 0 ||
+		resp.Candidates[0].Content == nil ||
+		len(resp.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("empty response from Gemini Navigator")
+	}
+
+	text := resp.Candidates[0].Content.Parts[0].Text
+	if text == "" {
+		return "", fmt.Errorf("empty text from Gemini Navigator")
+	}
+	return text, nil
 }

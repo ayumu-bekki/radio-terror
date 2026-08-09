@@ -1,0 +1,30 @@
+# 02. シグナル (docs/puzzle_stage_ideas.md §2.1)
+# 「緑・赤・黄の順でボタンを押してください」を無線指示のみで伝える。
+
+id = "02"
+name = "シグナル"
+difficulty = "easy"
+
+[random]
+cut = { pick = "line" }
+# 押すボタンの並び。同じ色の重複は許すが、3つ選ぶ
+p1 = { pick = "color" }
+p2 = { pick = "color" }
+p3 = { pick = "color" }
+
+[core]
+leds = { "${cut}" = "on" }
+cut = "${cut}"
+precondition = { push_seq = { entries = [
+  { push = "${p1}" },
+  { push = "${p2}" },
+  { push = "${p3}" },
+], on_wrong_press = { action = "retry" } } }
+on_wrong_cut = { action = "explode" }
+
+[navigator]
+briefing = "3つのボタンを指定の順番で押すと解除ロックが外れる。その後で指定の線を切る。"
+answer = "正解はボタンを${p1}→${p2}→${p3}の順に押してから、${cut}色の線を切ること。"
+hint_l1 = "ボタンを決まった順番で押す必要があることを伝える"
+hint_l2 = "押す順番を1色ずつ区切って伝え、押せたか確認しながら進める"
+hint_l3 = "3色の並びをまとめて伝え、押し終わったら切る線の色も伝えてよい"

@@ -14,14 +14,16 @@ var upgrader = websocket.Upgrader{
 
 // WSServer は WebSocket 接続を受け付け、セッションを管理する。
 type WSServer struct {
-	callsigns *CallsignManager
-	registry  *SessionRegistry
-	processor *GeminiProcessor
-	ttsClient *TTSClient
-	sendCh    chan<- outgoingAudio
-	sharedLog   *ConversationLog
-	scenario  Scenario
-	ctx       context.Context
+	callsigns  *CallsignManager
+	registry   *SessionRegistry
+	processor  *GeminiProcessor
+	ttsClient  *TTSClient
+	sharedLog  *ConversationLog
+	scenario   Scenario
+	devices    *DeviceRegistry
+	game       *GameCoordinator
+	managerWeb *ManagerWeb
+	ctx        context.Context
 }
 
 func NewWSServer(
@@ -29,18 +31,22 @@ func NewWSServer(
 	registry *SessionRegistry,
 	processor *GeminiProcessor,
 	ttsClient *TTSClient,
-	sendCh chan<- outgoingAudio,
 	sharedLog *ConversationLog,
 	scenario Scenario,
+	devices *DeviceRegistry,
+	game *GameCoordinator,
+	managerWeb *ManagerWeb,
 ) *WSServer {
 	return &WSServer{
-		callsigns: callsigns,
-		registry:  registry,
-		processor: processor,
-		ttsClient: ttsClient,
-		sendCh:    sendCh,
-		sharedLog:   sharedLog,
-		scenario:  scenario,
+		callsigns:  callsigns,
+		registry:   registry,
+		processor:  processor,
+		ttsClient:  ttsClient,
+		sharedLog:  sharedLog,
+		scenario:   scenario,
+		devices:    devices,
+		game:       game,
+		managerWeb: managerWeb,
 	}
 }
 
@@ -51,7 +57,7 @@ func (s *WSServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WS] upgrade error: %v", err)
 		return
 	}
-	session := newWSSession(conn, s.callsigns, s.registry, s.processor, s.ttsClient, s.sendCh, s.sharedLog, s.scenario)
+	session := newWSSession(conn, s.callsigns, s.registry, s.processor, s.ttsClient, s.sharedLog, s.scenario, s.devices, s.game)
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -67,6 +73,12 @@ func (s *WSServer) Run(ctx context.Context, addr string) error {
 	s.ctx = ctx
 	mux := http.NewServeMux()
 	mux.Handle("/ws", s)
+
+	// マネージャー向け簡易 Web 画面 (docs/game_session_design.md §9)
+	if s.managerWeb != nil {
+		s.managerWeb.Register(mux)
+		log.Printf("[manager-web] available at http://localhost%s/manager", addr)
+	}
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 

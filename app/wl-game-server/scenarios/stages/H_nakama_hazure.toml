@@ -1,0 +1,24 @@
+# H. 仲間はずれ (docs/puzzle_stage_ideas.md §2.2)
+# 5つのLEDのうち1つだけ点滅周期が違う。「仲間外れの色」の線を切る。
+# Bの変形だが5択で観察量が増える。
+
+id = "H"
+name = "仲間はずれ"
+difficulty = "normal"
+
+[random]
+cut = { pick = "line" } # 周期が違う1つ = 正解
+# 残り4色は同じ周期で点滅する
+
+[core]
+# ${cut} だけ速い点滅、それ以外(rest)は揃った遅い点滅にする
+leds = { "${cut}" = { pattern = "blink", on_ms = 200, off_ms = 200 }, "${rest}" = { pattern = "blink", on_ms = 650, off_ms = 650 } }
+cut = "${cut}"
+on_wrong_cut = { action = "explode" }
+
+[navigator]
+briefing = "5つのランプが全て点滅しているが、1つだけ点滅の速さが違う。その仲間外れの色の線を切る。"
+answer = "正解は${cut}色の線(1つだけ点滅が速い)。他の4色は同じ周期で点滅している。"
+hint_l1 = "5つのランプが全て点滅していることを確認させ、よく見比べるよう促す"
+hint_l2 = "点滅の速さが全部同じか確認させる。1つだけ違うものがあることに気づかせる"
+hint_l3 = "「他と点滅の速さが違う1色の線を切る」と手順を教えてよい(色名は言わない)"

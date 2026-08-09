@@ -5,12 +5,56 @@ import (
 	"sync"
 )
 
-// ConversationEntry は1つの発話を表す。無線交信の1交信に相当する。
+// ログ種別 (docs/game_session_design.md §9)。
+//
+// 発話とゲーム進行イベントを**1本のタイムライン**に時系列で残す。
+// 「ナビが何を言った直後に誤切断したか」を1本の流れで追えるようにするため。
+const (
+	// EntryKindSpeech はプレイヤー・ナビゲーターの発話
+	EntryKindSpeech = "speech"
+	// EntryKindEvent はゲーム進行イベント (ステージ開始・クリア・誤操作・終了)
+	EntryKindEvent = "event"
+)
+
+// イベントの細分 (EntryKindEvent のときの Event フィールド)。
+const (
+	EventSessionStart = "session_start" // セッション開始
+	EventStageStart   = "stage_start"   // ステージ開始
+	EventStageCleared = "stage_cleared" // ステージクリア
+	EventWhackDone    = "whack_done"    // モグラ叩き完了
+	EventPushProgress = "push_progress" // ボタン列の進捗
+	EventWrongAction  = "wrong_action"  // 誤操作
+	EventDefused      = "defused"       // 解除成功
+	EventExploded     = "exploded"      // 爆発 (失敗)
+	EventAborted      = "aborted"       // マネージャーによる強制リセット
+)
+
+// ConversationEntry はログ1件を表す。発話とイベントの両方を扱う。
+//
+// JSONタグは永続化(Valkey)とマネージャー向けWeb画面の両方で使う。
+// 保存済みデータとの互換のため、既存フィールドのタグは変更しないこと。
 type ConversationEntry struct {
-	Sender   string // 発言者コールサイン
-	Receiver string // 対象コールサイン
-	Message  string
+	Sender   string `json:"sender"`   // 発言者 (発話時)
+	Receiver string `json:"receiver"` // 対象 (発話時)
+	Message  string `json:"message"`  // 発話内容 / イベントの説明文
+
+	// Kind は種別。空文字は EntryKindSpeech とみなす
+	// (この項目を導入する前に保存されたログとの互換のため)。
+	Kind string `json:"kind,omitempty"`
+
+	// Event は Kind == EntryKindEvent のときの細分
+	Event string `json:"event,omitempty"`
+
+	// StageIndex / RemainingMS はイベント発生時点のゲーム状態
+	StageIndex  int `json:"stage_index,omitempty"`
+	RemainingMS int `json:"remaining_ms,omitempty"`
+
+	// At は記録時刻 (Unix秒)。0 は時刻不明 (導入前のログ)。
+	At int64 `json:"at,omitempty"`
 }
+
+// IsEvent はこの記録がゲーム進行イベントかを返す。
+func (e ConversationEntry) IsEvent() bool { return e.Kind == EntryKindEvent }
 
 // ConversationLog は全接続で共有する単一の会話ログ。
 // 無線は単一周波数のブロードキャストなので、全プレイヤー・全NPCの発話を時系列で1本に記録する。
@@ -36,8 +80,12 @@ func (l *ConversationLog) Append(e ConversationEntry) {
 	}
 }
 
-// Render は全履歴を "[Sender] -> [Receiver] Message" の改行区切り文字列に整形する。
+// Render は全履歴を改行区切り文字列に整形する。
 // NPC応答生成時にプロンプトの文脈として渡す。
+//
+// 発話は "[Sender] -> [Receiver] Message"、イベントは "(装置) Message" とする。
+// イベントも文脈に含めることで、ナビゲーターは「直前に何が起きたか」を
+// 踏まえた発話ができる。
 func (l *ConversationLog) Render() string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -45,6 +93,11 @@ func (l *ConversationLog) Render() string {
 	for i, e := range l.entries {
 		if i > 0 {
 			b.WriteByte('\n')
+		}
+		if e.IsEvent() {
+			b.WriteString("(装置) ")
+			b.WriteString(e.Message)
+			continue
 		}
 		b.WriteString("[")
 		b.WriteString(e.Sender)

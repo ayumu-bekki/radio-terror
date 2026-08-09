@@ -38,7 +38,7 @@ func generateChunksParallel(ctx context.Context, ttsClient *TTSClient, prompts [
 }
 
 // streamTTSChunks は分割済みチャンクを並列で TTS 生成し、できた順 (インデックス昇順) に
-// 1 チャンクずつ独立した Ogg Opus にエンコードして sendCh へ送出する (分割送信)。
+// 1 チャンクずつ独立した Ogg Opus にエンコードして sender の宛先 bridge へ送出する (分割送信)。
 //
 // 各チャンクには同一の stream_id と status (先頭=START / 中間=CONTINUE / 末尾=END) を
 // 付与する。radio-bridge は同一 stream_id のチャンク群を 1 区間で連続再生する。先頭チャンク
@@ -49,7 +49,7 @@ func generateChunksParallel(ctx context.Context, ttsClient *TTSClient, prompts [
 // ctx.Err() を返す。logPrefix はログ出力の接頭辞。
 // buildPrompt はテキストチャンクを TTS 用の完成プロンプトに変換する関数。呼び出し元が
 // ペルソナ・シーン設定をここで差し込むことで、generateChunksParallel は純粋な生成処理に徹する。
-func streamTTSChunks(ctx context.Context, ttsClient *TTSClient, sendCh chan<- outgoingAudio, chunks []string, buildPrompt func(string) string, logPrefix string) error {
+func streamTTSChunks(ctx context.Context, ttsClient *TTSClient, sender *AudioSender, chunks []string, buildPrompt func(string) string, logPrefix string) error {
 	if len(chunks) == 0 {
 		return nil
 	}
@@ -127,13 +127,12 @@ func streamTTSChunks(ctx context.Context, ttsClient *TTSClient, sendCh chan<- ou
 		}
 
 		out := outgoingAudio{Data: res.ogg, Status: status, StreamID: streamID}
-		select {
-		case sendCh <- out:
-			log.Printf("%s sent chunk %d (status=%s stream_id=%s)", logPrefix, sentCount+1, status, streamID)
-			sentCount++
-		case <-ctx.Done():
-			return ctx.Err()
+		if !sender.Send(out) {
+			log.Printf("%s send failed (bridge=%s), aborting stream", logPrefix, sender.BridgeID())
+			return nil
 		}
+		log.Printf("%s sent chunk %d (status=%s stream_id=%s)", logPrefix, sentCount+1, status, streamID)
+		sentCount++
 	}
 
 	if sentCount == 0 {

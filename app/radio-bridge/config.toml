@@ -1,10 +1,24 @@
 [server]
-listen_addr = "0.0.0.0:50051"
+# 接続先 wl-game-server の gRPC エンドポイント。
+# 接続方向は反転済みのため、bridge 側は listen しない
+# (docs/bridge_connection_design.md §2 決定1)。
+server_addr = "http://wl-game-server:50051"
+
+# この bridge の ID。環境変数 RADIO_BRIDGE_ID があればそちらが優先される。
+# チーム(周波数)ごとに1プロセス動かすため、プロセスごとに異なるIDを付ける。
+bridge_id = "BR01"
+
+# 切断時の再接続待機間隔(秒)
+reconnect_interval_secs = 5
 
 [gpio]
 ptt_pin = 26
 
 [audio]
+# オーディオインターフェースはチーム(周波数)ごとに変わるため、
+# 環境変数 RADIO_BRIDGE_OUTPUT_DEVICE / RADIO_BRIDGE_INPUT_DEVICE を優先する。
+# ここの値は環境変数が無い場合のフォールバック。
+# 実機のデバイス名は `aplay -l` / `arecord -l` で確認する。
 output_device       = "plughw:2,0"
 input_device        = "hw:2,0"
 input_threshold_rms      = 1000

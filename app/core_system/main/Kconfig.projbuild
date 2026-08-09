@@ -18,5 +18,11 @@ menu "Core System Configuration"
         help
             接続先WebSocketサーバーのURI。
 
+    config CORE_SYSTEM_DEVICE_ID
+        string "Device ID (CoreID)"
+        default "0000"
+        help
+            この個体のCoreID。トランシーバー経由の音声申告に使うため数字4桁で設定する。
+            サーバーはこのIDでデバイスを識別する。
 
 endmenu

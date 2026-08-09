@@ -1,0 +1,37 @@
+# 07. 運命の二択 (docs/puzzle_stage_ideas.md §2.2)
+# 「どの色が点滅している?」で分岐する紙資料ステージ。
+#
+# 記号の数・数字の合計はミッションシートの印刷内容で固定のため、サーバー設定
+# (config.toml の [mission_sheet]) に登録した値をテンプレートが参照し、閾値と
+# 比較方向を調整して正解を cut に一致させる (docs/puzzle_stage_ideas.md §7)。
+# 例: 記号28個のシートに「30以上なら青、未満なら白」→ 正解は白。
+
+id = "07"
+name = "運命の二択"
+difficulty = "normal"
+
+[random]
+cut = { pick = "line" }
+other = { pick = "color", exclude = ["${cut}"] }
+# 分岐の種類: symbol(記号を数える) / number(数字を合計する) / fate(運命の赤い糸)
+branch = { pick = "choice", candidates = ["symbol", "number"] }
+# 閾値はシート実測値から自動で決める (正解が ${cut} 側に来るよう解決される)
+threshold = { derive = "sheet_threshold", branch = "${branch}" }
+# 閾値との比較方向 ("ge" = 以上なら ${cut}、"lt" = 未満なら ${cut})
+direction = { derive = "sheet_direction", branch = "${branch}" }
+# 分岐の入口になる点滅色
+signal = { pick = "color" }
+
+[core]
+leds = { "${signal}" = "blink" }
+led_blink_ms = 500
+cut = "${cut}"
+on_wrong_cut = { action = "explode" }
+
+[navigator]
+briefing = "ミッションシートを使った二択。点滅している色によって数える対象が変わり、その集計結果を閾値と比べて切る線を決める。"
+answer = "点滅しているのは${signal}色。${branch}の集計を閾値${threshold}と比較し、条件を満たすため正解は${cut}色の線。満たさない場合は${other}色になる。"
+procedure = "まず「どの色が点滅している?」と尋ねる。報告を受けたら、シート上の対象(記号の数または数字の合計)を数えさせ、結果を報告させる。集計値と閾値を比較して切る線を伝える。数えるのに時間がかかるため、途中経過を聞いて励ます。"
+hint_l1 = "点滅している色を報告させ、ミッションシートを見るよう促す"
+hint_l2 = "シート上で何を数えるか(記号の数か数字の合計か)を伝え、集計を始めさせる"
+hint_l3 = "集計結果と閾値の比較方法を伝え、どちらの色になるかを判断させる"

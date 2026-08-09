@@ -1,15 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/gordonklaus/portaudio"
-	"google.golang.org/grpc"
-	pb "radio-bridge-emulator/proto"
 )
 
 func main() {
@@ -34,24 +32,19 @@ func main() {
 	pl := newPlayer()
 	go pl.run()
 
-	lis, err := net.Listen("tcp", cfg.Server.ListenAddr)
-	if err != nil {
-		log.Fatalf("listen: %v", err)
-	}
-
-	grpcServer := grpc.NewServer()
-	pb.RegisterTransceiverServiceServer(grpcServer, newTransceiverServer(cfg.Audio, rec, pl))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
 		log.Println("shutting down...")
-		grpcServer.GracefulStop()
+		cancel()
 	}()
 
-	log.Printf("radio-bridge-emulator listening on %s", cfg.Server.ListenAddr)
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("grpc serve: %v", err)
-	}
+	// wl-game-server へダイヤルインする (接続方向の反転)
+	log.Printf("radio-bridge-emulator starting as %s -> %s",
+		cfg.Server.BridgeID, cfg.Server.ServerAddr)
+	newBridgeClient(cfg.Server, rec, pl).run(ctx)
 }

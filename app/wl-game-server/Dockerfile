@@ -28,5 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /build/wl-game-server/wl-game-server /usr/local/bin/wl-game-server
 
+# シナリオテンプレート (ステージ定義・難易度テンプレート) は実行時に読むため
+# ランタイムイメージへも含める (docs/scenario_design.md §1)
+COPY --from=builder /build/wl-game-server/scenarios/ /app/scenarios/
+
+# ナビゲーター設定 (キャラクター・プロンプト) も実行時に読む
+COPY --from=builder /build/wl-game-server/navigator/ /app/navigator/
+
 WORKDIR /app
 CMD ["wl-game-server", "config.toml"]

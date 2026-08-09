@@ -7,12 +7,11 @@ mod queue;
 use crate::audio::recorder::AudioRecorder;
 use crate::config::Config;
 use crate::controller::Controller;
-use crate::grpc::handler::{TransceiverHandler, TransceiverServiceServer};
+use crate::grpc::client::BridgeClient;
 use crate::queue::AudioQueue;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tonic::transport::Server;
 use tracing::info;
 
 #[tokio::main]
@@ -30,7 +29,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let config = Config::load(Path::new(&config_path))?;
     info!("loaded config from {config_path}");
-    info!("listening on {}", config.server.listen_addr);
+    // 解決後の値をログに出す (環境変数とTOMLのどちらが効いたか運用で判別できるようにする)
+    info!(
+        bridge_id = %config.server.bridge_id,
+        server = %config.server.server_addr,
+        input_device = %config.audio.input_device,
+        output_device = %config.audio.output_device,
+        "starting radio-bridge (client mode)"
+    );
 
     let queue = Arc::new(Mutex::new(AudioQueue::new(
         config.queue.max_queue_size,
@@ -51,8 +57,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     info!("audio recorder started on device: {}", config.audio.input_device);
 
-    let handler = TransceiverHandler::new(Arc::clone(&queue), Arc::clone(&recorder));
-    let addr = config.server.listen_addr.parse()?;
+    // wl-game-server へダイヤルインするクライアント
+    // (docs/bridge_connection_design.md §2 決定1: 接続方向の反転)
+    let client = BridgeClient::new(
+        config.server.server_addr.clone(),
+        config.server.bridge_id.clone(),
+        Duration::from_secs(config.server.reconnect_interval_secs),
+        Arc::clone(&queue),
+        Arc::clone(&recorder),
+    );
 
     let controller = Controller::new(Arc::clone(&queue), Arc::clone(&recorder), config);
     let controller_task = tokio::spawn(async move {
@@ -61,18 +74,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
-    info!("gRPC server starting on {addr}");
-    let grpc_task = tokio::spawn(async move {
-        Server::builder()
-            .add_service(TransceiverServiceServer::new(handler))
-            .serve(addr)
-            .await
-            .expect("gRPC server error");
-    });
+    // 再接続ループを内蔵しているため、通常このタスクは終了しない
+    let client_task = tokio::spawn(async move { client.run().await });
 
     tokio::select! {
         _ = controller_task => tracing::error!("controller task exited unexpectedly"),
-        _ = grpc_task => tracing::error!("gRPC server task exited unexpectedly"),
+        _ = client_task => tracing::error!("bridge client task exited unexpectedly"),
     }
 
     Ok(())

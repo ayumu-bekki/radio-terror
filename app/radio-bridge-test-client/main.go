@@ -15,6 +15,7 @@ import (
 	"github.com/hraban/opus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	pb "radio-bridge-test-client/proto"
 )
 
@@ -24,12 +25,28 @@ const (
 	frameSize  = 960 // 20ms @ 48kHz
 )
 
+// bridgeIDMetadataKey は bridge-id を伝えるメタデータキー
+// (docs/bridge_connection_design.md §2 決定3)。
+const bridgeIDMetadataKey = "bridge-id"
+
 func main() {
 	if len(os.Args) < 3 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <host> <port>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s <host> <port> [bridge_id]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  接続先は wl-game-server の gRPC ポート (既定 50051)。\n")
+		fmt.Fprintf(os.Stderr, "  bridge_id 省略時は環境変数 RADIO_BRIDGE_ID、それも無ければ TEST01。\n")
 		os.Exit(1)
 	}
 	addr := fmt.Sprintf("%s:%s", os.Args[1], os.Args[2])
+
+	// 接続方向の反転 (§2 決定1) により、このクライアントは radio-bridge ではなく
+	// wl-game-server へダイヤルインし、1つの bridge として振る舞う。
+	bridgeID := os.Getenv("RADIO_BRIDGE_ID")
+	if len(os.Args) > 3 {
+		bridgeID = os.Args[3]
+	}
+	if bridgeID == "" {
+		bridgeID = "TEST01"
+	}
 
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -51,11 +68,14 @@ func main() {
 		cancel()
 	}()
 
+	// bridge-id が無い接続はサーバー側で拒否される (§3)
+	ctx = metadata.AppendToOutgoingContext(ctx, bridgeIDMetadataKey, bridgeID)
+
 	stream, err := client.Connect(ctx)
 	if err != nil {
 		log.Fatalf("failed to connect stream: %v", err)
 	}
-	printLine(fmt.Sprintf("connected to %s", addr))
+	printLine(fmt.Sprintf("connected to %s as bridge %s", addr, bridgeID))
 
 	if err := portaudio.Initialize(); err != nil {
 		log.Fatalf("portaudio init: %v", err)
