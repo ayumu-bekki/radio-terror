@@ -41,20 +41,6 @@ class MessageQueue {
                          pdMS_TO_TICKS(max_wait_millisecond));
   }
 
-  bool ReceiveNonBlock(T *const receive_data) {
-    if (!queue_) {
-      return false;
-    }
-    return xQueueReceive(queue_, receive_data, 0);
-  }
-
-  bool ReceiveBlock(T *const receive_data) {
-    if (!queue_) {
-      return false;
-    }
-    return xQueueReceive(queue_, receive_data, portMAX_DELAY);
-  }
-
   bool Send(const T &data) {
     if (!queue_) {
       return false;

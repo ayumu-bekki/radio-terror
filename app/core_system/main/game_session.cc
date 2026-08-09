@@ -407,6 +407,18 @@ bool ParsePrecondition(const cJSON* obj, Precondition* out, std::string* error_d
       return false;
     }
 
+    // offset: 桁に加算してから比較する (暗算を要する謎用)
+    const cJSON* offset_item =
+        cJSON_GetObjectItemCaseSensitive(timer_digit_item, "offset");
+    if (cJSON_IsNumber(offset_item)) {
+      const int32_t offset = static_cast<int32_t>(offset_item->valuedouble);
+      if (offset < -9 || 9 < offset) {
+        *error_detail = "timer_digit.offset out of range (-9..9)";
+        return false;
+      }
+      timer_digit.offset = static_cast<int8_t>(offset);
+    }
+
     out->has_timer_digit = true;
     out->timer_digit = timer_digit;
   }

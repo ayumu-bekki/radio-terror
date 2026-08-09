@@ -49,10 +49,7 @@ func newTestSession(t *testing.T, game *GameCoordinator) *GameSession {
 	}
 	session.progress.Reset(time.Now())
 
-	game.mu.Lock()
-	game.sessionByDevice[session.DeviceID] = session
-	game.bindingByBridge[session.BridgeID] = session.DeviceID
-	game.mu.Unlock()
+	game.binder.Bind(session.BridgeID, session.DeviceID, session)
 
 	return session
 }

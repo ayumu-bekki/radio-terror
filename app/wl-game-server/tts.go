@@ -41,22 +41,6 @@ const ttsPersona = `# VOICE CHARACTER: 無線オペレーターA (Despina)
 - Breathiness: minimal
 - Vocal fry: none`
 
-const ttsPromptTemplate = ttsPersona + `
-
-## THE SCENE: 無線テストオペレーション
-無線の初心者に対して、相手が話した内容と同じ内容を返答するテストオペレーションをしています。
-
-#### TRANSCRIPT
-%s。こちらS4CA。%s`
-
-const ttsPromptTemplateS4CQ = ttsPersona + `
-
-## THE SCENE: 無線テストオペレーション
-無線の初心者から来た質問に対して返答するテストオペレーションをしています。
-
-#### TRANSCRIPT
-%s`
-
 // TTSClient は Gemini TTS クライアントを保持する。
 type TTSClient struct {
 	client *genai.Client
@@ -72,11 +56,6 @@ func NewTTSClient(ctx context.Context, apiKey, model string) (*TTSClient, error)
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
 	return &TTSClient{client: client, model: model}, nil
-}
-
-// GenerateOggOpus は sender/message から TTS 音声を生成して Ogg Opus で返す。
-func (t *TTSClient) GenerateOggOpus(ctx context.Context, sender, message string) ([]byte, error) {
-	return t.GenerateOggOpusFromPrompt(ctx, fmt.Sprintf(ttsPromptTemplate, sender, message))
 }
 
 // GenerateOggOpusFromPrompt は組み立て済みプロンプトから TTS 音声を生成して Ogg Opus で返す。

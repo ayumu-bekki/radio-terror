@@ -131,22 +131,16 @@ func main() {
 	game.SetNavigatorSpeaker(navigator)
 
 	// --- 音声パイプライン ---
-	registry := NewSessionRegistry()
-	sharedLog := NewConversationLog(0)
-	scenario := defaultScenario()
-
-	dispatcher := NewDispatcher(registry, sharedLog)
-	dispatcher.Register("S4CE", NewEchoHandler())
-	dispatcher.Register("S4CA", NewS4CAHandler(ttsClient))
-	dispatcher.Register("S4CQ", NewS4CQHandler(ttsClient, processor))
-
-	pipeline := NewAudioPipeline(processor, dispatcher, bridges)
+	pipeline := NewAudioPipeline(processor, bridges)
 	pipeline.SetManagerCommandHandler(NewManagerCommandHandler(game, cfg.Manager.SecretWord))
 	pipeline.SetGameCoordinator(game, navigator, sessionLogs)
 
-	// --- WebSocket サーバー (トランシーバー + core_system デバイスが相乗り) ---
-	callsigns := NewCallsignManager("S4")
+	// セッション開始前でも無線が返事をするようにする (会場設営時の疎通確認)
+	testResponder := NewTestResponder(processor, ttsClient)
+	pipeline.SetTestResponder(testResponder)
+	game.SetTestResponder(testResponder)
 
+	// --- WebSocket サーバー (core_system デバイス) + マネージャー向け Web 画面 ---
 	wsAddr := cfg.WebSocket.ListenAddr
 	if wsAddr == "" {
 		wsAddr = defaultWSListenAddr
@@ -156,7 +150,7 @@ func main() {
 
 	managerWeb := NewManagerWeb(devices, bridges, game, sessionLogs, crosstalkLib, health, store)
 
-	wsServer := NewWSServer(callsigns, registry, processor, ttsClient, sharedLog, scenario, devices, game, managerWeb)
+	wsServer := NewWSServer(devices, game, managerWeb)
 	go func() {
 		if err := wsServer.Run(ctx, wsAddr); err != nil {
 			log.Printf("WSServer.Run: %v", err)

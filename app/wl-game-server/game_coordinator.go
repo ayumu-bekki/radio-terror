@@ -54,14 +54,14 @@ type GameCoordinator struct {
 	crosstalk *CrosstalkScheduler
 	logs      *SessionLogStore
 	navigator *NavigatorConfig
-	rng       *rand.Rand
-	rngMu     sync.Mutex
 
-	mu sync.RWMutex
-	// bindingByBridge は bridge_id → device_id の動的バインド (§5)
-	bindingByBridge map[string]string
-	// sessionByDevice は device_id → 進行中セッション
-	sessionByDevice map[string]*GameSession
+	// testResponder は疎通確認応答 (カラス)。セッション開始時に文脈を破棄する。
+	testResponder *TestResponder
+	rng           *rand.Rand
+	rngMu         sync.Mutex
+
+	// binder は bridge ⇔ device のバインドと進行中セッションを管理する
+	binder *SessionBinder
 }
 
 func NewGameCoordinator(
@@ -72,19 +72,24 @@ func NewGameCoordinator(
 	rng *rand.Rand,
 ) *GameCoordinator {
 	return &GameCoordinator{
-		devices:         devices,
-		bridges:         bridges,
-		builder:         builder,
-		store:           store,
-		rng:             rng,
-		bindingByBridge: make(map[string]string),
-		sessionByDevice: make(map[string]*GameSession),
+		devices: devices,
+		bridges: bridges,
+		builder: builder,
+		store:   store,
+		rng:     rng,
+		binder:  NewSessionBinder(),
 	}
 }
 
 // SetNavigatorSpeaker はナビゲーターの発話生成器を設定する。
 func (c *GameCoordinator) SetNavigatorSpeaker(speaker NavigatorSpeaker) {
 	c.speaker = speaker
+}
+
+// SetTestResponder は疎通確認応答の相手を設定する。
+// セッションが始まったら、その bridge の疎通確認の文脈は破棄する。
+func (c *GameCoordinator) SetTestResponder(responder *TestResponder) {
+	c.testResponder = responder
 }
 
 // SetNavigatorConfig はキャラクター割当に使う設定を渡す。
@@ -169,10 +174,7 @@ func (c *GameCoordinator) StartSession(ctx context.Context, sender *AudioSender,
 	session.progress.Reset(time.Now())
 
 	// バインドを確立する (後勝ち。明示的な解除は設けない)
-	c.mu.Lock()
-	c.bindingByBridge[bridgeID] = deviceID
-	c.sessionByDevice[deviceID] = session
-	c.mu.Unlock()
+	c.binder.Bind(bridgeID, deviceID, session)
 
 	// session_start を送信する
 	payload := built.SessionStartPayload(deviceID)
@@ -198,6 +200,11 @@ func (c *GameCoordinator) StartSession(ctx context.Context, sender *AudioSender,
 
 	// 両方 (セッション本体・バインド) を Valkey に保存する (§2 手順4)
 	c.persist(ctx, session)
+
+	// 疎通確認の交信ログは本番の文脈に混ぜない
+	if c.testResponder != nil {
+		c.testResponder.Reset(bridgeID)
+	}
 
 	// 混線のスケジュールを開始する
 	if c.crosstalk != nil {
@@ -230,9 +237,7 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 		c.persist(ctx, session)
 	}
 
-	c.mu.Lock()
-	delete(c.sessionByDevice, deviceID)
-	c.mu.Unlock()
+	c.binder.Release(deviceID)
 
 	if c.crosstalk != nil {
 		c.crosstalk.Stop(deviceID)
@@ -287,9 +292,7 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 	case msgSessionRejected:
 		log.Printf("[game] session REJECTED by device %s: reason=%s detail=%s",
 			msg.DeviceID, msg.Reason, msg.Detail)
-		c.mu.Lock()
-		delete(c.sessionByDevice, msg.DeviceID)
-		c.mu.Unlock()
+		c.binder.Release(msg.DeviceID)
 		return
 
 	case msgStageCleared:
@@ -354,7 +357,7 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 
 		// 他チームのCoreの爆発を契機に「別現場の通信」を流す (§5.1 イベント駆動)
 		if c.crosstalk != nil {
-			c.crosstalk.NotifyExplosion(ctx, session.DeviceID, c.playingSessions(session.DeviceID))
+			c.crosstalk.NotifyExplosion(ctx, session.DeviceID, c.binder.PlayingSessions(session.DeviceID))
 		}
 
 	case msgDefused:
@@ -382,85 +385,27 @@ func (c *GameCoordinator) NoteQuestion(deviceID string) {
 }
 
 // SessionForBridge は bridge にバインドされたセッションを返す。
-// プレイヤーの発話に応答する際、どのセッションの文脈で話すかの解決に使う。
 func (c *GameCoordinator) SessionForBridge(bridgeID string) *GameSession {
-	c.mu.RLock()
-	deviceID, ok := c.bindingByBridge[bridgeID]
-	c.mu.RUnlock()
-
-	if !ok {
-		return nil
-	}
-	return c.sessionFor(deviceID)
+	return c.binder.SessionForBridge(bridgeID)
 }
 
 // Sessions は進行中の全セッションを返す (マネージャー向け Web 画面用)。
-func (c *GameCoordinator) Sessions() []*GameSession {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	list := make([]*GameSession, 0, len(c.sessionByDevice))
-	for _, session := range c.sessionByDevice {
-		list = append(list, session)
-	}
-	return list
-}
+func (c *GameCoordinator) Sessions() []*GameSession { return c.binder.Sessions() }
 
 // Bindings は現在のバインド表を返す (Web画面用)。
-func (c *GameCoordinator) Bindings() map[string]string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	result := make(map[string]string, len(c.bindingByBridge))
-	for bridgeID, deviceID := range c.bindingByBridge {
-		result[bridgeID] = deviceID
-	}
-	return result
-}
+func (c *GameCoordinator) Bindings() map[string]string { return c.binder.Bindings() }
 
 // Restore は Valkey から復元したセッションをレジストリへ戻す。
-// 進行状態は Core からの device_status で再同期する (docs/scenario_design.md §6)。
 func (c *GameCoordinator) Restore(sessions []*GameSession) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	for _, session := range sessions {
 		session.progress.Reset(time.Now())
-		c.sessionByDevice[session.DeviceID] = session
-		if session.BridgeID != "" {
-			c.bindingByBridge[session.BridgeID] = session.DeviceID
-		}
-		log.Printf("[game] restored session %s device=%s bridge=%s",
-			session.SessionID, session.DeviceID, session.BridgeID)
 	}
+	c.binder.Restore(sessions)
 }
 
 // sessionFor は device_id に対応する進行中セッションを返す。
 func (c *GameCoordinator) sessionFor(deviceID string) *GameSession {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.sessionByDevice[deviceID]
-}
-
-// playingSessions は指定デバイス以外で Playing 中のセッションを返す
-// (混線のイベント駆動配信の宛先解決)。
-func (c *GameCoordinator) playingSessions(excludeDeviceID string) []*GameSession {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	list := make([]*GameSession, 0, len(c.sessionByDevice))
-	for deviceID, session := range c.sessionByDevice {
-		if deviceID == excludeDeviceID {
-			continue
-		}
-		session.mu.Lock()
-		playing := session.State == deviceStatePlaying
-		session.mu.Unlock()
-		if playing {
-			list = append(list, session)
-		}
-	}
-	return list
+	return c.binder.SessionFor(deviceID)
 }
 
 // finishSession はセッション終了時のスコア確定と混線停止を行う。
@@ -517,52 +462,5 @@ func (c *GameCoordinator) persist(ctx context.Context, session *GameSession) {
 	}
 	if err := c.store.SaveSession(ctx, session); err != nil {
 		log.Printf("[game] persist error: %v", err)
-	}
-}
-
-// describeWrongAction は誤操作の内容をログ用の日本語にする (§7.2 の detail)。
-func describeWrongAction(msg *deviceMessage) string {
-	line := ""
-	if msg.Line != "" {
-		if name, ok := colorNameJA[msg.Line]; ok {
-			line = fmt.Sprintf("(%s)", name)
-		} else {
-			line = fmt.Sprintf("(%s)", msg.Line)
-		}
-	}
-
-	switch msg.Detail {
-	case "wrong_line":
-		return "誤切断" + line
-	case "precondition_unmet":
-		return "手順未達のまま切断" + line
-	case "forbidden_rotary":
-		return "禁止位置でダイヤルを停止"
-	case "push_seq":
-		return "ボタン列の入力ミス"
-	default:
-		return "誤操作" + line
-	}
-}
-
-// describePenalty はペナルティをログ用の文字列にする。
-func describePenalty(penaltyMS int) string {
-	if penaltyMS <= 0 {
-		return ""
-	}
-	return fmt.Sprintf(" −%d秒", penaltyMS/1000)
-}
-
-// describeExplodeReason は爆発理由をログ用の日本語にする (§7.2 の reason)。
-func describeExplodeReason(msg *deviceMessage) string {
-	switch msg.Reason {
-	case "timeout":
-		return "時間切れ"
-	case "forced":
-		return "マネージャーによる強制破裂"
-	case "wrong_cut":
-		return describeWrongAction(msg)
-	default:
-		return msg.Reason
 	}
 }

@@ -16,7 +16,6 @@ type deviceMessage struct {
 	SessionID  string          `json:"session_id"`
 	Battery    float64         `json:"battery"`
 	LowBattery bool            `json:"low_battery"`
-	I2CError   bool            `json:"i2c_error"`
 	Lines      map[string]bool `json:"lines"`
 
 	// 進行イベント共通
@@ -95,7 +94,6 @@ type DeviceStatus struct {
 	RemainingMS int             `json:"remaining_ms"`
 	Battery     float64         `json:"battery"`
 	LowBattery  bool            `json:"low_battery"`
-	I2CError    bool            `json:"i2c_error"`
 	Lines       map[string]bool `json:"lines"`
 	UpdatedAt   int64           `json:"updated_at"`
 }

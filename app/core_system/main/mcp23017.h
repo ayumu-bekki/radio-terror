@@ -11,7 +11,6 @@ class MCP23017 {
   static constexpr uint8_t GPIO_GROUP_A = 0;
   static constexpr uint8_t GPIO_GROUP_B = 1;
   static constexpr uint8_t GPIO_GROUP_NUM = GPIO_GROUP_B + 1;
-  static constexpr uint8_t GPIO_MIN = 0;
   static constexpr uint8_t GPIO_MAX = 7;
   static constexpr uint8_t GPIO_NUM = GPIO_MAX + 1;
 
@@ -34,10 +33,11 @@ class MCP23017 {
   static constexpr uint8_t REGADDR_GPPUA = 0x0c;
   /// GPIOB PULLUP (IOCON.BANK = 0)
   static constexpr uint8_t REGADDR_GPPUB = 0x0d;
+  // 以下は現在未使用。割り込み要因を特定したくなった場合に使う
   /// INTFA INTERRUPT FLAG (IOCON.BANK = 0)
-  static constexpr uint8_t REGADDR_INTFA = 0x0e;
+  [[maybe_unused]] static constexpr uint8_t REGADDR_INTFA = 0x0e;
   /// INTFB INTERRUPT FLAG (IOCON.BANK = 0)
-  static constexpr uint8_t REGADDR_INTFB = 0x0f;
+  [[maybe_unused]] static constexpr uint8_t REGADDR_INTFB = 0x0f;
   // GPIOA (IOCON.BANK = 0)
   static constexpr uint8_t REGADDR_GPIOA = 0x12;
   // GPIOB (IOCON.BANK = 0)
@@ -170,16 +170,7 @@ class MCP23017 {
     // 割り込みフラグクリアのため、現在値を読み出しておく
     for (uint8_t group_id = GPIO_GROUP_A; group_id < GPIO_GROUP_NUM;
          ++group_id) {
-      GetInputGpio(group_id, GPIO_MIN);
-    }
-  }
-
-  /// GPIO出力初期化(ALL DOWN)
-  void Clear() {
-    for (int group = 0; group < GPIO_GROUP_NUM; ++group) {
-      for (int gpio_no = 0; gpio_no < GPIO_NUM; ++gpio_no) {
-        SetOutputGpio(group, gpio_no, false, true);
-      }
+      RefreshInputGroup(group_id);
     }
   }
 
@@ -202,17 +193,6 @@ class MCP23017 {
 
     WriteRegister(GPIO_REGADDR_GPIO_TBL[group_id],
                   gpio_group_[group_id].GetIsUpData());
-  }
-
-  /// GPIO入力状況取得 (true:High) (グループ単位でI2Cを読み直す)
-  bool GetInputGpio(uint8_t group_id, uint8_t gpio_no) {
-    if (GPIO_GROUP_NUM <= group_id || GPIO_NUM <= gpio_no) {
-      return false;
-    }
-
-    RefreshInputGroup(group_id);
-
-    return gpio_group_[group_id].gpio_[gpio_no].is_up_ != 0;
   }
 
   /// GPIOグループ単位でI2Cを1回だけ読み直してキャッシュを更新する

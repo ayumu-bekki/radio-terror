@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -108,12 +109,25 @@ func listOggFiles(dir string) []string {
 	return paths
 }
 
+// sortedMapKeys は map のキーをソートして返す。
+//
+// map の反復順は非決定的なため、乱数で選ぶ前に順序を固定する
+// (同じシードなら同じ選択になるようにする)。
+func sortedMapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // PickJamming は邪魔者系のアセットを選ぶ。
 //
 // 指定する色は「現在の正解以外」から選ぶ。偶然正解と一致して
 // 「邪魔者を信じたら成功した」となるのを防ぐ (§5.1)。
 func (l *CrosstalkLibrary) PickJamming(rng *rand.Rand, answerColor string) (string, bool) {
-	names := sortedKeys(l.jamming)
+	names := sortedMapKeys(l.jamming)
 	if len(names) == 0 {
 		return "", false
 	}
@@ -150,7 +164,7 @@ func (l *CrosstalkLibrary) EventFile() (string, bool) {
 }
 
 func pickRandomValue(m map[string]string, rng *rand.Rand) (string, bool) {
-	keys := sortedKeysString(m)
+	keys := sortedMapKeys(m)
 	if len(keys) == 0 {
 		return "", false
 	}
@@ -340,34 +354,6 @@ func (s *CrosstalkScheduler) isSpeaking(deviceID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.speaking[deviceID]
-}
-
-// sortedKeys は map[string]map[string]string のキーをソートして返す。
-func sortedKeys(m map[string]map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sortStrings(keys)
-	return keys
-}
-
-// sortedKeysString は map[string]string のキーをソートして返す。
-func sortedKeysString(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sortStrings(keys)
-	return keys
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
 
 // AssetSummary はアセットの読み込み状況を返す (Web画面用)。

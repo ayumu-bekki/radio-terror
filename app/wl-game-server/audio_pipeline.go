@@ -10,9 +10,8 @@ import (
 // 旧 BridgeClient.handleAudio の流れを維持しつつ、「どの bridge から来た音声か」を
 // 文脈に加える (docs/bridge_connection_design.md §4)。
 type AudioPipeline struct {
-	processor  *GeminiProcessor
-	dispatcher *Dispatcher
-	registry   *BridgeRegistry
+	processor *GeminiProcessor
+	registry  *BridgeRegistry
 
 	// commands はマネージャーの音声コマンド (開始申告・強制リセット) を処理する。
 	// nil の場合はコマンド判定を行わない。
@@ -22,6 +21,14 @@ type AudioPipeline struct {
 	game      *GameCoordinator
 	navigator NavigatorSpeaker
 	logs      *SessionLogStore
+
+	// testResponder はセッション未バインド時の疎通確認応答 (カラス)。
+	testResponder *TestResponder
+}
+
+// SetTestResponder は疎通確認応答の相手を設定する。
+func (p *AudioPipeline) SetTestResponder(responder *TestResponder) {
+	p.testResponder = responder
 }
 
 // SetGameCoordinator はプレイヤー発話をナビゲーターへ繋ぐ経路を設定する。
@@ -31,11 +38,10 @@ func (p *AudioPipeline) SetGameCoordinator(game *GameCoordinator, navigator Navi
 	p.logs = logs
 }
 
-func NewAudioPipeline(processor *GeminiProcessor, dispatcher *Dispatcher, registry *BridgeRegistry) *AudioPipeline {
+func NewAudioPipeline(processor *GeminiProcessor, registry *BridgeRegistry) *AudioPipeline {
 	return &AudioPipeline{
-		processor:  processor,
-		dispatcher: dispatcher,
-		registry:   registry,
+		processor: processor,
+		registry:  registry,
 	}
 }
 
@@ -71,7 +77,7 @@ func (p *AudioPipeline) HandleAudio(ctx context.Context, bridgeID string, data [
 		}
 	}
 
-	// この bridge がゲームセッションにバインドされている場合、発話は
+	// この bridge がゲームセッションにバインドされていれば、発話は
 	// ナビゲーターとの交信として扱う (docs/navigator_design.md §3.5)。
 	if p.game != nil {
 		if session := p.game.SessionForBridge(bridgeID); session != nil {
@@ -80,15 +86,19 @@ func (p *AudioPipeline) HandleAudio(ctx context.Context, bridgeID string, data [
 		}
 	}
 
-	response, err := p.processor.Reason(ctx, result)
-	if err != nil {
-		log.Printf("[audio %s] reason error: %v", bridgeID, err)
+	// 未バインドの bridge からの発話。マネージャーの開始申告 (§5) は上で
+	// 処理済みなので、ここへ来るのは開始前の発話。
+	//
+	// 無反応だと「無線が壊れているのか、まだ始まっていないだけか」が
+	// 区別できないため、疎通確認用の相手 (カラス) が応答する。
+	if p.testResponder != nil && isTestResponderTarget(result) {
+		if err := p.testResponder.Respond(ctx, sender, result); err != nil {
+			log.Printf("[audio %s] test responder error: %v", bridgeID, err)
+		}
 		return
 	}
 
-	if err := p.dispatcher.Dispatch(ctx, sender, result, response, data); err != nil {
-		log.Printf("[audio %s] dispatch error: %v", bridgeID, err)
-	}
+	log.Printf("[audio %s] no session bound: ignoring %d item(s)", bridgeID, len(result.Items))
 }
 
 // handlePlayerMessage はバインド済みセッションでのプレイヤー発話に応答する。

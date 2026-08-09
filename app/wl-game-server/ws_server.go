@@ -12,38 +12,17 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// WSServer は WebSocket 接続を受け付け、セッションを管理する。
+// WSServer は core_system デバイスの WebSocket 接続を受け付ける。
+// マネージャー向け Web 画面も同じ HTTP サーバーで提供する。
 type WSServer struct {
-	callsigns  *CallsignManager
-	registry   *SessionRegistry
-	processor  *GeminiProcessor
-	ttsClient  *TTSClient
-	sharedLog  *ConversationLog
-	scenario   Scenario
 	devices    *DeviceRegistry
 	game       *GameCoordinator
 	managerWeb *ManagerWeb
 	ctx        context.Context
 }
 
-func NewWSServer(
-	callsigns *CallsignManager,
-	registry *SessionRegistry,
-	processor *GeminiProcessor,
-	ttsClient *TTSClient,
-	sharedLog *ConversationLog,
-	scenario Scenario,
-	devices *DeviceRegistry,
-	game *GameCoordinator,
-	managerWeb *ManagerWeb,
-) *WSServer {
+func NewWSServer(devices *DeviceRegistry, game *GameCoordinator, managerWeb *ManagerWeb) *WSServer {
 	return &WSServer{
-		callsigns:  callsigns,
-		registry:   registry,
-		processor:  processor,
-		ttsClient:  ttsClient,
-		sharedLog:  sharedLog,
-		scenario:   scenario,
 		devices:    devices,
 		game:       game,
 		managerWeb: managerWeb,
@@ -57,7 +36,7 @@ func (s *WSServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[WS] upgrade error: %v", err)
 		return
 	}
-	session := newWSSession(conn, s.callsigns, s.registry, s.processor, s.ttsClient, s.sharedLog, s.scenario, s.devices, s.game)
+	session := newWSSession(conn, s.devices, s.game)
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {

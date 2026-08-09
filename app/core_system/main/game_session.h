@@ -101,6 +101,11 @@ struct TimerDigitSpec {
   TimerDigitMatch match = TIMER_MATCH_VALUE;
   /// match == TIMER_MATCH_VALUE のときの比較値 (0-9)
   int8_t value = 0;
+
+  /// 比較前に桁へ加算する値。「タイマーの桁 + offset」を比較相手と突き合わせる。
+  /// 「光っているランプの数とタイマーを足した位置にダイヤルを合わせる」のような
+  /// 暗算を要する謎に使う (offset=0 なら従来どおり桁そのものの比較)。
+  int8_t offset = 0;
 };
 
 /// ステージのクリア事前条件 (全てAND)

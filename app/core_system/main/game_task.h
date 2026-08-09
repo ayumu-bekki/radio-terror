@@ -17,10 +17,13 @@
 #include "buzzer.h"
 #include "game_session.h"
 #include "ht16k33.h"
+#include "led_controller.h"
 #include "mcp23017.h"
 #include "message_queue.h"
 #include "pl9823_task.h"
+#include "push_seq_input.h"
 #include "task.h"
+#include "whack_game.h"
 
 namespace CoreSystem {
 
@@ -100,9 +103,6 @@ class GameTask final : public Task {
   /// WS送信関数を設定する (WSClient::Send のラッパを渡す)
   void SetSendFunc(SendFunc send_func) { send_func_ = std::move(send_func); }
 
-  /// I2Cエラーが復帰不能になった際に呼び、フルカラーLEDを紫点滅にする (§8.5)
-  void NotifyI2cError();
-
   /// バッテリー測定値 (実電圧) を更新する。device_status に載せる (§8.5)
   void UpdateBatteryVoltage(float voltage) { battery_voltage_ = voltage; }
 
@@ -144,16 +144,13 @@ class GameTask final : public Task {
   void AdvanceStage();
   void ResetStageProgress();
 
-  // --- whack (§5.1) ---
-  void StartWhack();
-  ColorId PickNextMole() const;
-
   // --- push_seq (§5) ---
   void HandlePushSeqInput(ColorId color);
 
   // --- 出力 ---
+  /// 現在の状態に応じて kLED の表示を反映する (§4.1)
   void ApplyLedOutputs();
-  void SetLedOverride(ColorId color, bool on);
+  /// 上書き表示を解除する。whack 進行中はモグラ表示を復元する (§5.1)
   void ClearLedOverrides();
   void UpdateFullColorLed();
   void FireSolenoid();
@@ -181,6 +178,7 @@ class GameTask final : public Task {
   HT16K33* ht16k33_;
   Pl9823Task* pl9823_task_;
   Buzzer buzzer_;
+  LedController leds_;
   std::string device_id_;
   SendFunc send_func_;
 
@@ -198,33 +196,11 @@ class GameTask final : public Task {
   /// 確定済みのロータリー位置 (§5.2)
   int8_t rotary_position_ = 0;
 
-  /// LEDパターン再生位置 (ステップindexと、そのステップ内の経過tick)
-  int32_t led_step_index_[kColorNum] = {0, 0, 0, 0, 0};
-  int32_t led_step_elapsed_[kColorNum] = {0, 0, 0, 0, 0};
-  /// パターン再生結果としての現在の点灯状態
-  bool led_pattern_on_[kColorNum] = {false, false, false, false, false};
-  /// whack・push_seq・Setupガイドによる上書き表示 (パターンより優先)
-  bool led_override_active_ = false;
-  bool led_override_on_[kColorNum] = {false, false, false, false, false};
-  /// 実際にMCP23017へ書いた値 (変化時のみ書き込むため保持する)
-  bool led_written_[kColorNum] = {false, false, false, false, false};
+  /// モグラ叩きの進行 (§5.1)
+  WhackGame whack_;
 
-  // --- whack 進行状態 ---
-  bool whack_active_ = false;
-  bool whack_completed_ = false;
-  int32_t whack_hits_ = 0;
-  ColorId whack_current_mole_ = COLOR_NONE;
-  int32_t whack_timer_ms_ = 0;
-  bool whack_in_gap_ = false;
-
-  // --- push_seq 進行状態 ---
-  bool push_seq_completed_ = false;
-  int32_t push_seq_index_ = 0;
-  /// 入力フィードバック演出の残り時間 (0より大きい間は上書き表示する)
-  int32_t push_seq_feedback_ms_ = 0;
-  ColorId push_seq_feedback_color_ = COLOR_NONE;
-  /// ミス時の全LED点滅フィードバック
-  bool push_seq_feedback_error_ = false;
+  /// ボタン列入力の進行 (§5)
+  PushSeqInput push_seq_;
 
   // --- forbidden_rotary 進行状態 ---
   int32_t forbidden_hold_ms_ = 0;
@@ -244,9 +220,8 @@ class GameTask final : public Task {
   /// 最後に Tick() を進めた時刻。イベント連続時も実時間で刻むために保持する
   TickType_t last_tick_ = 0;
 
-  // --- 定期送信・エラー ---
+  // --- 定期送信・バッテリー ---
   int32_t status_timer_ms_ = 0;
-  bool i2c_error_ = false;
   float battery_voltage_ = 0.0f;
   bool low_battery_ = false;
 };

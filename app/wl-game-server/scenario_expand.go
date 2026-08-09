@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -83,7 +84,51 @@ func (b *ScenarioBuilder) expandCore(core map[string]any, vars map[string]string
 	if !ok {
 		return nil, fmt.Errorf("core must be a table")
 	}
+
+	// morse の word は文字列でなければならない (数値化されると実機が拒否する)
+	normalizeLedWords(result)
+
+	// noise_leds = "${noise}" は leds テーブルへマージする専用キー。
+	// 妨害用LEDの割り当て(点灯/消灯/対称blink)をまとめて展開する。
+	if err := mergeNoiseLeds(result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+// mergeNoiseLeds は core の noise_leds を leds へ畳み込んで削除する。
+//
+// 既に leds に指定がある色(モールス表示など)は**上書きしない**。
+// 表示用LEDが妨害で潰れると謎が成立しないため。
+func mergeNoiseLeds(core map[string]any) error {
+	raw, ok := core["noise_leds"]
+	if !ok {
+		return nil
+	}
+	delete(core, "noise_leds")
+
+	text, ok := raw.(string)
+	if !ok || !strings.HasPrefix(text, noiseLedsPrefix) {
+		return fmt.Errorf("noise_leds must reference a noise_leds variable")
+	}
+
+	var assigned map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(text, noiseLedsPrefix)), &assigned); err != nil {
+		return fmt.Errorf("noise_leds: %w", err)
+	}
+
+	leds, _ := core["leds"].(map[string]any)
+	if leds == nil {
+		leds = make(map[string]any, len(assigned))
+	}
+	for color, spec := range assigned {
+		if _, exists := leds[color]; exists {
+			continue // 表示用LEDを妨害で上書きしない
+		}
+		leds[color] = spec
+	}
+	core["leds"] = leds
+	return nil
 }
 
 // expandValue は任意のTOML値を再帰的に展開する。

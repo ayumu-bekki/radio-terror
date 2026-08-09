@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -149,4 +150,31 @@ func answerMentionsCut(answer, cut string) bool {
 		return true
 	}
 	return false
+}
+
+// normalizeLedWords は leds の morse.word を文字列へ戻す。
+//
+// 抽選変数の展開時、数字だけの文字列は数値へ変換される (rotary などの
+// 数値フィールドのため)。しかし morse の word は**必ず文字列**である
+// 必要があり (Core側は cJSON_IsString を要求する。§6.1)、数字を表示する
+// ステージ (211) で数値になると実機が session_rejected を返してしまう。
+func normalizeLedWords(core map[string]any) {
+	leds, ok := core["leds"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, spec := range leds {
+		table, ok := spec.(map[string]any)
+		if !ok || table["pattern"] != "morse" {
+			continue
+		}
+		switch w := table["word"].(type) {
+		case int:
+			table["word"] = strconv.Itoa(w)
+		case int64:
+			table["word"] = strconv.FormatInt(w, 10)
+		case float64:
+			table["word"] = strconv.FormatFloat(w, 'f', -1, 64)
+		}
+	}
 }

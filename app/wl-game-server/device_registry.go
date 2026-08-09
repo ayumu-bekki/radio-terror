@@ -65,7 +65,6 @@ func (r *DeviceRegistry) UpdateStatus(msg *deviceMessage) *DeviceStatus {
 		RemainingMS: msg.RemainingMS,
 		Battery:     msg.Battery,
 		LowBattery:  msg.LowBattery,
-		I2CError:    msg.I2CError,
 		Lines:       msg.Lines,
 		UpdatedAt:   time.Now().Unix(),
 	}

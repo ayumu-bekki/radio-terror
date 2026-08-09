@@ -19,20 +19,8 @@ namespace CoreSystem {
 
 namespace {
 
-/// kLED A-E の MCP23017 上の配置 ({group, gpio_no})
-constexpr uint8_t kLedPins[kColorNum][2] = {
-    {Mcp23017Pin::kGroupA, Mcp23017Pin::kLedA},
-    {Mcp23017Pin::kGroupA, Mcp23017Pin::kLedB},
-    {Mcp23017Pin::kGroupB, Mcp23017Pin::kLedC},
-    {Mcp23017Pin::kGroupB, Mcp23017Pin::kLedD},
-    {Mcp23017Pin::kGroupB, Mcp23017Pin::kLedE},
-};
-
 /// フルカラーLEDの色 (§4.1)
 constexpr uint8_t kFullColorBrightness = 128;
-
-/// push_seq の入力フィードバック表示時間
-constexpr int32_t kPushSeqFeedbackMs = 200;
 
 /// Playing中のフルカラーLED点滅間隔 (通常時 / 終盤警告時)
 constexpr uint32_t kPlayingBlinkOnMs = 50;
@@ -49,6 +37,7 @@ GameTask::GameTask(MCP23017* mcp23017, HT16K33* ht16k33, Pl9823Task* pl9823_task
       ht16k33_(ht16k33),
       pl9823_task_(pl9823_task),
       buzzer_(Esp32Pin::kBuzzer),
+      leds_(mcp23017),
       device_id_(device_id) {
   constexpr int32_t kQueueSize = 32;
   if (!message_queue_.Create(kQueueSize)) {
@@ -103,11 +92,6 @@ void GameTask::Update() {
 }
 
 bool GameTask::PostEvent(const GameEvent& event) { return message_queue_.Send(event); }
-
-void GameTask::NotifyI2cError() {
-  i2c_error_ = true;
-  UpdateFullColorLed();
-}
 
 // --- 状態遷移 -------------------------------------------------------------
 
@@ -167,10 +151,8 @@ void GameTask::EnterDetonating(const char* reason, const char* detail, ColorId l
   solenoid_fired_ = false;
   remaining_ms_ = 0;
 
-  ClearLedOverrides();
-  for (int i = 0; i < kColorNum; ++i) {
-    led_pattern_on_[i] = false;
-  }
+  // 以降は全消灯になるため、パターン再生も止める (§4.1)
+  leds_.Reset();
   ApplyLedOutputs();
 
   buzzer_.On();
@@ -194,10 +176,8 @@ void GameTask::EnterExploded() {
 void GameTask::EnterDefused() {
   state_ = STATE_DEFUSED;
 
-  ClearLedOverrides();
-  for (int i = 0; i < kColorNum; ++i) {
-    led_pattern_on_[i] = false;
-  }
+  // 以降は全消灯になるため、パターン再生も止める (§4.1)
+  leds_.Reset();
   ApplyLedOutputs();
 
   buzzer_.Beep(3);
@@ -294,33 +274,15 @@ void GameTask::HandlePushChanged(ColorId color, bool pressed) {
 
   const StageConfig& stage = session_.stages[stage_index_];
 
-  if (whack_active_ && !whack_completed_) {
-    if (color == whack_current_mole_) {
-      // ヒット: 即消灯して gap 後に次のモグラを出す
-      ++whack_hits_;
-      whack_current_mole_ = COLOR_NONE;
-      whack_in_gap_ = true;
-      whack_timer_ms_ = stage.precondition.whack.gap_ms;
-      SetLedOverride(color, false);
-
-      if (stage.precondition.whack.count <= whack_hits_) {
-        whack_completed_ = true;
-        whack_active_ = false;
-        // 完了した瞬間にヒントパターン表示へ切り替わる (§5.1)
-        ClearLedOverrides();
-        SendWhackCompleted();
-      }
-    } else {
-      // 点灯中に別のkPushを押したらミス。同じモグラが出直すだけ (§5.1)
-      whack_current_mole_ = COLOR_NONE;
-      whack_in_gap_ = true;
-      whack_timer_ms_ = stage.precondition.whack.gap_ms;
-      ClearLedOverrides();
+  if (whack_.IsRunning()) {
+    if (whack_.HandlePush(color, stage, &leds_)) {
+      SendWhackCompleted();
     }
+    ApplyLedOutputs();
     return;
   }
 
-  if (stage.precondition.has_push_seq && !push_seq_completed_) {
+  if (stage.precondition.has_push_seq && !push_seq_.IsCompleted()) {
     HandlePushSeqInput(color);
   }
 }
@@ -513,72 +475,21 @@ void GameTask::TickCountdown() {
     timer_digit_grace_ms_ -= kTickMs;
   }
 
-  if (0 < push_seq_feedback_ms_) {
-    push_seq_feedback_ms_ -= kTickMs;
-    if (push_seq_feedback_ms_ <= 0) {
-      push_seq_feedback_color_ = COLOR_NONE;
-      push_seq_feedback_error_ = false;
-      ClearLedOverrides();
-    }
+  // push_seq のフィードバック表示が終わったら上書きを解除する
+  if (push_seq_.TickFeedback()) {
+    ClearLedOverrides();
+    ApplyLedOutputs();
   }
 }
 
 void GameTask::TickLeds() {
-  const StageConfig& stage = session_.stages[stage_index_];
-
-  for (int i = 0; i < kColorNum; ++i) {
-    const LedPattern& pattern = stage.leds[i];
-    if (pattern.steps.empty()) {
-      led_pattern_on_[i] = false;
-      continue;
-    }
-
-    if (static_cast<int32_t>(pattern.steps.size()) <= led_step_index_[i]) {
-      led_step_index_[i] = 0;
-      led_step_elapsed_[i] = 0;
-    }
-
-    const LedStep& step = pattern.steps[led_step_index_[i]];
-    led_pattern_on_[i] = step.on;
-
-    ++led_step_elapsed_[i];
-    if (step.ticks <= led_step_elapsed_[i]) {
-      led_step_elapsed_[i] = 0;
-      led_step_index_[i] = (led_step_index_[i] + 1) %
-                           static_cast<int32_t>(pattern.steps.size());
-    }
-  }
-
+  leds_.TickPatterns(session_.stages[stage_index_]);
   ApplyLedOutputs();
 }
 
 void GameTask::TickWhack() {
-  if (!whack_active_ || whack_completed_) {
-    return;
-  }
-
-  const StageConfig& stage = session_.stages[stage_index_];
-  const WhackSpec& whack = stage.precondition.whack;
-
-  whack_timer_ms_ -= kTickMs;
-  if (0 < whack_timer_ms_) {
-    return;
-  }
-
-  if (whack_in_gap_ || whack_current_mole_ == COLOR_NONE) {
-    // 次のモグラを出現させる
-    whack_in_gap_ = false;
-    whack_current_mole_ = PickNextMole();
-    whack_timer_ms_ = whack.mole_on_ms;
-    ClearLedOverrides();
-    SetLedOverride(whack_current_mole_, true);
-  } else {
-    // 点灯時間内に押せなかったミス。ペナルティなしで同じ枠を出し直す (§5.1)
-    whack_current_mole_ = COLOR_NONE;
-    whack_in_gap_ = true;
-    whack_timer_ms_ = whack.gap_ms;
-    ClearLedOverrides();
-  }
+  whack_.Tick(session_.stages[stage_index_], &leds_);
+  ApplyLedOutputs();
 }
 
 void GameTask::TickForbiddenRotary() {
@@ -686,11 +597,11 @@ bool GameTask::IsPreconditionMet(const StageConfig& stage) const {
     }
   }
 
-  if (precondition.has_whack && !whack_completed_) {
+  if (precondition.has_whack && !whack_.IsCompleted()) {
     return false;
   }
 
-  if (precondition.has_push_seq && !push_seq_completed_) {
+  if (precondition.has_push_seq && !push_seq_.IsCompleted()) {
     return false;
   }
 
@@ -698,12 +609,8 @@ bool GameTask::IsPreconditionMet(const StageConfig& stage) const {
     return false;
   }
 
-  if (precondition.leds_all_off) {
-    for (int i = 0; i < kColorNum; ++i) {
-      if (led_pattern_on_[i]) {
-        return false;
-      }
-    }
+  if (precondition.leds_all_off && !leds_.AreAllPatternsOff()) {
+    return false;
   }
 
   return true;
@@ -711,8 +618,11 @@ bool GameTask::IsPreconditionMet(const StageConfig& stage) const {
 
 bool GameTask::IsTimerDigitMet(const TimerDigitSpec& spec) const {
   const int32_t seconds = remaining_ms_ / 1000;
-  const int32_t digit =
+  const int32_t raw_digit =
       (spec.digit == TIMER_DIGIT_ONES) ? (seconds % 10) : (seconds / 10 % 10);
+
+  // offset を加算してから比較する (暗算を要する謎用。offset=0 なら桁そのもの)
+  const int32_t digit = raw_digit + spec.offset;
 
   const int32_t target =
       (spec.match == TIMER_MATCH_ROTARY) ? rotary_position_ : spec.value;
@@ -749,24 +659,9 @@ void GameTask::AdvanceStage() {
 }
 
 void GameTask::ResetStageProgress() {
-  for (int i = 0; i < kColorNum; ++i) {
-    led_step_index_[i] = 0;
-    led_step_elapsed_[i] = 0;
-    led_pattern_on_[i] = false;
-  }
-
-  whack_active_ = false;
-  whack_completed_ = false;
-  whack_hits_ = 0;
-  whack_current_mole_ = COLOR_NONE;
-  whack_timer_ms_ = 0;
-  whack_in_gap_ = false;
-
-  push_seq_completed_ = false;
-  push_seq_index_ = 0;
-  push_seq_feedback_ms_ = 0;
-  push_seq_feedback_color_ = COLOR_NONE;
-  push_seq_feedback_error_ = false;
+  leds_.Reset();
+  whack_.Reset();
+  push_seq_.Reset();
 
   forbidden_hold_ms_ = 0;
   timer_digit_grace_ms_ = 0;
@@ -779,97 +674,49 @@ void GameTask::ResetStageProgress() {
 
   const StageConfig& stage = session_.stages[stage_index_];
   if (stage.precondition.has_whack) {
-    StartWhack();
+    whack_.Start(stage.precondition.whack, &leds_);
   }
-}
-
-// --- whack (§5.1) ---------------------------------------------------------
-
-void GameTask::StartWhack() {
-  whack_active_ = true;
-  whack_completed_ = false;
-  whack_hits_ = 0;
-  whack_in_gap_ = true;
-  // 最初のモグラは gap 経過後に出現させる
-  whack_timer_ms_ = session_.stages[stage_index_].precondition.whack.gap_ms;
-  whack_current_mole_ = COLOR_NONE;
-  ClearLedOverrides();
-}
-
-ColorId GameTask::PickNextMole() const {
-  const StageConfig& stage = session_.stages[stage_index_];
-  const WhackSpec& whack = stage.precondition.whack;
-
-  // last_mole_matches_cut: 最後の1匹だけ cut と同色に固定する (§5.1)
-  if (whack.last_mole_matches_cut && whack_hits_ == whack.count - 1) {
-    return stage.cut;
-  }
-
-  // 出題順はデバイス側でランダム抽選し、直前と同じLEDは避ける
-  for (int attempt = 0; attempt < 16; ++attempt) {
-    const ColorId candidate = static_cast<ColorId>(esp_random() % kColorNum);
-    if (candidate != whack_current_mole_) {
-      return candidate;
-    }
-  }
-  return static_cast<ColorId>(esp_random() % kColorNum);
 }
 
 // --- push_seq (§5) --------------------------------------------------------
 
 void GameTask::HandlePushSeqInput(ColorId color) {
   const StageConfig& stage = session_.stages[stage_index_];
-  const PushSeqSpec& push_seq = stage.precondition.push_seq;
+  const PushSeqSpec& spec = stage.precondition.push_seq;
 
-  if (static_cast<int32_t>(push_seq.entries.size()) <= push_seq_index_) {
-    return;
-  }
-
-  const PushSeqEntry& entry = push_seq.entries[push_seq_index_];
-  const bool color_ok = (entry.push == color);
-  const bool rotary_ok = (entry.rotary < 0) || (entry.rotary == rotary_position_);
-
-  if (color_ok && rotary_ok) {
-    ++push_seq_index_;
-
-    // 正入力のたびに対応色LEDを短点滅させ、サーバーへ進捗を通知する
-    push_seq_feedback_color_ = color;
-    push_seq_feedback_error_ = false;
-    push_seq_feedback_ms_ = kPushSeqFeedbackMs;
-    ClearLedOverrides();
-    SetLedOverride(color, true);
-
-    SendPushProgress(push_seq_index_);
-
-    if (static_cast<int32_t>(push_seq.entries.size()) <= push_seq_index_) {
-      push_seq_completed_ = true;
-      ESP_LOGI(TAG, "push_seq completed");
-    }
-    return;
-  }
-
-  // ミス時は全LEDを短く点滅させる
-  push_seq_feedback_error_ = true;
-  push_seq_feedback_ms_ = kPushSeqFeedbackMs;
-  led_override_active_ = true;
-  for (int i = 0; i < kColorNum; ++i) {
-    led_override_on_[i] = true;
-  }
+  const PushSeqResult result =
+      push_seq_.HandlePush(color, spec, rotary_position_, &leds_);
   ApplyLedOutputs();
 
-  switch (push_seq.on_wrong_press.action) {
+  switch (result) {
+    case PUSH_SEQ_IGNORED:
+      return;
+
+    case PUSH_SEQ_ADVANCED:
+      SendPushProgress(push_seq_.Index());
+      return;
+
+    case PUSH_SEQ_COMPLETED:
+      SendPushProgress(push_seq_.Index());
+      ESP_LOGI(TAG, "push_seq completed");
+      return;
+
+    case PUSH_SEQ_WRONG:
+      break;
+  }
+
+  // ミス時の扱いは on_wrong_press に従う (§5)
+  switch (spec.on_wrong_press.action) {
     case ACTION_EXPLODE:
       EnterDetonating("wrong_cut", "push_seq", COLOR_NONE);
       return;
     case ACTION_PENALTY:
-      ApplyPenalty(push_seq.on_wrong_press.penalty_ms);
-      SendWrongAction("push_seq", COLOR_NONE, push_seq.on_wrong_press.penalty_ms);
-      push_seq_index_ = 0;
+      ApplyPenalty(spec.on_wrong_press.penalty_ms);
+      SendWrongAction("push_seq", COLOR_NONE, spec.on_wrong_press.penalty_ms);
       return;
     case ACTION_RETRY:
     default:
-      // 列の先頭からやり直し (既定)
-      push_seq_index_ = 0;
+      // 列の先頭からやり直し (既定)。PushSeqInput 側で index はリセット済み
       SendWrongAction("push_seq", COLOR_NONE, 0);
       return;
   }
@@ -878,48 +725,27 @@ void GameTask::HandlePushSeqInput(ColorId color) {
 // --- 出力 -----------------------------------------------------------------
 
 void GameTask::ApplyLedOutputs() {
-  bool desired[kColorNum] = {false, false, false, false, false};
-
-  if (state_ == STATE_SETUP) {
-    // 切断中の線に対応するLEDを点灯して復旧ガイドにする (§4.1)
-    for (int i = 0; i < kColorNum; ++i) {
-      desired[i] = !line_connected_[i];
-    }
-  } else if (state_ == STATE_PLAYING) {
-    for (int i = 0; i < kColorNum; ++i) {
-      desired[i] = led_override_active_ ? led_override_on_[i] : led_pattern_on_[i];
-    }
+  switch (state_) {
+    case STATE_SETUP:
+      // 切断中の線に対応するLEDを点灯して復旧ガイドにする (§4.1)
+      leds_.ApplySetupGuide(line_connected_);
+      break;
+    case STATE_PLAYING:
+      leds_.ApplyPlaying();
+      break;
+    default:
+      // Ready / Detonating / Exploded / Defused は全消灯 (§4.1)
+      leds_.ApplyAllOff();
+      break;
   }
-  // Ready / Detonating / Exploded / Defused は全消灯 (§4.1)
-
-  for (int i = 0; i < kColorNum; ++i) {
-    if (led_written_[i] == desired[i]) {
-      continue;
-    }
-    led_written_[i] = desired[i];
-    mcp23017_->SetOutputGpio(kLedPins[i][0], kLedPins[i][1], desired[i]);
-  }
-}
-
-void GameTask::SetLedOverride(ColorId color, bool on) {
-  if (color < COLOR_A || kColorNum <= color) {
-    return;
-  }
-  led_override_active_ = true;
-  led_override_on_[color] = on;
-  ApplyLedOutputs();
 }
 
 void GameTask::ClearLedOverrides() {
-  led_override_active_ = false;
-  for (int i = 0; i < kColorNum; ++i) {
-    led_override_on_[i] = false;
-  }
+  leds_.ClearOverride();
 
   // whack進行中はモグラ表示がkLEDを専有し続ける (§5.1)
-  if (whack_active_ && !whack_completed_ && whack_current_mole_ != COLOR_NONE) {
-    led_override_active_ = true;
-    led_override_on_[whack_current_mole_] = true;
+  if (whack_.IsRunning() && whack_.CurrentMole() != COLOR_NONE) {
+    leds_.SetOverride(whack_.CurrentMole(), true);
   }
 
   ApplyLedOutputs();
@@ -927,18 +753,6 @@ void GameTask::ClearLedOverrides() {
 
 void GameTask::UpdateFullColorLed() {
   Pl9823Task::Command command;
-
-  // I2Cエラーが復帰不能な場合は状態にかかわらず紫点滅で示す (§8.5)
-  if (i2c_error_) {
-    command.pattern = Pl9823Task::PATTERN_BLINK;
-    command.r = kFullColorBrightness;
-    command.g = 0;
-    command.b = kFullColorBrightness;
-    command.on_ms = 300;
-    command.off_ms = 300;
-    pl9823_task_->SendCommand(command);
-    return;
-  }
 
   switch (state_) {
     case STATE_SETUP:
@@ -1027,7 +841,6 @@ void GameTask::SendDeviceStatus() {
     cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms_);
     cJSON_AddNumberToObject(root, "battery", battery_voltage_);
     cJSON_AddBoolToObject(root, "low_battery", low_battery_);
-    cJSON_AddBoolToObject(root, "i2c_error", i2c_error_);
 
     // 各配線の結線状態 (Setup中の復旧進捗をマネージャーが確認するのに使う)
     cJSON* lines = cJSON_CreateObject();

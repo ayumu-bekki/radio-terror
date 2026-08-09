@@ -15,12 +15,9 @@ class HT16K33 {
   /// 7セグメント表示桁数 (4桁表示器を想定)
   static constexpr uint8_t DIGIT_NUM = 4;
 
+  /// ブリンク無効 (この装置では点滅はGameTask側で作るため常にOFF)
   static constexpr uint8_t BLINK_OFF = 0;
-  static constexpr uint8_t BLINK_2HZ = 1;
-  static constexpr uint8_t BLINK_1HZ = 2;
-  static constexpr uint8_t BLINK_HALFHZ = 3;
 
-  static constexpr uint8_t BRIGHTNESS_MIN = 0x00;
   static constexpr uint8_t BRIGHTNESS_MAX = 0x0F;
 
  private:
@@ -42,9 +39,6 @@ class HT16K33 {
   /// 4桁7セグメント表示器の桁(digit)→表示RAM行(row)マッピング
   /// (row2はコロン用のため、digit2/3はrow3/4を使用する)
   static constexpr uint8_t DIGIT_ROW_TBL[DIGIT_NUM] = {0, 1, 3, 4};
-
-  /// コロン表示用の表示RAM行
-  static constexpr uint8_t COLON_ROW = 2;
 
   /// 0-15の数字を7セグメントパターンに変換するテーブル
   /// (Adafruit_LEDBackpackのnumbertable相当。bit0-6がセグメントa-g、bit7はDP)
@@ -108,45 +102,11 @@ class HT16K33 {
     WriteDisplay();
   }
 
-  /// 表示ON/OFF設定
-  void SetDisplayOn(bool is_on) {
-    is_display_on_ = is_on;
-    WriteDisplaySetup();
-  }
-
-  /// ブリンクレート設定 (BLINK_OFF/BLINK_2HZ/BLINK_1HZ/BLINK_HALFHZ)
-  void SetBlinkRate(uint8_t blink_rate) {
-    blink_rate_ = blink_rate & 0x03;
-    WriteDisplaySetup();
-  }
-
-  /// 輝度設定 (0-15)
-  void SetBrightness(uint8_t brightness) {
-    brightness_ = brightness & BRIGHTNESS_MAX;
-    WriteDimming();
-  }
-
   /// 表示バッファ全体をクリア (I2C送信はしない。WriteDisplay()で反映する)
   void Clear() {
     for (uint8_t row = 0; row < ROW_NUM; ++row) {
       display_buffer_[row] = 0;
     }
-  }
-
-  /// 指定行の表示データをバッファにセット (I2C送信はしない。WriteDisplay()で反映する)
-  void SetDisplayRowData(uint8_t row, uint16_t data) {
-    if (ROW_NUM <= row) {
-      return;
-    }
-    display_buffer_[row] = data;
-  }
-
-  /// 指定行の表示データをバッファから取得
-  uint16_t GetDisplayRowData(uint8_t row) const {
-    if (ROW_NUM <= row) {
-      return 0;
-    }
-    return display_buffer_[row];
   }
 
   /// 指定桁に生のセグメントビットマスクを設定 (bit0-6:セグメントa-g, bit7:DP)
@@ -166,14 +126,6 @@ class HT16K33 {
     }
     WriteDigitRaw(digit, NUMBER_TABLE[number] | (dot ? 0x80 : 0x00));
   }
-
-  /// 桁間のコロンLEDをON/OFF (I2C送信はしない。WriteDisplay()で反映する)
-  void DrawColon(bool state) {
-    display_buffer_[COLON_ROW] = state ? 0x02 : 0x00;
-  }
-
-  /// コロン部の生ビットマスク設定 (I2C送信はしない。WriteDisplay()で反映する)
-  void WriteColonRaw(uint8_t bitmask) { display_buffer_[COLON_ROW] = bitmask; }
 
   /// 表示バッファ全体(16byte)を一括でI2C送信し、表示RAMへ反映する
   void WriteDisplay() {
