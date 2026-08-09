@@ -44,15 +44,15 @@ idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)の設�
 ### radio-bridge (Rust)
 
 **macOS ではビルドできない**。`alsa` / `rppal` が Linux 依存で、`cargo build` は
-自コードに到達する前に `rppal` で失敗する。
+自コードに到達する前に `rppal` で失敗する。**Docker でのビルドが唯一の検証経路**
+(ビルド確認済み)。
 
 ```bash
-# 実機/Docker でのビルドが唯一の経路
 docker compose build radio-bridge
 ```
 
-macOS で検証する場合、`src/config.rs` は `serde`/`toml` にしか依存しないため、
-一時クレートへコピーすれば型チェックとテストを実行できる(実際にこの方法で検証した)。
+macOS で手早く見たい場合、`src/config.rs` は `serde`/`toml` にしか依存しないため、
+一時クレートへコピーすれば型チェックとテストを実行できる。
 `client.rs` / `main.rs` は構文チェックのみ可能。
 
 ### 全体起動
@@ -141,6 +141,14 @@ Core向けJSONとナビゲーター知識は**同一の抽選結果から機械�
 GameTask は**実経過時間の差分で tick を進める**。キュー待ちのタイムアウトだけに
 頼ると入力イベント連続時に tick が飢え、カウントダウンが止まる(実装中に踏んだ)。
 
+### ロータリーの位置対応
+
+`kRotary1`→位置0 〜 `kRotary6`→位置5。GPIO番号は**降順**(GPA7→GPA2)で
+直感に反するため、`core_system.cc` の `kRotaryGpios` は**配列の添字が
+そのまま位置番号**になる並びで定義している。ここがずれると全ステージの
+ロータリー条件が1つずれ、「動くが正解しない」形で現れる。
+対応表は `docs/game_session_design.md` §3。
+
 ### ソレノイド(風船破裂)
 
 駆動は単一関数に集約し、**Detonating 状態からのみ**呼べる。二重駆動はフラグで防ぐ。
@@ -148,12 +156,14 @@ GameTask は**実経過時間の差分で tick を進める**。キュー待ち�
 
 ## 未検証・既知の制約
 
-- **radio-bridge (Rust)** は型検証が未実施(上記のビルド制約)。実機/Docker での確認が必要。
-- **生成AI周り**は Google Cloud の認証が要るため未実行。ナビゲーターの実際の発話品質・
-  TTSボイスの妥当性は実機確認が残っている。接続先は Gemini Enterprise Agent Platform
-  のみで、Gemini API (APIキー認証) には対応しない (`docs/gemini_enterprise_setup.md`)。
-- **ロータリーのGPIO対応**(`kRotary1`→位置0)は推測のまま。ずれていると
-  全ステージのロータリー条件が1つずれるが「動くが正解しない」形で現れる。
+- **生成AI周り**は接続とTTS生成まで確認済み(Gemini Enterprise Agent Platform)。
+  ナビゲーターの**実際の発話品質**は実機・実運用での確認が残っている。
+  Gemini API (APIキー認証) には対応しない (`docs/gemini_enterprise_setup.md`)。
+- **紙資料**は未制作。`config.toml` の `[mission_sheet]` は印刷物の実測値なので、
+  刷ったら値を突き合わせる (`docs/printed_materials.md`)。
+- **音声アセットは全て配置済み**(混線30ファイル + 効果音2ファイル)。
+  未配置でも起動はするが**無言でスキップされる**ため、起動ログの
+  `[crosstalk] loaded assets:` で件数を確認する。
 - `config.toml` / `config-mac-docker.toml` は **キルスイッチの秘密ワードを含むため
   gitignore 済み**。スキーマを変えたら `*.sample.toml` も揃える。
 - `app/secrets/` のサービスアカウントキーも gitignore 済み。

@@ -23,9 +23,12 @@ listen_addr = ":8080"
 #   Docker  … サービスアカウントJSONを GOOGLE_APPLICATION_CREDENTIALS で渡す
 # 手順は docs/gemini_enterprise_setup.md を参照。
 #
-# location は TTS モデルが提供されているリージョンに合わせる。
+# location は全モデル(TTS・推論・文字起こし)が提供されているリージョンにする。
+# 実測(2026-08-10): "global" のみ3モデルすべて利用可。
+#   us-central1     … TTSのみ。推論/文字起こしは404
+#   asia-northeast1 … 3モデルすべて404
 project                = "radio-terror"
-location               = "us-central1"
+location               = "global"
 
 transcribe_model       = "gemini-3.1-flash-lite"
 # ナビゲーターの思考 (会話生成・意図理解)。会話ターンごとに呼ぶため低レイテンシ重視

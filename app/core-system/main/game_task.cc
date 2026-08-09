@@ -471,9 +471,7 @@ void GameTask::TickCountdown() {
   // 終盤で点滅を加速させる (§4.1)
   UpdateFullColorLed();
 
-  if (0 < timer_digit_grace_ms_) {
-    timer_digit_grace_ms_ -= kTickMs;
-  }
+  UpdateTimerDigitGrace();
 
   // push_seq のフィードバック表示が終わったら上書きを解除する
   if (push_seq_.TickFeedback()) {
@@ -616,7 +614,31 @@ bool GameTask::IsPreconditionMet(const StageConfig& stage) const {
   return true;
 }
 
-bool GameTask::IsTimerDigitMet(const TimerDigitSpec& spec) const {
+/// timer_digit の猶予タイマーを進める。
+///
+/// 判定窓は「対象桁が一致する期間 + 直後1秒の猶予」(§5)。
+/// 一致している間は猶予を満タンに保ち、一致から外れた瞬間から減り始める。
+/// これにより「切ろうとしたら桁が変わってしまった」を救済する。
+void GameTask::UpdateTimerDigitGrace() {
+  if (state_ != STATE_PLAYING || session_.stages.empty()) {
+    timer_digit_grace_ms_ = 0;
+    return;
+  }
+  const StageConfig& stage = session_.stages[stage_index_];
+  if (!stage.precondition.has_timer_digit) {
+    timer_digit_grace_ms_ = 0;
+    return;
+  }
+
+  if (IsTimerDigitMatchedNow(stage.precondition.timer_digit)) {
+    timer_digit_grace_ms_ = kTimerDigitGraceMs;
+  } else if (0 < timer_digit_grace_ms_) {
+    timer_digit_grace_ms_ -= kTickMs;
+  }
+}
+
+/// 現在の残り時間の対象桁が条件に一致しているか (猶予を考慮しない素の判定)。
+bool GameTask::IsTimerDigitMatchedNow(const TimerDigitSpec& spec) const {
   const int32_t seconds = remaining_ms_ / 1000;
   const int32_t raw_digit =
       (spec.digit == TIMER_DIGIT_ONES) ? (seconds % 10) : (seconds / 10 % 10);
@@ -627,7 +649,11 @@ bool GameTask::IsTimerDigitMet(const TimerDigitSpec& spec) const {
   const int32_t target =
       (spec.match == TIMER_MATCH_ROTARY) ? rotary_position_ : spec.value;
 
-  if (digit == target) {
+  return digit == target;
+}
+
+bool GameTask::IsTimerDigitMet(const TimerDigitSpec& spec) const {
+  if (IsTimerDigitMatchedNow(spec)) {
     return true;
   }
 

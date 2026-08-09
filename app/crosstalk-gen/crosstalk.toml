@@ -18,7 +18,7 @@
 #
 # location は TTS モデルが提供されているリージョンに合わせる。
 project  = "radio-terror"
-location = "us-central1"
+location = "global"
 
 # 各発話で model / voice を省略したときに使われる値。
 model = "gemini-3.1-flash-tts-preview"

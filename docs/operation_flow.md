@@ -3,7 +3,7 @@
 ハンズオン1回あたりの運用の流れ。用語は `game_session_design.md` §1.1 に従う。
 
 - 作成日: 2026-08-08 / 更新日: 2026-08-09
-- ステータス: **実装済み**(混線音声・紙資料は制作待ち)
+- ステータス: **実装済み**(音声アセットは制作済み。紙資料は制作待ち)
 - 関連: `game_session_design.md`(Core側セッション設計) /
   `bridge_connection_design.md`(radio-bridge接続・バインド設計) /
   `puzzle_stage_ideas.md`(謎解きステージ集) /

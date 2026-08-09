@@ -17,8 +17,6 @@
 #include <esp_event_base.h>
 #include <memory>
 
-#include "i2c_util.h"
-#include "logger.h"
 
 namespace CoreSystem {
 
@@ -77,7 +75,9 @@ class System final
   std::unique_ptr<BatteryMonitorTask> battery_monitor_task_;
 
   /// 直近に確定したロータリー位置 (過渡状態では最後の確定値を保持する)
-  int8_t rotary_position_ = 0;
+  /// -1 は未確定。起動直後は位置が読めていないため 0 で初期化しない
+  /// (0 で初期化すると「実際に位置0にある」ケースで初回通知が飛ばない)
+  int8_t rotary_position_ = -1;
 };
 
 }  // namespace CoreSystem

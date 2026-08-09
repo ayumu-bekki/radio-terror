@@ -140,6 +140,12 @@ class GameTask final : public Task {
   void OnLineCut(ColorId color);
   bool IsPreconditionMet(const StageConfig& stage) const;
   bool IsTimerDigitMet(const TimerDigitSpec& spec) const;
+
+  /// 対象桁が今まさに条件に一致しているか (猶予を考慮しない素の判定)
+  bool IsTimerDigitMatchedNow(const TimerDigitSpec& spec) const;
+
+  /// timer_digit の猶予タイマーを進める (一致中は満タン、外れたら減衰)
+  void UpdateTimerDigitGrace();
   void ApplyPenalty(int32_t penalty_ms);
   void AdvanceStage();
   void ResetStageProgress();

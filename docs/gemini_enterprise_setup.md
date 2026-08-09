@@ -235,16 +235,21 @@ cd ../ && docker compose up game-server
 現在使っている `gemini-3.1-flash-tts-preview` などは、
 Gemini API と Gemini Enterprise Agent Platform で提供状況が異なることがある。
 
-`is not found` が出たら `location` を変えて試す。
+**実測結果 (2026-08-10、本プロジェクトのモデル構成)**
 
-```
-us-central1     … 最も多くのモデルが提供される
-us-east4
-asia-northeast1 … 東京。レイテンシは低いが提供モデルが少ないことがある
-```
+| location | TTS<br>`3.1-flash-tts-preview` | 推論/文字起こし<br>`3.5-flash-lite` / `3.1-flash-lite` |
+|---|---|---|
+| **`global`** | **OK** | **OK** |
+| `us-central1` | OK | 404 |
+| `asia-northeast1` | 404 | 404 |
 
-**会場のレイテンシを優先して `asia-northeast1` にしたい場合は、
-事前に全モデル (TTS・文字起こし・推論) が動くことを確認する。**
+**3モデルすべてが使えるのは `global` だけ**。`location = "global"` を使う。
+
+東京 (`asia-northeast1`) はレイテンシの点では有利だが、
+**プレビュー版モデルが1つも提供されていない**。会場のレイテンシを
+優先したい場合は、安定版モデルへの変更とセットで再検証が必要。
+
+モデル構成を変えたら、この表を実測で取り直すこと。
 
 ---
 
@@ -276,5 +281,6 @@ crosstalk-gen には `max_requests` (1回の実行の上限) があり、
 | 8 | SDK 定数は `genai.BackendEnterprise` を使う | 正式名称に合わせる。SDK は内部で `BackendVertexAI` に変換するため挙動は同一 |
 | 9 | Gemini API (APIキー認証) には対応しない | バックエンド切り替えの分岐を持たずシンプルに保つ。レート制限の厳しい Gemini API を本番で使う理由がない |
 | 10 | `api_key` 設定項目を廃止 | ADC 認証のみになり不要。設定ファイルから秘密情報が1つ減った |
+| 11 | `location = "global"` を使う | 実測で**3モデルすべてが使えるのは global のみ**。`us-central1` は TTS のみ、`asia-northeast1` は全て404。モデル構成を変えたら再検証する |
 
 <!-- EOF -->

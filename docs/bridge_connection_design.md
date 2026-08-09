@@ -162,8 +162,11 @@ radio-bridge は**チーム(周波数)ごとに1プロセス+専用オーディ�
 5. ✅ 音声バインド(意図抽出・検証・確認応答)
 6. ✅ radio-bridge-test-client の試験方式見直し(§6 のとおり bridge として振る舞う)
 
-**未検証**: radio-bridge (Rust) は ALSA / rppal が Linux 依存のため、
-開発機(macOS)ではビルドできない。**Docker または Raspberry Pi 実機での
-ビルド確認が必要**(`radio-bridge/Dockerfile` が唯一のビルド経路)。
+**ビルド経路**: radio-bridge (Rust) は ALSA / rppal が Linux 依存のため、
+開発機(macOS)ではビルドできない。`radio-bridge/Dockerfile` が唯一のビルド経路で、
+**Docker でのビルドは確認済み**。
+
+残るのは実機(Raspberry Pi + 特小無線)での**動作**確認。
+音声デバイス名・PTTのGPIO・遅延の実測が必要になる。
 
 <!-- EOF -->

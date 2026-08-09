@@ -11,6 +11,7 @@
 #include <string>
 
 #include "hardware_config.h"
+#include "i2c_util.h"
 #include "logger.h"
 #include "wifi_util.h"
 
@@ -196,7 +197,8 @@ void System::SetupLineWatchers() {
   }
 }
 
-/// MCP23017の全ピンを読み直し、前回値と差分があったピンをGameEventとして通知する
+/// 起動インジケータ (フルカラーLED) を設定する。
+/// 紫点灯=初期化中 / 紫点滅=初期化失敗 (§4.0)。
 void System::SetBootIndicator(const BootColor& color,
                               Pl9823Task::PatternType pattern) {
   Pl9823Task::Command command;
@@ -257,6 +259,7 @@ void System::PlayBootAnimation() {
   ht16k33_.WriteDisplay();
 }
 
+/// MCP23017の全ピンを読み直し、前回値と差分があったピンをGameEventとして通知する
 void System::CheckMCP23017Input() {
   bool rotary_changed = false;
 

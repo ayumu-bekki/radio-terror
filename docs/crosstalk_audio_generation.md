@@ -311,12 +311,29 @@ ffmpeg -i input.wav -c:a libopus -b:a 16k output.ogg
 ## 5. 効果音 (sfx) — 2ファイル
 
 混線とは別枠だが、同じく事前生成アセットとして必要。
-TTS ではなく効果音素材を用意する。
+TTS ではなく効果音素材を用意する。**配置済み**。
 
 ```
 assets/sfx/success.ogg   … 解体成功
 assets/sfx/failure.ogg   … 解体失敗
 ```
+
+サーバーはこのファイルを**そのまま無線へ流す**(`playSFX`)ため、
+radio-bridge が再生できる形式である必要がある。混線音声と同じく
+**Ogg Opus / モノラル / 24kHz** に揃える。
+
+素材が mp3 や wav の場合は ffmpeg で変換する。
+
+```bash
+ffmpeg -i success.mp3 -ac 1 -ar 24000 -c:a libopus -b:a 16k \
+       -application audio assets/sfx/success.ogg
+```
+
+`-application audio` は音楽・効果音向けの設定
+(TTS の音声は既定の `voip` でよいが、効果音は `audio` の方が音質が良い)。
+
+変換後に `ffprobe` が `sample_rate=48000` と表示するのは正常。
+Opus は内部的に常に48kHzで扱い、`OpusHead` の入力レートに 24000 が記録される。
 
 ---
 
