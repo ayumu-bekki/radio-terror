@@ -22,6 +22,23 @@
 
 namespace CoreSystem {
 
+/// 起動インジケータの色 (フルカラーLED)
+struct BootColor {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+};
+
+/// 初期化中を示す紫。電源投入直後から点灯する。
+inline constexpr BootColor kBootColorInitializing = {80, 0, 120};
+
+/// 初期化失敗を示す紫。点滅で「初期化中」と区別する
+/// (同じ色の点灯では成功/失敗が見分けられないため)。
+inline constexpr BootColor kBootColorFailed = {120, 0, 160};
+
+/// WiFi接続のタイムアウト。会場のWiFiが未設営でも起動を止めない。
+inline constexpr uint32_t kWifiConnectTimeoutMs = 15000;
+
 class System final
     : public std::enable_shared_from_this<System> {
  public:
@@ -31,6 +48,14 @@ class System final
   void Start();
 
  private:
+  /// 起動演出 (約3秒)。kLED A-E・7セグ・フルカラーLEDを順に光らせる。
+  /// デバイス初期化の直後、WiFi接続を待たずに実行する。
+  void PlayBootAnimation();
+
+  /// フルカラーLEDを起動インジケータとして光らせる。
+  /// 紫点灯=初期化中 / 紫点滅=初期化失敗。
+  void SetBootIndicator(const BootColor& color, Pl9823Task::PatternType pattern);
+
   /// MCP23017の全ピンを読み直し、変化したピンを GameEvent としてGameTaskへ通知する
   void CheckMCP23017Input();
 

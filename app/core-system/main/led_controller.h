@@ -121,14 +121,8 @@ class LedController final {
   }
 
  private:
-  /// kLED A-E の MCP23017 上の配置 ({group, gpio_no})
-  static constexpr uint8_t kLedPins[kColorNum][2] = {
-      {Mcp23017Pin::kGroupA, Mcp23017Pin::kLedA},
-      {Mcp23017Pin::kGroupA, Mcp23017Pin::kLedB},
-      {Mcp23017Pin::kGroupB, Mcp23017Pin::kLedC},
-      {Mcp23017Pin::kGroupB, Mcp23017Pin::kLedD},
-      {Mcp23017Pin::kGroupB, Mcp23017Pin::kLedE},
-  };
+  /// kLED A-E の配置は hardware_config.h の kLedPinsByColor を使う
+  static constexpr auto& kLedPins = Mcp23017Pin::kLedPinsByColor;
 
   /// 変化があった色だけI2Cへ書き込む (毎tickの全書き込みを避ける。§6.1)
   void Write(const bool desired[kColorNum]) {

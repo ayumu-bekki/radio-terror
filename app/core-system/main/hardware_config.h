@@ -33,12 +33,23 @@ constexpr uint8_t kLedD = 6;       // GPB6 OUT
 constexpr uint8_t kLedC = 7;       // GPB7 OUT
 
 /// OUTPUTピン一覧 ({group, gpio_no})
+/// 出力に設定するピン (初期化用。並びはGPIO番号順で意味を持たない)
 constexpr uint8_t kOutputPins[][2] = {
     {kGroupA, kLedA},
     {kGroupA, kLedB},
     {kGroupB, kLedE},
     {kGroupB, kLedD},
     {kGroupB, kLedC},
+};
+
+/// kLED A-E の配置を ColorId 順に並べたもの ({group, gpio_no})。
+/// 色を順に扱う処理 (ヒント表示・起動演出) はこちらを使う。
+constexpr uint8_t kLedPinsByColor[][2] = {
+    {kGroupA, kLedA},
+    {kGroupA, kLedB},
+    {kGroupB, kLedC},
+    {kGroupB, kLedD},
+    {kGroupB, kLedE},
 };
 }  // namespace Mcp23017Pin
 

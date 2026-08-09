@@ -39,6 +39,16 @@ constexpr uint8_t kRotaryGpios[kRotaryPositionNum] = {
     Mcp23017Pin::kRotary1, Mcp23017Pin::kRotary2, Mcp23017Pin::kRotary3,
     Mcp23017Pin::kRotary4, Mcp23017Pin::kRotary5, Mcp23017Pin::kRotary6,
 };
+
+/// 起動演出のタイミング
+/// 内訳: スイープ 5x160=800ms + 全点灯 1200ms + 点滅 3x(2x140)=840ms ≒ 2.8秒
+constexpr uint32_t kBootSweepStepMs = 160;  // 1色ずつ流す間隔
+constexpr uint32_t kBootAllOnMs = 1200;     // 全点灯で見せる時間
+constexpr uint32_t kBootFlashMs = 140;      // 点滅の点灯/消灯それぞれの時間
+constexpr int kBootFlashCount = 3;
+
+/// 起動演出中に7セグへ出す文字 ("8888" の全点灯)
+constexpr uint8_t kSevenSegAllOn = 0xFF;
 }  // namespace
 
 System::System()
@@ -51,12 +61,20 @@ System::~System() = default;
 void System::Start() {
   ESP_LOGI(TAG, "Start device_id=%s", CONFIG_CORE_SYSTEM_DEVICE_ID);
 
-  // WiFi接続
-  WifiUtil::ConnectStaAndWait(CONFIG_CORE_SYSTEM_WIFI_SSID, CONFIG_CORE_SYSTEM_WIFI_PASSWORD);
+  // 起動インジケータを最優先で点ける。
+  // 電源投入直後から「生きている」ことが目視で分かるようにする。
+  // 紫点灯 = 初期化中、紫点滅 = 初期化失敗 (§起動演出)。
+  pl9823_task_.Start();
+  SetBootIndicator(kBootColorInitializing, Pl9823Task::PATTERN_SOLID);
 
-  // I2C初期化
+  // I2C初期化 (LED演出に必要なので WiFi より先に行う)
   i2c_master_bus_handle_t bus_handle =
       I2CUtil::InitializeMaster(Esp32Pin::kI2cPortNo, Esp32Pin::kI2cSda, Esp32Pin::kI2cScl);
+  if (bus_handle == nullptr) {
+    ESP_LOGE(TAG, "I2C initialization failed");
+    SetBootIndicator(kBootColorFailed, Pl9823Task::PATTERN_BLINK);
+    return;
+  }
 
   // Input/Output設定 (LED以外は全ピン内部プルアップ有効のInputとして利用)
   for (uint8_t group = 0; group < MCP23017::GPIO_GROUP_NUM; ++group) {
@@ -79,8 +97,19 @@ void System::Start() {
   // HT16K33設定・初期化 (発振器ON, 表示ON, 輝度最大, 表示クリア)
   ht16k33_.Setup(bus_handle, I2cAddress::kHt16k33);
 
-  // PL9823制御タスク起動 (状態表示はGameTaskから指示する)
-  pl9823_task_.Start();
+  // 起動演出 (約3秒)。デバイス初期化が終わった直後に流す。
+  // WiFi接続を待たないので、電源投入から早く始まる。
+  PlayBootAnimation();
+
+  // WiFi接続。会場のWiFiが未設営でも起動を止めない (タイムアウトあり)。
+  // Core はセッション受信後、WiFiが切れても単体でゲームを完遂できる。
+  if (!WifiUtil::ConnectStaAndWait(CONFIG_CORE_SYSTEM_WIFI_SSID,
+                                   CONFIG_CORE_SYSTEM_WIFI_PASSWORD,
+                                   kWifiConnectTimeoutMs)) {
+    ESP_LOGE(TAG, "WiFi connection failed");
+    SetBootIndicator(kBootColorFailed, Pl9823Task::PATTERN_BLINK);
+    // 起動は続行する。WS接続は ws_client_ 側の再接続に委ねる。
+  }
 
   // WebSocketの受信・接続状態をGameTaskのイベントとして流す (§8.1)
   ws_client_.SetMessageHandler([this](const std::string& message) {
@@ -168,6 +197,66 @@ void System::SetupLineWatchers() {
 }
 
 /// MCP23017の全ピンを読み直し、前回値と差分があったピンをGameEventとして通知する
+void System::SetBootIndicator(const BootColor& color,
+                              Pl9823Task::PatternType pattern) {
+  Pl9823Task::Command command;
+  command.pattern = pattern;
+  command.r = color.r;
+  command.g = color.g;
+  command.b = color.b;
+  command.on_ms = 300;
+  command.off_ms = 300;
+  pl9823_task_.SendCommand(command);
+}
+
+void System::PlayBootAnimation() {
+  ESP_LOGI(TAG, "Boot animation");
+
+  const auto sleep_ms = [](uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); };
+
+  // 1) kLED A-E を左から順に点けていく (点けたら消さないので、
+  //    流れながら全点灯へ向かう)。同時に7セグの桁も1つずつ埋める。
+  for (uint8_t i = 0; i < kColorNum; ++i) {
+    const auto& pin = Mcp23017Pin::kLedPinsByColor[i];
+    mcp23017_.SetOutputGpio(pin[0], pin[1], true, true);
+    if (i < HT16K33::DIGIT_NUM) {
+      ht16k33_.WriteDigitRaw(i, kSevenSegAllOn);
+      ht16k33_.WriteDisplay();
+    }
+    sleep_ms(kBootSweepStepMs);
+  }
+
+  // 2) 全点灯でしばらく見せる
+  sleep_ms(kBootAllOnMs);
+
+  // 3) 全体を数回点滅させて締める
+  for (int n = 0; n < kBootFlashCount; ++n) {
+    for (const auto& pin : Mcp23017Pin::kLedPinsByColor) {
+      mcp23017_.SetOutputGpio(pin[0], pin[1], false, true);
+    }
+    ht16k33_.Clear();
+    ht16k33_.WriteDisplay();
+    sleep_ms(kBootFlashMs);
+
+    for (const auto& pin : Mcp23017Pin::kLedPinsByColor) {
+      mcp23017_.SetOutputGpio(pin[0], pin[1], true, true);
+    }
+    for (uint8_t d = 0; d < HT16K33::DIGIT_NUM; ++d) {
+      ht16k33_.WriteDigitRaw(d, kSevenSegAllOn);
+    }
+    ht16k33_.WriteDisplay();
+    sleep_ms(kBootFlashMs);
+  }
+
+  // 4) 消灯して通常状態へ戻す。
+  //    GameTask は全消灯を前提に描画を始めるため、必ず消してから抜ける。
+  for (const auto& pin : Mcp23017Pin::kLedPinsByColor) {
+    mcp23017_.SetOutputGpio(pin[0], pin[1], false, true);
+  }
+  ht16k33_.Clear();
+  ht16k33_.WriteDisplay();
+}
+
 void System::CheckMCP23017Input() {
   bool rotary_changed = false;
 

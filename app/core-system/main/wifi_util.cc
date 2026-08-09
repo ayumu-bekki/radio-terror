@@ -4,6 +4,8 @@
 // Include ----------------------
 #include "wifi_util.h"
 
+#include <cinttypes>
+
 #include <cstring>
 
 #include <esp_event.h>
@@ -36,7 +38,8 @@ void OnWifiEvent(void* arg, esp_event_base_t event_base, int32_t event_id,
 
 }  // namespace
 
-void ConnectStaAndWait(const char* ssid, const char* password) {
+bool ConnectStaAndWait(const char* ssid, const char* password,
+                       uint32_t timeout_ms) {
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
   ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -63,9 +66,16 @@ void ConnectStaAndWait(const char* ssid, const char* password) {
   ESP_ERROR_CHECK(esp_wifi_start());
 
   ESP_LOGI(TAG, "Connecting to WiFi SSID:%s ...", ssid);
-  xEventGroupWaitBits(g_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE,
-                      pdTRUE, portMAX_DELAY);
+  // 会場のWi-Fiが未設営でも起動を止めないため、無限待ちにはしない。
+  const EventBits_t bits =
+      xEventGroupWaitBits(g_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE,
+                          pdTRUE, pdMS_TO_TICKS(timeout_ms));
+  if ((bits & WIFI_CONNECTED_BIT) == 0) {
+    ESP_LOGW(TAG, "WiFi connect timeout (%" PRIu32 "ms)", timeout_ms);
+    return false;
+  }
   ESP_LOGI(TAG, "WiFi Connected");
+  return true;
 }
 
 }  // namespace WifiUtil
