@@ -1,0 +1,29 @@
+# 205. ブループリント (docs/puzzle_stage_ideas.md §2.2)
+# Coreの隣に置いた「整備マニュアル風の回路図シート」を使う。
+# ナビゲーターは色を言わず「端子T4の線を切ってください」とだけ指示する。
+#
+# 端子番号(T1-T5) ⇔ 配線色 の対応はシートに印刷された固定内容のため、
+# サーバー設定 (config.toml の [mission_sheet].terminal_map) を参照して
+# cut から端子番号を導出する。
+
+id = "205"
+name = "ブループリント"
+difficulty = "normal"
+
+[random]
+cut = { pick = "line" }
+# 切る線の色から、シート上の端子番号を引く
+terminal = { derive = "terminal_for_color", from = "${cut}" }
+
+[core]
+# ヒントLEDは出さない (シートだけが手がかり)
+cut = "${cut}"
+on_wrong_cut = { action = "explode" }
+
+[navigator]
+briefing = "Coreの隣にある回路図シートに、端子番号(T1〜T5)と配線色の対応が描かれている。ナビゲーターは端子番号だけを指示し、色は言わない。"
+answer = "正解は端子${terminal}の線 = ${cut}色。ただしプレイヤーには端子番号だけを伝え、色は最後まで言わない。"
+procedure = "「端子${terminal}の線を切ってください」と端子番号で指示する。プレイヤーが色を復唱してきたら、シートで確認できたかだけを確認し、色名はこちらから言わない。"
+hint_l1 = "手元の回路図シートを見るよう促し、端子番号${terminal}を伝える"
+hint_l2 = "シート上で端子番号と配線色の対応表を探すよう促す"
+hint_l3 = "対応表の読み方を具体的に説明してよい(ただし色名は最後まで言わない)"

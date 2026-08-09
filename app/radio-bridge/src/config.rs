@@ -10,13 +10,13 @@ pub struct Config {
     pub queue: QueueConfig,
 }
 
-/// wl-game-server への接続設定。
+/// game-server への接続設定。
 ///
 /// 接続方向は反転済み (docs/bridge_connection_design.md §2 決定1) のため、
 /// bridge は listen せず、サーバーへダイヤルインする。
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
-    /// 接続先 wl-game-server の gRPC エンドポイント (例: "http://wl-game-server:50051")
+    /// 接続先 game-server の gRPC エンドポイント (例: "http://game-server:50051")
     pub server_addr: String,
 
     /// 自分の bridge ID。環境変数 RADIO_BRIDGE_ID があればそちらを優先する (§2 決定2)。
@@ -124,7 +124,7 @@ mod tests {
 
     const SAMPLE: &str = r#"
 [server]
-server_addr = "http://wl-game-server:50051"
+server_addr = "http://game-server:50051"
 bridge_id = "TOML_ID"
 [gpio]
 ptt_pin = 26

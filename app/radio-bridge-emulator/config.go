@@ -12,12 +12,12 @@ type Config struct {
 	Audio  AudioConfig  `toml:"audio"`
 }
 
-// ServerConfig は wl-game-server への接続設定。
+// ServerConfig は game-server への接続設定。
 //
 // 接続方向は反転済み (docs/bridge_connection_design.md §2 決定1) のため、
 // エミュレータは listen せずサーバーへダイヤルインする。
 type ServerConfig struct {
-	// ServerAddr は接続先 wl-game-server の gRPC エンドポイント
+	// ServerAddr は接続先 game-server の gRPC エンドポイント
 	ServerAddr string `toml:"server_addr"`
 	// BridgeID は自分の ID。環境変数 RADIO_BRIDGE_ID があればそちらを優先する
 	BridgeID string `toml:"bridge_id"`

@@ -21,13 +21,13 @@ use proto::AudioChunk;
 /// (docs/bridge_connection_design.md §2 決定3)。
 const BRIDGE_ID_METADATA_KEY: &str = "bridge-id";
 
-/// wl-game-server へダイヤルインする gRPC クライアント。
+/// game-server へダイヤルインする gRPC クライアント。
 ///
 /// 接続方向は設計で反転済み (§2 決定1): radio-bridge がクライアントとなり
-/// wl-game-server へ接続する。サーバーは周辺機器のアドレスを管理せず、
+/// game-server へ接続する。サーバーは周辺機器のアドレスを管理せず、
 /// 確立済みの双方向ストリーム自体が返信路になる。
 pub struct BridgeClient {
-    /// 接続先 wl-game-server の gRPC エンドポイント
+    /// 接続先 game-server の gRPC エンドポイント
     server_addr: String,
     /// 自分の ID。接続時に bridge-id メタデータで送る (§2 決定2)
     bridge_id: String,
@@ -91,7 +91,7 @@ impl BridgeClient {
         info!(
             bridge_id = %self.bridge_id,
             server = %self.server_addr,
-            "connected to wl-game-server"
+            "connected to game-server"
         );
 
         // マイク音声をサーバーへ送るストリーム

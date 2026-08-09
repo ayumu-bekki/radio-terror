@@ -19,7 +19,7 @@
 | 4 | CoreID銘板 | 全体(音声申告・205) | 個体ごと | あり(`CONFIG_CORE_SYSTEM_DEVICE_ID`) |
 
 **サーバー設定との連動があるもの**は、印刷内容を変えたら
-`app/wl-game-server/config.toml` の `[mission_sheet]` も必ず更新する。
+`app/game-server/config.toml` の `[mission_sheet]` も必ず更新する。
 食い違うとナビゲーターの指示と正解がずれ、プレイヤーが理不尽に失敗する。
 
 ## 1. 共通事項
@@ -119,7 +119,7 @@ A-Z の全26文字を印刷する。色は**5色の循環割当**
 | 白 | ECHO, TANGO, OSCAR |
 
 候補語を増減する場合は
-`app/wl-game-server/scenarios/stages/203_angou_denbun.toml` と
+`app/game-server/scenarios/stages/203_angou_denbun.toml` と
 `304_angou_denbun_hard.toml` の**両方**を編集する(同じ候補語を使っている)。
 **各色に最低1語は残す**こと(どの色が残っていても出題できる必要がある。
 `puzzle_stage_ideas.md` §5)。

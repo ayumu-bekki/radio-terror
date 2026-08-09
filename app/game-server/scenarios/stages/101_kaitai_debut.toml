@@ -1,0 +1,34 @@
+# 101. 解体デビュー (docs/puzzle_stage_ideas.md §2.1)
+# ナビゲーターが会話でロータリーを誘導するチュートリアル。
+# イージー専用・先頭固定。禁止位置はペナルティ+警告に留め、爆発させない。
+
+id = "101"
+name = "解体デビュー"
+difficulty = "easy"
+easy_only = true # ノーマル・ハードでは選出しない
+
+[random]
+cut = { pick = "line" }
+# 誘導する手順の最終位置と、その途中経路
+final_rotary = { pick = "int", min = 0, max = 5 }
+# 禁止位置は最終位置と重ならないよう exclude で外す
+forbidden = { pick = "int", min = 0, max = 5, exclude = ["${final_rotary}"] }
+
+[core]
+leds = { "${cut}" = "on" }
+cut = "${cut}"
+precondition = { rotary = "${final_rotary}" }
+forbidden_rotary = { positions = [
+  "${forbidden}",
+], on_violation = { action = "penalty", penalty_ms = 20000 } }
+# チュートリアルなので誤切断も即失敗にはしない
+on_wrong_cut = { action = "penalty", penalty_ms = 30000 }
+
+[navigator]
+briefing = "解体の基本手順を確認する。ダイヤル(ロータリースイッチ)を指示どおりに合わせてから、指定の線を切る。"
+answer = "正解はダイヤルを${final_rotary}に合わせた状態で${cut}色の線を切ること。ダイヤル${forbidden}は危険位置で、そこで止めるとペナルティになる。"
+# 会話でロータリーを誘導する。初期位置が不定でも「まず0に戻す」で解決する
+procedure = "まず0に戻させ、次に4まで回させ、2に戻させ、最後に${final_rotary}に合わせさせる。中間手順の確認はプレイヤーの返答で行う。"
+hint_l1 = "装置の正面にあるダイヤルに注目させ、まず0に戻すよう指示する"
+hint_l2 = "手順を1つずつ区切って伝え、そのつど返答を待つ。ダイヤル${forbidden}には合わせないよう警告する"
+hint_l3 = "最終的にダイヤルを合わせる位置と、切る線を色以外の言い方(点灯しているランプと同じ色など)で伝えてよい"

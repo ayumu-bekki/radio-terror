@@ -1,0 +1,68 @@
+# game-server 設定サンプル
+# 設計: docs/game_session_design.md / docs/bridge_connection_design.md /
+#       docs/scenario_design.md / docs/operation_flow.md
+
+[radio_bridge]
+# radio-bridge からのダイヤルインを受ける gRPC の listen アドレス。
+# 接続方向は反転済みのため、個々の bridge のアドレスは設定しない
+# (bridge を増設してもここは変更不要)。
+listen_addr = ":50051"
+
+[websocket]
+# core-system デバイスとトランシーバークライアントが相乗りする WebSocket。
+# マネージャー向け Web 画面も同じポートの /manager で提供される。
+listen_addr = ":8080"
+
+[gemini]
+api_key                = "GEMINI_API_KEY"
+transcribe_model       = "gemini-3.1-flash-lite"
+# ナビゲーターの思考 (会話生成・意図理解)。会話ターンごとに呼ぶため低レイテンシ重視
+reasoning_model        = "gemini-3.5-flash-lite"
+tts_model              = "gemini-3.1-flash-tts-preview"
+transcribe_prompt_file = "transcribe_prompt.txt"
+transcribe_schema_file = "transcribe_schema.json"
+
+[scenario]
+# シナリオテンプレートの配置 (stages/ と difficulty/ を含むディレクトリ)
+dir = "scenarios"
+
+[navigator]
+# ナビゲーター設定の配置 (prompt.toml と characters/ を含むディレクトリ)
+# キャラクターの口調・プロンプトはここのTOMLを編集して再起動すれば反映される。
+dir = "navigator"
+
+[valkey]
+# セッション状態・会話ログ・スコアの永続化先。
+# 空文字またはセクションごと省略した場合はメモリのみで動作する
+# (再起動での復帰はできない)。
+addr = "valkey:6379"
+
+[assets]
+# 混線音声・効果音アセットの配置。
+#   {dir}/crosstalk/{jamming,ambient,uneasy}/*.ogg
+#   {dir}/sfx/success.ogg, {dir}/sfx/failure.ogg
+# 未制作でもサーバーは起動する (該当の再生がスキップされる)。
+dir = "assets"
+
+[manager]
+# 強制リセット(キルスイッチ)の秘密ワード。運営内でのみ共有する。
+# 一致判定はかな正規化のゆるい一致 (認識ゆれで効かない事態を防ぐ)。
+secret_word = "でんぱ"
+
+[mission_sheet]
+# 紙資料の物理定数 (docs/puzzle_stage_ideas.md §7)。
+# シートを刷り直した場合はここを更新する。
+# 07 運命の二択: シート上の記号の数と数字の合計
+symbol_count = 28
+number_sum   = 47
+
+# E ブループリント: 回路図シートの端子番号 → 配線色 の対応
+[mission_sheet.terminal_map]
+T1 = "A"  # 赤
+T2 = "B"  # 黄
+T3 = "C"  # 緑
+T4 = "D"  # 青
+T5 = "E"  # 白
+
+[log]
+level = "info"

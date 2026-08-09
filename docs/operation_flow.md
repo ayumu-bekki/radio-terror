@@ -128,7 +128,7 @@
   形式は **Ogg Opus**(radio-bridge がそのままキューへ積んで再生する)。
   「別現場の通信」はイベント駆動再生でサーバーが名前指定で参照するため、
   ファイル名を `uneasy_bessgenba.ogg` に固定する。
-  制作用の一覧は `app/wl-game-server/assets/README.md` に置く。
+  制作用の一覧は `app/game-server/assets/README.md` に置く。
 - **アセットが未制作でもサーバーは起動する**(該当の再生がスキップされ、
   ログとマネージャー向けWeb画面に読み込み数が出る)。コンテンツ制作を
   待たずにゲーム進行の検証ができる。

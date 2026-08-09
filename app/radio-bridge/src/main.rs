@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     info!("audio recorder started on device: {}", config.audio.input_device);
 
-    // wl-game-server へダイヤルインするクライアント
+    // game-server へダイヤルインするクライアント
     // (docs/bridge_connection_design.md §2 決定1: 接続方向の反転)
     let client = BridgeClient::new(
         config.server.server_addr.clone(),

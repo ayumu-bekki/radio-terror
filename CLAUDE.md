@@ -13,10 +13,10 @@ RADIO TERROR — トランシーバー(特小無線)で生成AIナビゲータ�
 
 ## コマンド
 
-### wl-game-server (Go)
+### game-server (Go)
 
 ```bash
-cd app/wl-game-server
+cd app/game-server
 go build ./... && go vet ./... && go test ./...
 
 # 単体テスト
@@ -26,16 +26,16 @@ go test -run "TestHintLevel" -v      # 前方一致で複数実行
 
 `gofmt -w <file>` は編集後に必ず実行する。ただし `callsign.go` は元から未フォーマットなので触らない。
 
-### core_system (ESP-IDF / C++)
+### core-system (ESP-IDF / C++)
 
 ```bash
-cd app/core_system
+cd app/core-system
 source /opt/esp-idf/export.sh   # または get_idf
 idf.py build                    # ESP-IDF v6.0
 idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)の設定
 ```
 
-- **必ずプロジェクトルート (`app/core_system`) で実行する**。`main/` で実行すると
+- **必ずプロジェクトルート (`app/core-system`) で実行する**。`main/` で実行すると
   そこに `build/` を作って失敗する。
 - clangd が `-mlongcalls` や `std::string` について大量のエラーを出すが、
   xtensa ツールチェーンを見ていないだけの**偽陽性**。`idf.py build` が唯一の判断基準。
@@ -59,7 +59,7 @@ macOS で検証する場合、`src/config.rs` は `serde`/`toml` にしか依存
 
 ```bash
 cd app
-cp wl-game-server/config.sample.toml wl-game-server/config.toml  # api_key を設定
+cp game-server/config.sample.toml game-server/config.toml  # api_key を設定
 docker compose up
 ```
 
@@ -70,7 +70,7 @@ docker compose up
 ### 接続方向 — 周辺機器がすべてサーバーへダイヤルインする
 
 ```
-[core_system 複数台] ──WebSocket /ws──▶ [wl-game-server] ◀── gRPC ── [radio-bridge 複数]
+[core-system 複数台] ──WebSocket /ws──▶ [game-server] ◀── gRPC ── [radio-bridge 複数]
                                              │
                                           [Valkey]
 ```
@@ -87,7 +87,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 
 謎解きの内容は完全にサーバー側コンテンツの責務で、**謎の差し替えにファーム書き換えは不要**。
 
-### wl-game-server の主要な流れ
+### game-server の主要な流れ
 
 | 経路 | ファイル |
 |---|---|
@@ -100,7 +100,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 
 **`/ws` は1エンドポイントにトランシーバーとデバイスが相乗り**する。
 接続種別は最初のメッセージで判定する(`login` → トランシーバー、
-`device_status` → core_system)。
+`device_status` → core-system)。
 
 ### 外部ファイルで差し替えられるもの(再ビルド不要)
 
@@ -108,10 +108,10 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 
 | 場所 | 内容 |
 |---|---|
-| `app/wl-game-server/scenarios/stages/*.toml` | ステージ定義(1ステージ1ファイル) |
-| `app/wl-game-server/scenarios/difficulty/*.toml` | 難易度テンプレート |
-| `app/wl-game-server/navigator/prompt.toml` | 共通役割定義・出力ルール・発話トリガー指示 |
-| `app/wl-game-server/navigator/characters/*.toml` | キャラクター(1人1ファイル) |
+| `app/game-server/scenarios/stages/*.toml` | ステージ定義(1ステージ1ファイル) |
+| `app/game-server/scenarios/difficulty/*.toml` | 難易度テンプレート |
+| `app/game-server/navigator/prompt.toml` | 共通役割定義・出力ルール・発話トリガー指示 |
+| `app/game-server/navigator/characters/*.toml` | キャラクター(1人1ファイル) |
 
 保留中のステージは `.toml.disabled` にしておけば置いたまま無効化できる。
 

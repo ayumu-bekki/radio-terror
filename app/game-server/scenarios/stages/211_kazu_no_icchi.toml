@@ -1,0 +1,44 @@
+# 211. 数の一致 (docs/puzzle_stage_ideas.md §2.2)
+#
+# 5つのランプがそれぞれ**モールスの数字**を表示し続ける。
+# ナビゲーターが指定した数字を出している色の線を切る。
+#
+# 203/304 の暗号電文は「対照表で語を色へ変換する」謎だが、こちらは
+# **数字そのものを読む**だけなので対照表が不要。代わりに5色すべてを
+# 読み分ける必要があり、対象を絞り込む作業が謎になる。
+#
+# モールスの数字は5要素で構成され (1 = ".----" など)、長短の並びで
+# 読み分けられる。0は "-----" (長点5つ) で最も見分けやすい。
+
+id = "211"
+name = "数の一致"
+difficulty = "normal"
+
+[random]
+# 正解の色と、そこに表示する数字
+cut = { pick = "line" }
+target_digit = { pick = "choice", candidates = ["1", "2", "3", "4", "5"] }
+
+# 他の4色。正解と重複しない数字を割り当てる
+o1 = { pick = "color", exclude = ["${cut}"] }
+o2 = { pick = "color", exclude = ["${cut}", "${o1}"] }
+o3 = { pick = "color", exclude = ["${cut}", "${o1}", "${o2}"] }
+o4 = { pick = "color", exclude = ["${cut}", "${o1}", "${o2}", "${o3}"] }
+d1 = { pick = "choice", candidates = ["6", "7", "8", "9", "0"] }
+d2 = { pick = "choice", candidates = ["6", "7", "8", "9", "0"], exclude = ["${d1}"] }
+d3 = { pick = "choice", candidates = ["6", "7", "8", "9", "0"], exclude = ["${d1}", "${d2}"] }
+d4 = { pick = "choice", candidates = ["6", "7", "8", "9", "0"], exclude = ["${d1}", "${d2}", "${d3}"] }
+
+[core]
+# 各色がモールスで1桁の数字を繰り返し表示する
+leds = { "${cut}" = { pattern = "morse", word = "${target_digit}", unit_ms = 250 }, "${o1}" = { pattern = "morse", word = "${d1}", unit_ms = 250 }, "${o2}" = { pattern = "morse", word = "${d2}", unit_ms = 250 }, "${o3}" = { pattern = "morse", word = "${d3}", unit_ms = 250 }, "${o4}" = { pattern = "morse", word = "${d4}", unit_ms = 250 } }
+cut = "${cut}"
+on_wrong_cut = { action = "explode" }
+
+[navigator]
+briefing = "5つのランプがそれぞれモールス信号で1桁の数字を表示している。指定した数字を出している色の線を切る。ミッションシートのモールス対照表で数字を読む。"
+answer = "切るのは${target_digit}を表示している${cut}色の線。他の色は ${d1} / ${d2} / ${d3} / ${d4} を表示している。"
+procedure = "先に『${target_digit}を出している色を探せ』と数字を伝える。5色すべてを読む必要はなく、目的の数字が見つかった時点で切ってよいと助言する。対照表の数字の欄を見るよう促す。長点(長い光)と短点(短い光)の数で読み分けると伝える。"
+hint_l1 = "5つのランプすべてがモールス信号を出していること、探す数字を伝える"
+hint_l2 = "対照表の数字の欄を使うこと、長点と短点の並びで読み分けることを伝える"
+hint_l3 = "目的の数字のモールス符号(長短の並び)を口頭で伝えてよい(色名は言わない)"

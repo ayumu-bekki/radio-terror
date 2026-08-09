@@ -32,14 +32,14 @@ const bridgeIDMetadataKey = "bridge-id"
 func main() {
 	if len(os.Args) < 3 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <host> <port> [bridge_id]\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  接続先は wl-game-server の gRPC ポート (既定 50051)。\n")
+		fmt.Fprintf(os.Stderr, "  接続先は game-server の gRPC ポート (既定 50051)。\n")
 		fmt.Fprintf(os.Stderr, "  bridge_id 省略時は環境変数 RADIO_BRIDGE_ID、それも無ければ TEST01。\n")
 		os.Exit(1)
 	}
 	addr := fmt.Sprintf("%s:%s", os.Args[1], os.Args[2])
 
 	// 接続方向の反転 (§2 決定1) により、このクライアントは radio-bridge ではなく
-	// wl-game-server へダイヤルインし、1つの bridge として振る舞う。
+	// game-server へダイヤルインし、1つの bridge として振る舞う。
 	bridgeID := os.Getenv("RADIO_BRIDGE_ID")
 	if len(os.Args) > 3 {
 		bridgeID = os.Args[3]

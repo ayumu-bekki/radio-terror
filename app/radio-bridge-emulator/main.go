@@ -43,7 +43,7 @@ func main() {
 		cancel()
 	}()
 
-	// wl-game-server へダイヤルインする (接続方向の反転)
+	// game-server へダイヤルインする (接続方向の反転)
 	log.Printf("radio-bridge-emulator starting as %s -> %s",
 		cfg.Server.BridgeID, cfg.Server.ServerAddr)
 	newBridgeClient(cfg.Server, rec, pl).run(ctx)

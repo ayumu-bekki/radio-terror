@@ -1,5 +1,5 @@
 [server]
-# 接続先 wl-game-server の gRPC エンドポイント。
+# 接続先 game-server の gRPC エンドポイント。
 # 接続方向は反転済みのため、エミュレータ側は listen しない
 # (docs/bridge_connection_design.md §2 決定1)。
 server_addr = "localhost:50051"

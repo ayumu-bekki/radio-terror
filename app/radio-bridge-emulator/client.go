@@ -20,7 +20,7 @@ import (
 // (docs/bridge_connection_design.md §2 決定3)。
 const bridgeIDMetadataKey = "bridge-id"
 
-// bridgeClient は wl-game-server へダイヤルインする gRPC クライアント。
+// bridgeClient は game-server へダイヤルインする gRPC クライアント。
 //
 // 接続方向は設計で反転済み (§2 決定1) のため、エミュレータも radio-bridge と
 // 同様にクライアントとして動作する。

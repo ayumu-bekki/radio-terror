@@ -21,10 +21,10 @@ pcb/**/gerber/
 # Rust
 target/
 
-# wl-game-server (contains API keys, use *.sample.toml as templates)
-app/wl-game-server/config.toml
-app/wl-game-server/config-mac-docker.toml
-app/wl-game-server/wl-game-server
+# game-server (contains API keys, use *.sample.toml as templates)
+app/game-server/config.toml
+app/game-server/config-mac-docker.toml
+app/game-server/game-server
 
 # esp32
 **/sdkconfig
@@ -33,4 +33,5 @@ app/wl-game-server/wl-game-server
 **/managed_components/
 **/.cache/
 
-
+# 別ツール(Antigravity CLI)の生成物
+**/.antigravitycli/

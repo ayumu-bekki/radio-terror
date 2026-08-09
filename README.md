@@ -19,7 +19,7 @@ RADIO TERROR
 ## 構成
 
 ```
-[core_system (複数台)] ──WebSocket /ws──▶ [wl-game-server] ◀── gRPC ── [radio-bridge (複数)]
+[core-system (複数台)] ──WebSocket /ws──▶ [game-server] ◀── gRPC ── [radio-bridge (複数)]
                                               │
                                           [Valkey]  ナビゲーター(生成AI)・混線演出
 ```
@@ -29,16 +29,16 @@ RADIO TERROR
 
 | コンポーネント | 言語 | 役割 |
 |---|---|---|
-| `app/core_system` | C++ (ESP-IDF) | Core本体。セッションJSONを受け取り単体でゲームを完遂する |
-| `app/wl-game-server` | Go | セッション組み立て・ナビゲーター・混線・永続化・マネージャー画面 |
+| `app/core-system` | C++ (ESP-IDF) | Core本体。セッションJSONを受け取り単体でゲームを完遂する |
+| `app/game-server` | Go | セッション組み立て・ナビゲーター・混線・永続化・マネージャー画面 |
 
 **編集して再起動すれば反映される設定**(再ビルド不要):
 
 | 場所 | 内容 |
 |---|---|
-| `app/wl-game-server/scenarios/` | ステージ定義・難易度テンプレート |
-| `app/wl-game-server/navigator/` | ナビゲーターのキャラクター・プロンプト |
-| `app/wl-game-server/config.toml` | モデル・接続先・紙資料の物理定数など |
+| `app/game-server/scenarios/` | ステージ定義・難易度テンプレート |
+| `app/game-server/navigator/` | ナビゲーターのキャラクター・プロンプト |
+| `app/game-server/config.toml` | モデル・接続先・紙資料の物理定数など |
 | `app/radio-bridge` | Rust | 特小無線とのPTT制御・音声入出力(Raspberry Pi) |
 | `app/radio-bridge-emulator` | Go | radio-bridge の代替(PCのマイク・スピーカーを使う) |
 | `app/radio-bridge-test-client` | Go | 動作確認用CLI(1つのbridgeとして振る舞う) |
@@ -47,12 +47,12 @@ RADIO TERROR
 
 ```bash
 cd app
-cp wl-game-server/config.sample.toml wl-game-server/config.toml  # api_key を設定する
+cp game-server/config.sample.toml game-server/config.toml  # api_key を設定する
 docker compose up
 ```
 
 - マネージャー向け画面: <http://localhost:8080/manager>
-- Core (core_system) の接続先とCoreIDは `idf.py menuconfig` の
+- Core (core-system) の接続先とCoreIDは `idf.py menuconfig` の
   "Core System Configuration" で設定する(CoreIDは数字4桁)。
 
 radio-bridge はチーム(周波数)ごとに1プロセス動かす。プロセスごとに変わる設定は
@@ -74,5 +74,5 @@ radio-bridge はチーム(周波数)ごとに1プロセス動かす。プロセ�
 
 - 紙資料: モールス対照表・記号/数字シート・回路図シート・CoreID銘板。
   **印刷する表の中身と制作要件は [`docs/printed_materials.md`](docs/printed_materials.md)**
-- 混線音声・効果音アセット(`app/wl-game-server/assets/README.md` に
+- 混線音声・効果音アセット(`app/game-server/assets/README.md` に
   ファイル名規約とセリフ一覧)

@@ -1,7 +1,7 @@
 # radio-bridge 接続設計 (複数台対応・ID付与・動的チームバインド)
 
 radio-bridge を複数プロセス運用するための接続方式と、
-チーム(無線)⇔ core_system デバイスの対応付けの設計。
+チーム(無線)⇔ core-system デバイスの対応付けの設計。
 
 - 作成日: 2026-08-08 / 更新日: 2026-08-09
 - ステータス: **実装済み**。実装由来の決定は §2 決定事項 #6-8
@@ -14,7 +14,7 @@ radio-bridge を複数プロセス運用するための接続方式と、
 
 **(この節は設計時点の課題認識。現在は §2 の決定どおり実装済み)**
 
-設計当時は wl-game-server が gRPC クライアントとして、config の単一 `host:port` に
+設計当時は game-server が gRPC クライアントとして、config の単一 `host:port` に
 ダイヤルして radio-bridge(gRPCサーバー)と1本の双方向ストリームを張っていた。
 
 - radio-bridge を複数プロセス(Audioデバイス複数)動かしたい
@@ -25,19 +25,19 @@ radio-bridge を複数プロセス運用するための接続方式と、
 
 | # | 論点 | 決定 |
 |---|---|---|
-| 1 | 接続方向 | **反転する**。radio-bridge が gRPC クライアントになり wl-game-server にダイヤルする。サーバーは周辺機器のアドレスを一切管理せず、bridge 増設時のサーバー側 config 変更も不要。core_system の WS 接続と同じ「周辺機器 → サーバーへのダイヤルイン」パターンに統一 |
+| 1 | 接続方向 | **反転する**。radio-bridge が gRPC クライアントになり game-server にダイヤルする。サーバーは周辺機器のアドレスを一切管理せず、bridge 増設時のサーバー側 config 変更も不要。core-system の WS 接続と同じ「周辺機器 → サーバーへのダイヤルイン」パターンに統一 |
 | 2 | ID の付与 | radio-bridge は起動時に環境変数(例: `RADIO_BRIDGE_ID`)で ID を受け取る |
 | 3 | ID の伝達 | 接続時に **gRPC メタデータ**(`bridge-id` ヘッダー)で送る。proto 変更不要。将来交換する情報が増えたら Hello メッセージ方式に移行する |
 | 4 | 返信路 | サーバーはアドレス・ポートを記録**しない**。確立済みの双方向ストリーム自体が返信路であり、`map[bridge_id] → ストリーム(送信チャネル)` のレジストリを保持して返信はそのストリームに書く |
 | 5 | チーム対応 | **動的バインド**。マネージャーがトランシーバー経由で Core の ID と難易度を音声で申告し、サーバーがその無線(bridge)と Core を紐付けてセッションを開始する(§5) |
-| 6 | test-client の試験方式(実装時) | モックサーバーは作らず、**wl-game-server へ直接ダイヤルインして1つの bridge として振る舞う**方式にした。実機と同じ経路を通るため、モックと本番の挙動差が生まれない(§6) |
+| 6 | test-client の試験方式(実装時) | モックサーバーは作らず、**game-server へ直接ダイヤルインして1つの bridge として振る舞う**方式にした。実機と同じ経路を通るため、モックと本番の挙動差が生まれない(§6) |
 | 7 | 必須設定が未設定の場合(実装時) | **起動時にエラーで停止**する。ID なしの接続はサーバーに拒否され、デバイス未設定は無音になるため、いずれも実行中に気づくより起動時点で落とす方が運用で分かりやすい(§6.1) |
 | 8 | オーディオIFの指定方法(実装時) | bridge ID と同様に**環境変数(`RADIO_BRIDGE_INPUT_DEVICE` / `RADIO_BRIDGE_OUTPUT_DEVICE`)を優先**する。オーディオIFはチーム(周波数)ごとに変わるプロセス固有の設定であり、TOMLに固定すると同じ config.toml を共有できず、プロセスごとに設定ファイルを分ける必要が生じるため(§6.1) |
 
 ## 3. 接続シーケンス
 
 ```
-radio-bridge (Rust)                     wl-game-server (Go)
+radio-bridge (Rust)                     game-server (Go)
       │  gRPC Connect (metadata: bridge-id=BR01)
       ├───────────────────────────────────▶│
       │                                    │ レジストリ登録: BR01 → stream
@@ -56,7 +56,7 @@ radio-bridge (Rust)                     wl-game-server (Go)
   旧ストリームを閉じる(ログ警告を出す)。
 - **メタデータに bridge-id が無い接続**: 拒否(エラーで閉じる)。
 
-## 4. wl-game-server 内部の変更
+## 4. game-server 内部の変更
 
 - `TransceiverService` の gRPC サーバー実装を追加(tonic 側にあった役割の移転。
   proto 自体は変更なし)。
@@ -112,9 +112,9 @@ radio-bridge (Rust)                     wl-game-server (Go)
 | コンポーネント | 変更 |
 |---|---|
 | radio-bridge (Rust) | gRPC サーバー → クライアント化。`RADIO_BRIDGE_ID` 環境変数、bridge-id メタデータ付与、再接続ループ追加 |
-| wl-game-server (Go) | gRPC サーバー実装追加、ブリッジレジストリ、宛先指定送信、音声バインドの意図抽出・検証 |
+| game-server (Go) | gRPC サーバー実装追加、ブリッジレジストリ、宛先指定送信、音声バインドの意図抽出・検証 |
 | radio-bridge-emulator (Go) | radio-bridge と同様にクライアント化(ID は環境変数) |
-| radio-bridge-test-client (Go) | **wl-game-server へ直接ダイヤルインし、1つの bridge として振る舞う**方式に変更(モックサーバーは作らない)。実機の radio-bridge と同じ経路で試験できる |
+| radio-bridge-test-client (Go) | **game-server へ直接ダイヤルインし、1つの bridge として振る舞う**方式に変更(モックサーバーは作らない)。実機の radio-bridge と同じ経路で試験できる |
 | proto | 変更なし(メタデータ方式のため) |
 
 ### 6.1 設定項目
@@ -123,10 +123,10 @@ radio-bridge (Rust)                     wl-game-server (Go)
 
 | コンポーネント | 変更前 | 変更後 |
 |---|---|---|
-| wl-game-server | `[radio_bridge] host` / `port`(ダイヤル先) | `[radio_bridge] listen_addr`(待ち受け) |
+| game-server | `[radio_bridge] host` / `port`(ダイヤル先) | `[radio_bridge] listen_addr`(待ち受け) |
 | radio-bridge / emulator | `[server] listen_addr`(待ち受け) | `[server] server_addr`(ダイヤル先) + `bridge_id` + `reconnect_interval_secs` |
 
-- wl-game-server 側は bridge のアドレスを設定しないため、**bridge 増設時の
+- game-server 側は bridge のアドレスを設定しないため、**bridge 増設時の
   サーバー設定変更は不要**。
 
 #### プロセスごとに変わる設定は環境変数で指定する
@@ -154,10 +154,10 @@ radio-bridge は**チーム(周波数)ごとに1プロセス+専用オーディ�
 
 ## 7. 実装ステップ(完了)
 
-1. ✅ wl-game-server: `TransceiverService` サーバー実装+ブリッジレジストリ
+1. ✅ game-server: `TransceiverService` サーバー実装+ブリッジレジストリ
 2. ✅ radio-bridge: クライアント化+ID メタデータ+再接続ループ
 3. ✅ radio-bridge-emulator: 同様の変更
-4. ✅ wl-game-server: `outgoing` / `dispatcher` の宛先指定化
+4. ✅ game-server: `outgoing` / `dispatcher` の宛先指定化
    (単一 `sendCh` を廃止し、宛先 bridge を束縛した `AudioSender` を渡す形にした)
 5. ✅ 音声バインド(意図抽出・検証・確認応答)
 6. ✅ radio-bridge-test-client の試験方式見直し(§6 のとおり bridge として振る舞う)

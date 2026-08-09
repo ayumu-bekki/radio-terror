@@ -1,0 +1,23 @@
+# 204. 切るな危険 (docs/puzzle_stage_ideas.md §2.2)
+# 「消えているLEDの色の線は絶対に切るな。残りのうち点滅が遅い方を切れ」。
+
+id = "204"
+name = "切るな危険"
+difficulty = "normal"
+
+[random]
+cut = { pick = "line" }                          # 点滅が遅い方 = 正解
+fast = { pick = "color", exclude = ["${cut}"] }  # 点滅が速い方 = 不正解
+# 残り3色は消灯 (= 絶対に切ってはいけない線)
+
+[core]
+leds = { "${cut}" = { pattern = "blink", on_ms = 800, off_ms = 800 }, "${fast}" = { pattern = "blink", on_ms = 150, off_ms = 150 } }
+cut = "${cut}"
+on_wrong_cut = { action = "explode" }
+
+[navigator]
+briefing = "消えているランプの色の線は絶対に切ってはいけない。点滅している2本のうち、遅い方が正解。"
+answer = "正解は${cut}色の線(${fast}色より点滅が遅い方)。消灯している線を切ると即座に失敗する。"
+hint_l1 = "点滅しているランプと消えているランプがあることを確認させる"
+hint_l2 = "消えている色の線は危険であること、点滅している2本を比べることを伝える"
+hint_l3 = "「点滅が遅い方の色の線を切る」と手順を教えてよい(色名は言わない)"

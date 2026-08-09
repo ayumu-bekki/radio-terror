@@ -1,40 +1,40 @@
 services:
-  wl-game-server:
+  game-server:
     build:
       context: .
-      dockerfile: wl-game-server/Dockerfile
+      dockerfile: game-server/Dockerfile
     ports:
       - 8080:8080   # 通信用WebSocket (/ws) + マネージャー向け Web 画面 (/manager)
       - 50051:50051 # gRPC (radio-bridge からのダイヤルイン)
     volumes:
       - type: bind
-        source: ./wl-game-server/config.toml
+        source: ./game-server/config.toml
         target: /app/config.toml
         read_only: true 
       - type: bind
-        source: ./wl-game-server/transcribe_prompt.txt
+        source: ./game-server/transcribe_prompt.txt
         target: /app/transcribe_prompt.txt
         read_only: true 
       - type: bind
-        source: ./wl-game-server/transcribe_schema.json
+        source: ./game-server/transcribe_schema.json
         target: /app/transcribe_schema.json
       - type: bind
-        source: ./wl-game-server/scenarios
+        source: ./game-server/scenarios
         target: /app/scenarios
         read_only: true
       - type: bind
-        source: ./wl-game-server/navigator
+        source: ./game-server/navigator
         target: /app/navigator
         read_only: true
       - type: bind
-        source: ./wl-game-server/assets
+        source: ./game-server/assets
         target: /app/assets
         read_only: true
     read_only: true 
     depends_on:
       - valkey
     networks:
-      - whisperlink-network
+      - radio-terror-network
 
   radio-bridge-br01:
     build:
@@ -46,7 +46,7 @@ services:
       RADIO_BRIDGE_INPUT_DEVICE: "hw:0,0"
       RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:0,0"
     depends_on:
-      - wl-game-server
+      - game-server
     volumes:
       - type: bind
         source: ./radio-bridge/config.toml
@@ -57,7 +57,7 @@ services:
       #  target: /app/dump_audio
     privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
     networks:
-      - whisperlink-network
+      - radio-terror-network
 
   radio-bridge-br02:
     build:
@@ -69,7 +69,7 @@ services:
       RADIO_BRIDGE_INPUT_DEVICE: "hw:2,0"
       RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:2,0"
     depends_on:
-      - wl-game-server
+      - game-server
     volumes:
       - type: bind
         source: ./radio-bridge/config.toml
@@ -80,7 +80,7 @@ services:
       #  target: /app/dump_audio
     privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
     networks:
-      - whisperlink-network
+      - radio-terror-network
 
   valkey:
     image: valkey/valkey:8-alpine
@@ -88,11 +88,11 @@ services:
     volumes:
       - valkey-data:/data
     networks:
-      - whisperlink-network
+      - radio-terror-network
 
 volumes:
   valkey-data:
 
 networks:
-  whisperlink-network:
+  radio-terror-network:
 

@@ -2,7 +2,7 @@
 
 macOS上で動作する `radio-bridge` のエミュレーター。
 `radio-bridge` と同じ gRPC インターフェース (`Connect` 双方向ストリーミング) を提供し、
-`wl-game-server` や `radio-bridge-test-client` の接続先として使用できる。
+`game-server` や `radio-bridge-test-client` の接続先として使用できる。
 
 ## radio-bridge との違い
 

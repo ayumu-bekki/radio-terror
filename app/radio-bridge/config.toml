@@ -1,8 +1,8 @@
 [server]
-# 接続先 wl-game-server の gRPC エンドポイント。
+# 接続先 game-server の gRPC エンドポイント。
 # 接続方向は反転済みのため、bridge 側は listen しない
 # (docs/bridge_connection_design.md §2 決定1)。
-server_addr = "http://wl-game-server:50051"
+server_addr = "http://game-server:50051"
 
 # この bridge の ID。環境変数 RADIO_BRIDGE_ID があればそちらが優先される。
 # チーム(周波数)ごとに1プロセス動かすため、プロセスごとに異なるIDを付ける。
