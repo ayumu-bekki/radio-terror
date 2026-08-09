@@ -48,10 +48,7 @@ func (p *GeminiProcessor) noteResult(err error) {
 }
 
 func NewGeminiProcessor(ctx context.Context, cfg GeminiConfig) (*GeminiProcessor, error) {
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  cfg.APIKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+	client, err := NewGenAIClient(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}

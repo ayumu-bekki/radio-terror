@@ -47,7 +47,7 @@ RADIO TERROR
 
 ```bash
 cd app
-cp game-server/config.sample.toml game-server/config.toml  # api_key を設定する
+cp game-server/config.sample.toml game-server/config.toml  # project/location を設定する
 docker compose up
 ```
 

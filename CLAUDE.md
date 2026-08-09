@@ -59,7 +59,7 @@ macOS で検証する場合、`src/config.rs` は `serde`/`toml` にしか依存
 
 ```bash
 cd app
-cp game-server/config.sample.toml game-server/config.toml  # api_key を設定
+cp game-server/config.sample.toml game-server/config.toml  # project/location を設定
 docker compose up
 ```
 
@@ -149,12 +149,14 @@ GameTask は**実経過時間の差分で tick を進める**。キュー待ち�
 ## 未検証・既知の制約
 
 - **radio-bridge (Rust)** は型検証が未実施(上記のビルド制約)。実機/Docker での確認が必要。
-- **生成AI周り**は API キーが要るため未実行。ナビゲーターの実際の発話品質・
-  TTSボイスの妥当性は実機確認が残っている。
+- **生成AI周り**は Google Cloud の認証が要るため未実行。ナビゲーターの実際の発話品質・
+  TTSボイスの妥当性は実機確認が残っている。接続先は Gemini Enterprise Agent Platform
+  のみで、Gemini API (APIキー認証) には対応しない (`docs/gemini_enterprise_setup.md`)。
 - **ロータリーのGPIO対応**(`kRotary1`→位置0)は推測のまま。ずれていると
   全ステージのロータリー条件が1つずれるが「動くが正解しない」形で現れる。
-- `config.toml` / `config-mac-docker.toml` は **APIキーを含むため gitignore 済み**。
-  スキーマを変えたら `*.sample.toml` も揃える。
+- `config.toml` / `config-mac-docker.toml` は **キルスイッチの秘密ワードを含むため
+  gitignore 済み**。スキーマを変えたら `*.sample.toml` も揃える。
+- `app/secrets/` のサービスアカウントキーも gitignore 済み。
 
 ## ドキュメント
 
@@ -168,6 +170,8 @@ GameTask は**実経過時間の差分で tick を進める**。キュー待ち�
 | `docs/operation_flow.md` | 運用フロー・混線演出・音声コマンド |
 | `docs/printed_materials.md` | 紙資料の印刷内容(実装と一致させる値) |
 | `docs/manager_manual.md` | 当日の運営手順書(現場で見る) |
+| `docs/gemini_enterprise_setup.md` | Gemini Enterprise Agent Platform(旧 Vertex AI)への切り替え手順 |
+| `docs/crosstalk_audio_generation.md` | 混線音声の生成テキストと TTS 設定 |
 
 ## 作業の進め方
 

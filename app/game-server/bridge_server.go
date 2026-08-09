@@ -7,11 +7,11 @@ import (
 	"log"
 	"net"
 
+	pb "game-server/gen"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	pb "game-server/gen"
 )
 
 // bridgeIDMetadataKey は radio-bridge が接続時に送る ID のメタデータキー

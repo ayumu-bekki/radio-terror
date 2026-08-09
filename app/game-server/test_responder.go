@@ -39,6 +39,10 @@ const testResponderPrompt = `あなたは特定小電力トランシーバーの
 - 最初に「こちらカラス。」と名乗ってください。
 - 発話の最後は「どうぞ」で締めてください。`
 
+// testResponderTTSVoice は疎通確認応答のボイス。
+// ナビゲーター4キャラのいずれとも重複させない (混同を避けるため)。
+const testResponderTTSVoice = "Achird"
+
 // testResponderTTSStyle は疎通確認応答のTTS指定。
 // ナビゲーターの誰とも違う声にして、聞き分けられるようにする。
 const testResponderTTSStyle = "落ち着いた低めの中性的な声。淡々と、事務的に読み上げる。"
@@ -110,10 +114,10 @@ func (r *TestResponder) Respond(ctx context.Context, sender *AudioSender, result
 
 	chunks := splitAnswerForTTS(text)
 	buildPrompt := func(chunk string) string {
-		return fmt.Sprintf("%s\n\n次のセリフを読み上げてください:\n%s", testResponderTTSStyle, chunk)
+		return buildTTSPrompt(testResponderTTSStyle, chunk)
 	}
 	return streamTTSChunks(ctx, r.ttsClient, sender, chunks, buildPrompt,
-		"[test-responder "+bridgeID+"]")
+		testResponderTTSVoice, "[test-responder "+bridgeID+"]")
 }
 
 // logFor は bridge ごとの交信ログを返す (無ければ作る)。

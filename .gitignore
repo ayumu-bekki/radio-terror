@@ -21,7 +21,7 @@ pcb/**/gerber/
 # Rust
 target/
 
-# game-server (contains API keys, use *.sample.toml as templates)
+# game-server (contains the kill-switch secret word, use *.sample.toml as templates)
 app/game-server/config.toml
 app/game-server/config-mac-docker.toml
 app/game-server/game-server
@@ -35,3 +35,11 @@ app/game-server/game-server
 
 # 別ツール(Antigravity CLI)の生成物
 **/.antigravitycli/
+
+# crosstalk-gen のビルド成果物 (生成音声 assets/crosstalk/**.ogg は管理対象)
+app/crosstalk-gen/crosstalk-gen
+
+# Gemini Enterprise Agent Platform のサービスアカウントキー
+# (private_key を含む。絶対にコミットしない)
+app/secrets/*
+!app/secrets/README.md

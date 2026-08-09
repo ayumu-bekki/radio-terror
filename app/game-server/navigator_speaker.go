@@ -105,11 +105,13 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	log.Printf("[navigator %s/%s] (%s L%d) %s",
 		session.DeviceID, session.Character.Name, trigger, level, text)
 
+	// ログ・マネージャー画面には表情タグを除いた本文を残す。
+	// タグは音声合成への指示で、運営が読む交信記録には不要なノイズになる。
 	if n.logs != nil {
 		n.logs.Append(session.SessionID, ConversationEntry{
 			Sender:   session.Character.Name,
 			Receiver: "プレイヤー",
-			Message:  text,
+			Message:  stripTTSTags(text),
 		})
 	}
 
@@ -123,11 +125,10 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 
 	chunks := splitAnswerForTTS(text)
 	buildPrompt := func(chunk string) string {
-		return fmt.Sprintf("%s\n\n次のセリフを読み上げてください:\n%s",
-			session.Character.TTSStyle, chunk)
+		return buildTTSPrompt(session.Character.TTSStyle, chunk)
 	}
 	return streamTTSChunks(ctx, n.ttsClient, sender, chunks, buildPrompt,
-		"[navigator "+session.DeviceID+"]")
+		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]")
 }
 
 // playSFX は効果音アセットを再生する。未制作の場合は黙ってスキップする。

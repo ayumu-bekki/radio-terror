@@ -32,18 +32,18 @@ const (
 // difficultyKeywords は音声申告の難易度語彙 (§5)。
 // 文字起こしのゆれを吸収するため複数の表記を受ける。
 var difficultyKeywords = map[string]string{
-	"イージー":  difficultyEasy,
-	"いーじー":  difficultyEasy,
-	"easy":  difficultyEasy,
-	"簡単":    difficultyEasy,
-	"ノーマル":  difficultyNormal,
-	"のーまる": difficultyNormal,
+	"イージー":   difficultyEasy,
+	"いーじー":   difficultyEasy,
+	"easy":   difficultyEasy,
+	"簡単":     difficultyEasy,
+	"ノーマル":   difficultyNormal,
+	"のーまる":   difficultyNormal,
 	"normal": difficultyNormal,
 	"普通":     difficultyNormal,
-	"ハード":   difficultyHard,
-	"はーど":   difficultyHard,
+	"ハード":    difficultyHard,
+	"はーど":    difficultyHard,
 	"hard":   difficultyHard,
-	"難しい":   difficultyHard,
+	"難しい":    difficultyHard,
 }
 
 // ManagerCommandHandler はマネージャーの音声コマンドを解析して実行する。

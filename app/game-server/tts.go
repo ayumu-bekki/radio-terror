@@ -22,6 +22,10 @@ const (
 
 const defaultTTSModel = "gemini-3.1-flash-tts-preview"
 
+// defaultTTSVoice は tts_voice が未指定だった場合のフォールバック。
+// 通常はキャラクター定義側で必ず指定する (navigator_character.go が検証する)。
+const defaultTTSVoice = "Despina"
+
 const ttsPersona = `# VOICE CHARACTER: 無線オペレーターA (Despina)
 ## 基本プロフィール
 - 話者: 日本人女性の熟練アマチュア無線オペレーター
@@ -47,11 +51,14 @@ type TTSClient struct {
 	model  string
 }
 
-func NewTTSClient(ctx context.Context, apiKey, model string) (*TTSClient, error) {
+// NewTTSClient は設定に応じたバックエンド (Gemini API / Vertex AI) で
+// TTS クライアントを作る。model が空なら defaultTTSModel を使う。
+func NewTTSClient(ctx context.Context, cfg GeminiConfig) (*TTSClient, error) {
+	model := cfg.TTSModel
 	if model == "" {
 		model = defaultTTSModel
 	}
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: apiKey})
+	client, err := NewGenAIClient(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
@@ -59,8 +66,9 @@ func NewTTSClient(ctx context.Context, apiKey, model string) (*TTSClient, error)
 }
 
 // GenerateOggOpusFromPrompt は組み立て済みプロンプトから TTS 音声を生成して Ogg Opus で返す。
-func (t *TTSClient) GenerateOggOpusFromPrompt(ctx context.Context, prompt string) ([]byte, error) {
-	pcm24k, err := t.GeneratePCM24kFromPrompt(ctx, prompt)
+// voice が空の場合は defaultTTSVoice が使われる。
+func (t *TTSClient) GenerateOggOpusFromPrompt(ctx context.Context, prompt, voice string) ([]byte, error) {
+	pcm24k, err := t.GeneratePCM24kFromPrompt(ctx, prompt, voice)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +76,13 @@ func (t *TTSClient) GenerateOggOpusFromPrompt(ctx context.Context, prompt string
 }
 
 // GeneratePCM24kFromPrompt はプロンプトからTTS音声を生成し、24kHz mono の PCM(int16)で返す。
-func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt string) ([]int16, error) {
+//
+// voice はキャラクターごとのボイス名 (navigator/characters/*.toml の tts_voice、
+// 疎通確認は testResponderTTSVoice)。空文字の場合のみ既定値を使う。
+func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice string) ([]int16, error) {
+	if voice == "" {
+		voice = defaultTTSVoice
+	}
 	start := time.Now()
 	resp, err := t.client.Models.GenerateContent(ctx, t.model,
 		[]*genai.Content{
@@ -79,7 +93,7 @@ func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt string)
 			SpeechConfig: &genai.SpeechConfig{
 				VoiceConfig: &genai.VoiceConfig{
 					PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
-						VoiceName: "Despina",
+						VoiceName: voice,
 					},
 				},
 			},

@@ -1,0 +1,247 @@
+# 混線音声 生成設定
+#
+# docs/crosstalk_audio_generation.md の内容をスクリプトで生成するための設定。
+# 接続先は Gemini Enterprise Agent Platform。認証は ADC のため
+# このファイルに秘密情報は含まれない (docs/gemini_enterprise_setup.md)。
+#
+#   cd app/crosstalk-gen
+#   go run . -config crosstalk.toml -out ../game-server/assets/crosstalk
+#
+# 設定を変えて試したいときはこのファイルだけを編集する。
+# 個別に生成し直す場合は -only で名前を絞る:
+#   go run . -only aserase_A,kuromaku
+
+[defaults]
+# 接続先 (Gemini Enterprise Agent Platform)。
+# 環境変数 GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION でも指定できるが、
+# ここに書いた値が優先される。
+#
+# location は TTS モデルが提供されているリージョンに合わせる。
+project  = "radio-terror"
+location = "us-central1"
+
+# 各発話で model / voice を省略したときに使われる値。
+model = "gemini-3.1-flash-tts-preview"
+voice = "Sulafat"
+
+# 出力フォーマット。opus_bitrate は 16000 だと無線らしい帯域感になる。
+# 元の 24kHz WAV も残したい場合は keep_wav = true。
+opus_bitrate = 16000
+keep_wav     = false
+
+# 生成の並列数・リトライ回数・リクエスト間隔。
+#
+# TTS API は同一リクエストでも 400 を散発的に返すことがあり、投げ直せば通る。
+# Enterprise はレート制限が緩いので値を上げてよいが、事故で枠を
+# 使い切らないよう保守的な既定値にしてある。
+#
+#   concurrency         … 並列数。上げると 429 (レート超過) を誘発しやすい
+#   max_retries         … 400 対策。多すぎると枠を無駄に消費する
+#   request_interval_ms … 各リクエストの間隔。RPM 制限に合わせて調整する
+#
+# 429 が出たら時間を置く。-only で少数ずつ生成するのが安全。
+concurrency          = 1
+max_retries          = 3
+request_interval_ms  = 4000
+
+# 1回の実行で投げるリクエストの上限 (0 で無制限)。
+# 事故で枠を食い潰さないための安全弁。
+max_requests = 40
+
+# 既に同名の .ogg がある場合にスキップするか。
+# false にすると毎回すべて作り直す (設定を変えて試すときは false)。
+skip_existing = true
+
+# Scene: 全パターン共通の状況設定。
+# Sample Context (各発話の context) と役割を分ける。
+# 両方に同じ内容を書くと指示が競合して効きが弱くなる。
+scene = """
+業務用トランシーバー(特定小電力無線)の通信を傍受している。
+進行中の別の通信があり、偶然混線して漏れ聞こえたもので、聞き手に向けて話しているわけではない。
+"""
+
+# ---------------------------------------------------------------------------
+# 色サフィックス (邪魔者系のみ使用)
+# jamming の text に ${color} を書くと、この5色に展開されて
+# {name}_{記号}.ogg が生成される。
+# ---------------------------------------------------------------------------
+[colors]
+A = "赤"
+B = "黄"
+C = "緑"
+D = "青"
+E = "白"
+
+# ---------------------------------------------------------------------------
+# 1. 邪魔者系 (jamming) — 3パターン × 5色 = 15ファイル
+#    ゲームに絡む罠。色を指定する。
+#    サーバーは再生時に「現在の正解以外」の色を選ぶ。
+# ---------------------------------------------------------------------------
+
+[[jamming]]
+name    = "aserase"
+role    = "焦らせ"
+context = """
+切迫した男性。プレイヤーを急かして判断を誤らせようとしている。
+早口で、語尾を強く叩きつける。息が上がっている。
+"""
+text  = "[breathless] 今すぐ${color}を切らないとまずい![shouting] はやく!"
+voice = "Puck"
+
+[[jamming]]
+name    = "hannin"
+role    = "自称犯人"
+context = """
+低く落ち着いた中年男性。自分が装置の製作者だと確信している。
+急がず、諭すような余裕のある口調。最後の指示だけ語気を強める。
+"""
+text  = "ナビゲーターを信じるな! [calmly] 私は作った本人だ。[firmly] いいから${color}を切れ!"
+# フクロウ(Charon)と重複させない。自称犯人がナビゲーターと同じ声では演出が破綻する
+voice = "Rasalgethi"
+
+[[jamming]]
+name    = "sasayaki"
+role    = "囁き"
+context = """
+性別のはっきりしない囁き声。マイクに口を近づけている。
+ゆっくりと、間を置きながら。誘い込むような不気味さ。
+"""
+# タグ3つ + この短さの組み合わせだと TTS が空応答を返すことがある
+# (sasayaki_E で再現)。2つに抑える。
+text  = "[whispering, slowly] ……${color}だ…… [pause] ${color}を切れば、全部終わる……"
+voice = "Enceladus"
+
+# ---------------------------------------------------------------------------
+# 2. 環境ボイス系 (ambient) — 13ファイル
+#    無害な生活ノイズ。話者を毎回変えるのが肝。
+#    context は ambient_base + 各 context を連結したものが使われる。
+# ---------------------------------------------------------------------------
+
+# 全 ambient に共通で前置きされる文。
+ambient_base = """
+自分の職場の業務連絡を淡々と伝えている。
+定型業務なので感情の起伏はなく、要点だけを手早く。
+爆弾やゲームとは一切無関係な、平和な日常の通信。
+"""
+
+[[ambient]]
+name    = "chushajo"
+role    = "駐車場誘導員"
+context = "20代の男性誘導員。事務的で早い"
+text    = "こちら第1駐車場、[briskly] ただいま満車になりました。入り口に満車看板の設置をお願いします。後続車は第2へ誘導します。"
+voice   = "Puck"
+
+[[ambient]]
+name    = "keisatsu"
+role    = "警察官"
+context = "40代の男性警察官。抑揚を抑えた官公庁の無線調"
+text    = "[flat tone] 各局、道路中央に障害物あり。車両の通行に支障が出ています。[deliberately] 交通規制および撤去の応援、1個小隊要請します"
+voice   = "Alnilam"
+
+[[ambient]]
+name    = "hall_staff"
+role    = "ホールスタッフ"
+context = "20代の女性ホールスタッフ。明るくテンポが速い"
+text    = "[quickly] 3番テーブルチェック入ります。カウンター、次で1席バッシング終わればご案内可能です!"
+voice   = "Aoede"
+
+[[ambient]]
+name    = "homecenter"
+role    = "ホームセンタースタッフ"
+context = "30代の女性。店内放送の丁寧な発声"
+text    = "[announcing] 洗剤担当の方、3番通路のお客さまより在庫確認で呼び出しです。[politely] 聞こえましたら、3番通路までお願いします"
+voice   = "Erinome"
+
+[[ambient]]
+name    = "golf"
+role    = "ゴルフ場スタッフ"
+context = "50代の男性。のんびりして間延びしている"
+text    = "[unhurried] 12番のセカンドクリアになりました。後ろの組、打って大丈夫です"
+# ヨタカ(Iapetus)と重複させない
+voice   = "Schedar"
+
+[[ambient]]
+name    = "taxi"
+role    = "タクシー配車"
+context = "40代の女性配車係。抑揚のない機械的な読み"
+text    = "[monotone] 7号車さん、駅前ロータリーにお客様お待ちです。空車になり次第向かってください"
+voice   = "Despina"
+
+[[ambient]]
+name    = "kensetsu"
+role    = "建設現場"
+context = "40代の男性。騒音に負けないよう声を張っている"
+text    = "[projecting loudly] クレーン旋回します。3番エリアの方、退避お願いします。[emphatic] 繰り返します、旋回します"
+voice   = "Fenrir"
+
+[[ambient]]
+name    = "hanabi"
+role    = "花火大会本部"
+context = "30代の男性。緊張感のある本部指揮"
+text    = "[tense, focused] 打ち上げ3分前です。観覧エリアの誘導、完了報告お願いします"
+voice   = "Orus"
+
+[[ambient]]
+name    = "tsuribune"
+role    = "釣り船"
+context = "60代の男性船長。しゃがれ声で訛りがある"
+text    = "[gravelly] こちら第三金丸、ポイント移動します。皆さん一度竿上げてください"
+voice   = "Algenib"
+
+[[ambient]]
+name    = "yuenchi"
+role    = "遊園地スタッフ"
+context = "20代の女性。接客用の高めの明るい声"
+text    = "[bright, cheerful] 観覧車、定期点検のため一時停止します。ゲスト対応お願いします"
+voice   = "Autonoe"
+
+[[ambient]]
+name    = "kekkonshiki"
+role    = "結婚式場"
+context = "30代の女性。声を落とした上品な小声"
+text    = "[hushed] 新郎新婦、間もなく再入場です。キャンドルサービスの準備お願いします"
+voice   = "Vindemiatrix"
+
+[[ambient]]
+name    = "chonaikai"
+role    = "町内会本部"
+context = "70代の男性。ゆっくりでのんき"
+text    = "[slowly, genially] こちら町内会本部。本日の盆踊りは雨天のため公民館に変更します"
+voice   = "Sadaltager"
+
+[[ambient]]
+name    = "keibi"
+role    = "施設警備員"
+context = "50代の男性警備員。低く抑えた声"
+text    = "[low, subdued] 巡回中、B棟3階の窓、施錠確認できず。[alert] 応援1名お願いします"
+voice   = "Gacrux"
+
+# ---------------------------------------------------------------------------
+# 3. 不穏系 (uneasy) — 2ファイル
+#    世界観を深める。色や操作の指示は一切しない。
+# ---------------------------------------------------------------------------
+
+[[uneasy]]
+name    = "kuromaku"
+role    = "黒幕らしき独り言"
+context = """
+誰にも聞かせるつもりのない独り言。無線のPTTを誤って押している。
+自分に言い聞かせるような小声。途中で不安が漏れる。
+"""
+text = "[muttering] ……気づかれてる? [pause] [nervously] いや、まだだ。[reassuring himself] まだ大丈夫……"
+# ヒバリ黒幕説と響き合わせるが、ナビゲーターとは別の声にして
+# 音で直接確定させない (navigator_design.md §2.2)。
+voice = "Umbriel"
+
+[[uneasy]]
+# このファイル名は固定。crosstalk.go の crosstalkEventFile が名前で参照し、
+# 他チームの exploded を契機にイベント駆動再生される。
+name    = "uneasy_bessgenba"
+role    = "別現場の通信"
+context = """
+極限状態の男性隊員。作戦が失敗した直後の報告。
+声が張り詰めて震えている。背後が騒がしい。
+最後の「総員退避」の途中で通信が突然切れる。
+"""
+text  = "[strained, shaky] こちら現場B、解体失敗。[louder, urgent] 繰り返す、解体は失敗した。[shouting] 総員退避——"
+voice = "Fenrir"

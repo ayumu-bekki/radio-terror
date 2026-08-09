@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/google/uuid"
 	pb "game-server/gen"
+	"github.com/google/uuid"
 )
 
 // ttsChunkResult は 1 チャンクの並列 TTS 生成・エンコード結果を表す。
@@ -18,14 +18,14 @@ type ttsChunkResult struct {
 // 各チャンクの結果チャネルをインデックス順に返す。呼び出し側は results[i] を昇順に待ち合わせることで、
 // 全チャンクを同時生成しつつ順序を保って取り出せる。
 // プロンプトの組み立ては呼び出し元(streamTTSChunks)に委ねる。
-func generateChunksParallel(ctx context.Context, ttsClient *TTSClient, prompts []string) []chan ttsChunkResult {
+func generateChunksParallel(ctx context.Context, ttsClient *TTSClient, prompts []string, voice string) []chan ttsChunkResult {
 	results := make([]chan ttsChunkResult, len(prompts))
 	for i := range results {
 		results[i] = make(chan ttsChunkResult, 1)
 	}
 	for i, prompt := range prompts {
 		go func(idx int, ttsPrompt string) {
-			pcm, err := ttsClient.GeneratePCM24kFromPrompt(ctx, ttsPrompt)
+			pcm, err := ttsClient.GeneratePCM24kFromPrompt(ctx, ttsPrompt, voice)
 			if err != nil {
 				results[idx] <- ttsChunkResult{err: err}
 				return
@@ -49,7 +49,8 @@ func generateChunksParallel(ctx context.Context, ttsClient *TTSClient, prompts [
 // ctx.Err() を返す。logPrefix はログ出力の接頭辞。
 // buildPrompt はテキストチャンクを TTS 用の完成プロンプトに変換する関数。呼び出し元が
 // ペルソナ・シーン設定をここで差し込むことで、generateChunksParallel は純粋な生成処理に徹する。
-func streamTTSChunks(ctx context.Context, ttsClient *TTSClient, sender *AudioSender, chunks []string, buildPrompt func(string) string, logPrefix string) error {
+// voice は話者のボイス名 (空なら既定値)。チャンク間で声が変わらないよう全体で同一の値を使う。
+func streamTTSChunks(ctx context.Context, ttsClient *TTSClient, sender *AudioSender, chunks []string, buildPrompt func(string) string, voice, logPrefix string) error {
 	if len(chunks) == 0 {
 		return nil
 	}
@@ -58,7 +59,7 @@ func streamTTSChunks(ctx context.Context, ttsClient *TTSClient, sender *AudioSen
 	for i, chunk := range chunks {
 		prompts[i] = buildPrompt(chunk)
 	}
-	results := generateChunksParallel(ctx, ttsClient, prompts)
+	results := generateChunksParallel(ctx, ttsClient, prompts, voice)
 	streamID := uuid.NewString()
 
 	// results[i] を順番に受け取り、完了次第即送信する。

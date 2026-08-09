@@ -14,7 +14,19 @@ listen_addr = ":50051"
 listen_addr = ":8080"
 
 [gemini]
-api_key                = "GEMINI_API_KEY"
+# 接続先: Gemini Enterprise Agent Platform (旧 Vertex AI)。
+# 環境変数 GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION でも指定できるが、
+# ここに書いた値が優先される。
+#
+# 認証は ADC。APIキーは使わない。事前に済ませておく:
+#   ローカル … gcloud auth application-default login
+#   Docker  … サービスアカウントJSONを GOOGLE_APPLICATION_CREDENTIALS で渡す
+# 手順は docs/gemini_enterprise_setup.md を参照。
+#
+# location は TTS モデルが提供されているリージョンに合わせる。
+project                = "radio-terror"
+location               = "us-central1"
+
 transcribe_model       = "gemini-3.1-flash-lite"
 # ナビゲーターの思考 (会話生成・意図理解)。会話ターンごとに呼ぶため低レイテンシ重視
 reasoning_model        = "gemini-3.5-flash-lite"

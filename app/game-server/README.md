@@ -43,7 +43,8 @@ reconnect_interval_secs = 5
 max_reconnect_attempts = 0  # 0 = 無制限
 
 [gemini]
-api_key = "..."
+project  = "radio-terror"
+location = "us-central1"
 transcribe_model = "gemini-3.1-flash-lite"
 reasoning_model  = "gemini-3.5-flash-lite"
 tts_model        = "gemini-3.1-flash-tts-preview"

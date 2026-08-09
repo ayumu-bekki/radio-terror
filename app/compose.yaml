@@ -30,7 +30,18 @@ services:
         source: ./game-server/assets
         target: /app/assets
         read_only: true
-    read_only: true 
+      # Gemini Enterprise Agent Platform (旧 Vertex AI) を使う場合は
+      # サービスアカウントキーをマウントする
+      # (config.toml で backend="enterprise" を指定したとき必須)。
+      # 鍵の発行と配置は docs/gemini_enterprise_setup.md を参照。
+      # - type: bind
+      #   source: ./secrets/geap-sa.json
+      #   target: /secrets/geap-sa.json
+      #   read_only: true
+    # environment:
+    #   # SDK がこの環境変数から鍵を読む (設定ファイルにパスは書かない)
+    #   GOOGLE_APPLICATION_CREDENTIALS: /secrets/geap-sa.json
+    read_only: true
     depends_on:
       - valkey
     networks:
