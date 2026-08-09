@@ -123,7 +123,7 @@ func (b *ScenarioBuilder) Build(sessionID, difficulty string) (*BuiltSession, er
 	// (配線は5本で物理的に1本ずつしか切れないため。docs/scenario_design.md §4)
 	//
 	// ステージ数は最大4に抑えてあり、色が1本以上余る。加えて色の制約を持つ
-	// ステージ (09 暗号電文) も候補語で5色すべてをカバーしているため、
+	// ステージ (203 暗号電文) も候補語で5色すべてをカバーしているため、
 	// 再生順どおりに素直に解決してよい。
 	usedLines := make(map[string]bool)
 

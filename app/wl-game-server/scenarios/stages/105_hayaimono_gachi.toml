@@ -1,7 +1,7 @@
-# B. 早い者勝ち (docs/puzzle_stage_ideas.md §2.1)
+# 105. 早い者勝ち (docs/puzzle_stage_ideas.md §2.1)
 # 2つのLEDのうち「速く点滅している色」の線を切る。
 
-id = "B"
+id = "105"
 name = "早い者勝ち"
 difficulty = "easy"
 

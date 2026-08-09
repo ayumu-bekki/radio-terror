@@ -1,8 +1,8 @@
-# G. いくつ光ってる? (docs/puzzle_stage_ideas.md §2.1)
+# 106. いくつ光ってる? (docs/puzzle_stage_ideas.md §2.1)
 # 「光っているランプの数と同じ位置にロータリーを合わせて○色を切れ」。
 # 点灯数がそのままロータリー位置になるため、count は 0-5 の範囲に収める。
 
-id = "G"
+id = "106"
 name = "いくつ光ってる?"
 difficulty = "easy"
 

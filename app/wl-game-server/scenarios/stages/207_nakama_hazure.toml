@@ -1,8 +1,8 @@
-# H. 仲間はずれ (docs/puzzle_stage_ideas.md §2.2)
+# 207. 仲間はずれ (docs/puzzle_stage_ideas.md §2.2)
 # 5つのLEDのうち1つだけ点滅周期が違う。「仲間外れの色」の線を切る。
-# Bの変形だが5択で観察量が増える。
+# 105の変形だが5択で観察量が増える。
 
-id = "H"
+id = "207"
 name = "仲間はずれ"
 difficulty = "normal"
 

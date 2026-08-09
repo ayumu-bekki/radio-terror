@@ -79,8 +79,8 @@ func TestEasyStartsWithTutorial(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seed=%d: Build: %v", seed, err)
 		}
-		if session.Stages[0].TemplateID != "01" {
-			t.Fatalf("seed=%d: easy head = %q, want 01", seed, session.Stages[0].TemplateID)
+		if session.Stages[0].TemplateID != "101" {
+			t.Fatalf("seed=%d: easy head = %q, want 101", seed, session.Stages[0].TemplateID)
 		}
 	}
 }
@@ -97,8 +97,8 @@ func TestEasyOnlyStageExcluded(t *testing.T) {
 				t.Fatalf("%s seed=%d: Build: %v", difficulty, seed, err)
 			}
 			for _, stage := range session.Stages {
-				if stage.TemplateID == "01" {
-					t.Fatalf("%s seed=%d: easy_only stage 01 selected", difficulty, seed)
+				if stage.TemplateID == "101" {
+					t.Fatalf("%s seed=%d: easy_only stage 101 selected", difficulty, seed)
 				}
 			}
 		}
@@ -164,12 +164,12 @@ func TestMorseWordColorMapping(t *testing.T) {
 }
 
 // TestLedKeyExpansion は ${rest} のような複数色キーが各色へ展開されることを確かめる
-// (H. 仲間はずれの leds 指定)。
+// (207 仲間はずれの leds 指定)。
 func TestLedKeyExpansion(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("H")
+	stageTmpl, err := lib.Stage("207")
 	if err != nil {
-		t.Fatalf("Stage(H): %v", err)
+		t.Fatalf("Stage(207): %v", err)
 	}
 
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
@@ -197,7 +197,7 @@ func TestLedKeyExpansion(t *testing.T) {
 // かつ**必ず1色以上余る**ことを確かめる。
 //
 // 全色を使い切ると切断線の抽選に余地が無くなり、色の制約を持つステージ
-// (09 暗号電文) が組み立て不能になるため、余りを保証する
+// (203 暗号電文) が組み立て不能になるため、余りを保証する
 // (docs/puzzle_stage_ideas.md §5)。
 func TestCutLineNotReusedAcrossStages(t *testing.T) {
 	lib := loadTestLibrary(t)
@@ -230,7 +230,7 @@ func TestCutLineNotReusedAcrossStages(t *testing.T) {
 	}
 }
 
-// TestMorseStageWorksWithAnyRemainingColor は 09 暗号電文が、
+// TestMorseStageWorksWithAnyRemainingColor は 203 暗号電文が、
 // どの色が1つだけ残っている状況でも組み立てられることを確かめる。
 //
 // 候補語が5色すべてをカバーしているため、割り当て順を特別扱いしなくても
@@ -238,9 +238,9 @@ func TestCutLineNotReusedAcrossStages(t *testing.T) {
 func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 	lib := loadTestLibrary(t)
 
-	stageTmpl, err := lib.Stage("09")
+	stageTmpl, err := lib.Stage("203")
 	if err != nil {
-		t.Fatalf("Stage(09): %v", err)
+		t.Fatalf("Stage(203): %v", err)
 	}
 
 	for _, remaining := range allColors {

@@ -1,8 +1,8 @@
-# 04. 復唱 (docs/puzzle_stage_ideas.md §2.2)
+# 201. 復唱 (docs/puzzle_stage_ideas.md §2.2)
 # 「赤赤黄黄赤黄緑の順でボタンを押してから、○色の線を切ってください」
 # 長さで難度調整する (普通タグは7個前後)。ミスは列の先頭からやり直し。
 
-id = "04"
+id = "201"
 name = "復唱"
 difficulty = "normal"
 

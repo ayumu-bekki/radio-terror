@@ -1,7 +1,7 @@
-# D. 切るな危険 (docs/puzzle_stage_ideas.md §2.2)
+# 204. 切るな危険 (docs/puzzle_stage_ideas.md §2.2)
 # 「消えているLEDの色の線は絶対に切るな。残りのうち点滅が遅い方を切れ」。
 
-id = "D"
+id = "204"
 name = "切るな危険"
 difficulty = "normal"
 

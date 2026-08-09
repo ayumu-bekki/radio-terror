@@ -1,7 +1,7 @@
-# 02. シグナル (docs/puzzle_stage_ideas.md §2.1)
+# 102. シグナル (docs/puzzle_stage_ideas.md §2.1)
 # 「緑・赤・黄の順でボタンを押してください」を無線指示のみで伝える。
 
-id = "02"
+id = "102"
 name = "シグナル"
 difficulty = "easy"
 

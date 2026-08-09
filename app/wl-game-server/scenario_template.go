@@ -42,7 +42,7 @@ type StageTemplate struct {
 	ID         string `toml:"id"`
 	Name       string `toml:"name"`
 	Difficulty string `toml:"difficulty"`
-	// EasyOnly が true のステージはイージー以外では選出しない (01 解体デビュー)
+	// EasyOnly が true のステージはイージー以外では選出しない (101 解体デビュー)
 	EasyOnly bool `toml:"easy_only"`
 
 	// Random は組み立て時に解決される抽選変数の定義。

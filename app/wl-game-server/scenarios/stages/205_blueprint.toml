@@ -1,4 +1,4 @@
-# E. ブループリント (docs/puzzle_stage_ideas.md §2.2)
+# 205. ブループリント (docs/puzzle_stage_ideas.md §2.2)
 # Coreの隣に置いた「整備マニュアル風の回路図シート」を使う。
 # ナビゲーターは色を言わず「端子T4の線を切ってください」とだけ指示する。
 #
@@ -6,7 +6,7 @@
 # サーバー設定 (config.toml の [mission_sheet].terminal_map) を参照して
 # cut から端子番号を導出する。
 
-id = "E"
+id = "205"
 name = "ブループリント"
 difficulty = "normal"
 

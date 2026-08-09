@@ -1,8 +1,8 @@
-# 08. コール&レスポンス (docs/puzzle_stage_ideas.md §2.1)
+# 104. コール&レスポンス (docs/puzzle_stage_ideas.md §2.1)
 # ナビゲーターとプレイヤーの対話で進める。正しい押下のたびに push_progress が届くため、
 # ナビゲーターは実際の操作に反応できる (「今ので合ってる!」)。
 
-id = "08"
+id = "104"
 name = "コール&レスポンス"
 difficulty = "easy"
 

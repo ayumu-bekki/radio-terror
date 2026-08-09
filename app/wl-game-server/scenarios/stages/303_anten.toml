@@ -1,10 +1,10 @@
-# J. 暗転 (docs/puzzle_stage_ideas.md §2.3)
+# 303. 暗転 (docs/puzzle_stage_ideas.md §2.3)
 # 各LEDが異なる周期で点滅。「全てのランプが消えた瞬間」に○色を切る。
 # 周期の重なりを見切る難問。
 #
 # 周期は互いに素に近い値を選び、全消灯の瞬間が定期的に、かつ短く訪れるようにする。
 
-id = "J"
+id = "303"
 name = "暗転"
 difficulty = "hard"
 

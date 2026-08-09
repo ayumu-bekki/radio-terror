@@ -1,8 +1,8 @@
-# 01. 解体デビュー (docs/puzzle_stage_ideas.md §2.1)
+# 101. 解体デビュー (docs/puzzle_stage_ideas.md §2.1)
 # ナビゲーターが会話でロータリーを誘導するチュートリアル。
 # イージー専用・先頭固定。禁止位置はペナルティ+警告に留め、爆発させない。
 
-id = "01"
+id = "101"
 name = "解体デビュー"
 difficulty = "easy"
 easy_only = true # ノーマル・ハードでは選出しない
