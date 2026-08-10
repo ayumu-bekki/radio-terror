@@ -60,20 +60,38 @@ func TestTestResponderReset(t *testing.T) {
 	}
 }
 
-// TestTestResponderPromptGuards はプロンプトが疎通確認の役割から
-// 逸脱しないよう制約を含んでいることを確かめる。
+// TestTestResponderPromptGuards はプロンプトが必要な制約を
+// 含んでいることを確かめる。
 //
-// この応答者はゲームの正解を知らない立場なので、うっかりヒントを
-// 出さないことがプロンプト上で担保されている必要がある。
+// この応答者は雑談に応じるが、ゲームの正解を知らない立場なので、
+// うっかりヒントを出さないことがプロンプト上で担保されている必要がある。
 func TestTestResponderPromptGuards(t *testing.T) {
 	for _, want := range []string{
-		"カラス",     // 名乗り
-		"疎通確認",    // 役割
-		"一切知りません", // ゲーム内容への関与を否定
-		"どうぞ",     // 無線の作法
+		"カラス",         // 名乗り
+		"何のことか分かりません", // ゲーム内容への関与を否定
+		"知ったかぶり",      // 推測で答えないこと
+		"どうぞ",         // 無線の作法
 	} {
 		if !strings.Contains(testResponderPrompt, want) {
 			t.Errorf("プロンプトに %q が含まれていない", want)
+		}
+	}
+
+	// 雑談に応じる指示があること (テスト用と分かる応答だと会話が続かない)
+	for _, want := range []string{
+		"話題に普通に応じて", // 雑談への応答
+		"繰り返さないで",   // オウム返しの禁止
+	} {
+		if !strings.Contains(testResponderPrompt, want) {
+			t.Errorf("プロンプトに %q が含まれていない (雑談に応じられなくなる)", want)
+		}
+	}
+
+	// 運営視点の語がプレイヤーへの発話に混ざらないこと。
+	// カラスは「たまたま同じ周波数にいる無線好き」で、疎通確認の担当ではない。
+	for _, ng := range []string{"疎通確認", "運営スタッフ", "通信の確認だけだ"} {
+		if strings.Contains(testResponderPrompt, ng) {
+			t.Errorf("プロンプトに運営視点の語 %q が含まれている", ng)
 		}
 	}
 
