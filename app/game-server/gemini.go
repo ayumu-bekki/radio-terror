@@ -11,10 +11,13 @@ import (
 	"google.golang.org/genai"
 )
 
+// TranscriptionItem は1つの発話の書き起こし。
+//
+// 以前は送信者・受信者のコールサインも抽出していたが、無線側で名乗りを
+// 強制する運用をやめたため message のみにした。開始申告・秘密ワードの
+// 判定は元々 message だけを見ており、話者の推定は不要。
 type TranscriptionItem struct {
-	Receiver string `json:"receiver"`
-	Sender   string `json:"sender"`
-	Message  string `json:"message"`
+	Message string `json:"message"`
 }
 
 type TranscriptionResult struct {
@@ -213,7 +216,12 @@ func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instr
 
 	start := time.Now()
 	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, config)
-	log.Printf("[gemini] GenerateNavigatorReply latency: %v", time.Since(start))
+	// 検索の有無をログに残す (どちらの経路を通ったか運用中に判別できるように)
+	mode := "reply"
+	if useSearch {
+		mode = "reply+search"
+	}
+	log.Printf("[gemini] %s latency: %v", mode, time.Since(start))
 	p.noteResult(err)
 	if err != nil {
 		return "", fmt.Errorf("GenerateContent (Navigator): %w", err)

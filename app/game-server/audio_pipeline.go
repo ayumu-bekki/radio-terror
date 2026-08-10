@@ -58,8 +58,7 @@ func (p *AudioPipeline) HandleAudio(ctx context.Context, bridgeID string, data [
 		return
 	}
 	for _, item := range result.Items {
-		log.Printf("[audio %s] transcribed: sender=%s receiver=%s message=%q",
-			bridgeID, item.Sender, item.Receiver, item.Message)
+		log.Printf("[audio %s] transcribed: %q", bridgeID, item.Message)
 	}
 
 	sender := NewAudioSender(p.registry, bridgeID)
