@@ -32,8 +32,16 @@ fn default_reconnect_interval_secs() -> u64 { 5 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct GpioConfig {
+    /// PTT制御に使うGPIOピン番号 (BCM番号)。環境変数 RADIO_BRIDGE_PTT_PIN を優先する。
+    /// 複数 radio-bridge を同一ホストで動かす際、配線(PCB)がプロセスごとに異なるため、
+    /// bridge_id 等と同様に環境変数だけで振り分けられるようにしている。
+    #[serde(default = "default_unset_ptt_pin")]
     pub ptt_pin: u8,
 }
+
+/// TOML未設定・環境変数未設定を示す番兵値。
+/// Raspberry Pi の BCM GPIO番号は 0-27 の範囲に収まるため、範囲外の値を「未設定」に使う。
+fn default_unset_ptt_pin() -> u8 { u8::MAX }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AudioConfig {
@@ -86,6 +94,21 @@ fn override_from_env(target: &mut String, key: &str) {
     }
 }
 
+/// 環境変数が空でなければその値をパースして上書きする。
+fn override_from_env_u8(
+    target: &mut u8,
+    key: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if let Ok(value) = std::env::var(key) {
+        if !value.is_empty() {
+            *target = value
+                .parse()
+                .map_err(|e| format!("{key} must be a valid number (0-255): {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 impl Config {
     pub fn load(path: &Path) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let content = std::fs::read_to_string(path)?;
@@ -95,6 +118,7 @@ impl Config {
         override_from_env(&mut config.server.bridge_id, "RADIO_BRIDGE_ID");
         override_from_env(&mut config.audio.input_device, "RADIO_BRIDGE_INPUT_DEVICE");
         override_from_env(&mut config.audio.output_device, "RADIO_BRIDGE_OUTPUT_DEVICE");
+        override_from_env_u8(&mut config.gpio.ptt_pin, "RADIO_BRIDGE_PTT_PIN")?;
 
         // 未設定のまま起動すると、接続拒否や無音といった分かりにくい失敗になるため、
         // 起動時点で落として原因を明示する。
@@ -111,6 +135,11 @@ impl Config {
             return Err(
                 "output_device is required (set RADIO_BRIDGE_OUTPUT_DEVICE or [audio].output_device)"
                     .into(),
+            );
+        }
+        if config.gpio.ptt_pin == default_unset_ptt_pin() {
+            return Err(
+                "ptt_pin is required (set RADIO_BRIDGE_PTT_PIN or [gpio].ptt_pin)".into(),
             );
         }
         Ok(config)
@@ -155,6 +184,7 @@ max_queue_size = 10
             "RADIO_BRIDGE_ID",
             "RADIO_BRIDGE_INPUT_DEVICE",
             "RADIO_BRIDGE_OUTPUT_DEVICE",
+            "RADIO_BRIDGE_PTT_PIN",
         ] {
             std::env::remove_var(key);
         }
@@ -172,26 +202,39 @@ max_queue_size = 10
         assert_eq!(config.server.bridge_id, "TOML_ID");
         assert_eq!(config.audio.input_device, "toml_in");
         assert_eq!(config.audio.output_device, "toml_out");
+        assert_eq!(config.gpio.ptt_pin, 26);
 
         // 環境変数あり: 環境変数が優先される
         std::env::set_var("RADIO_BRIDGE_ID", "ENV_ID");
         std::env::set_var("RADIO_BRIDGE_INPUT_DEVICE", "env_in");
         std::env::set_var("RADIO_BRIDGE_OUTPUT_DEVICE", "env_out");
+        std::env::set_var("RADIO_BRIDGE_PTT_PIN", "17");
         let config = Config::load(&path).unwrap();
         assert_eq!(config.server.bridge_id, "ENV_ID");
         assert_eq!(config.audio.input_device, "env_in");
         assert_eq!(config.audio.output_device, "env_out");
+        assert_eq!(config.gpio.ptt_pin, 17);
 
         // 空の環境変数は無視され、TOML の値が残る
         std::env::set_var("RADIO_BRIDGE_INPUT_DEVICE", "");
+        std::env::set_var("RADIO_BRIDGE_PTT_PIN", "");
         let config = Config::load(&path).unwrap();
         assert_eq!(config.audio.input_device, "toml_in");
+        assert_eq!(config.gpio.ptt_pin, 26);
 
-        // TOML にデバイス指定が無い場合
+        // 数値としてパースできない環境変数はエラー
+        std::env::set_var("RADIO_BRIDGE_PTT_PIN", "not_a_number");
+        assert!(
+            Config::load(&path).is_err(),
+            "ptt_pin の環境変数が数値でなければエラーとするべき"
+        );
+
+        // TOML にデバイス・ピン指定が無い場合
         clear_env();
         let without_devices = SAMPLE
             .replace("output_device = \"toml_out\"\n", "")
-            .replace("input_device = \"toml_in\"\n", "");
+            .replace("input_device = \"toml_in\"\n", "")
+            .replace("ptt_pin = 26\n", "");
         let path = write_config("nodev", &without_devices);
 
         // 環境変数もTOMLも無ければ起動時エラー
@@ -203,10 +246,19 @@ max_queue_size = 10
         // 環境変数だけで起動できる (config.toml を共有する運用)
         std::env::set_var("RADIO_BRIDGE_INPUT_DEVICE", "env_in");
         std::env::set_var("RADIO_BRIDGE_OUTPUT_DEVICE", "env_out");
+        std::env::set_var("RADIO_BRIDGE_PTT_PIN", "27");
         let config = Config::load(&path).unwrap();
         assert_eq!(config.audio.input_device, "env_in");
         assert_eq!(config.audio.output_device, "env_out");
         assert_eq!(config.server.bridge_id, "TOML_ID");
+        assert_eq!(config.gpio.ptt_pin, 27);
+
+        // ptt_pin だけ環境変数が無い場合は起動時エラー
+        std::env::remove_var("RADIO_BRIDGE_PTT_PIN");
+        assert!(
+            Config::load(&path).is_err(),
+            "ptt_pin 未設定は起動時にエラーとするべき"
+        );
 
         clear_env();
     }

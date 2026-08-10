@@ -34,13 +34,13 @@ services:
       # サービスアカウントキーをマウントする
       # (config.toml で backend="enterprise" を指定したとき必須)。
       # 鍵の発行と配置は docs/gemini_enterprise_setup.md を参照。
-      # - type: bind
-      #   source: ./secrets/geap-sa.json
-      #   target: /secrets/geap-sa.json
-      #   read_only: true
-    # environment:
-    #   # SDK がこの環境変数から鍵を読む (設定ファイルにパスは書かない)
-    #   GOOGLE_APPLICATION_CREDENTIALS: /secrets/geap-sa.json
+      - type: bind
+        source: ./secrets/geap-sa.json
+        target: /secrets/geap-sa.json
+        read_only: true
+    environment:
+      # SDK がこの環境変数から鍵を読む (設定ファイルにパスは書かない)
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/geap-sa.json
     read_only: true
     depends_on:
       - valkey
@@ -56,6 +56,8 @@ services:
       # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
       RADIO_BRIDGE_INPUT_DEVICE: "hw:0,0"
       RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:0,0"
+      # PTT制御用GPIOピン(BCM番号)。PCB配線はbridgeごとに異なる。
+      RADIO_BRIDGE_PTT_PIN: "26"
     depends_on:
       - game-server
     volumes:
@@ -70,28 +72,30 @@ services:
     networks:
       - radio-terror-network
 
-  radio-bridge-br02:
-    build:
-      context: .
-      dockerfile: radio-bridge/Dockerfile
-    environment:
-      RADIO_BRIDGE_ID: BR02
-      # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
-      RADIO_BRIDGE_INPUT_DEVICE: "hw:2,0"
-      RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:2,0"
-    depends_on:
-      - game-server
-    volumes:
-      - type: bind
-        source: ./radio-bridge/config.toml
-        target: /app/config.toml
-        read_only: true
-      #- type: bind
-      #  source: ./radio-bridge/dump_audio
-      #  target: /app/dump_audio
-    privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
-    networks:
-      - radio-terror-network
+  #radio-bridge-br02:
+  #  build:
+  #    context: .
+  #    dockerfile: radio-bridge/Dockerfile
+  #  environment:
+  #    RADIO_BRIDGE_ID: BR02
+  #    # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
+  #    RADIO_BRIDGE_INPUT_DEVICE: "hw:2,0"
+  #    RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:2,0"
+  #    # PTT制御用GPIOピン(BCM番号)。PCB配線はbridgeごとに異なる。
+  #    RADIO_BRIDGE_PTT_PIN: "16"
+  #  depends_on:
+  #    - game-server
+  #  volumes:
+  #    - type: bind
+  #      source: ./radio-bridge/config.toml
+  #      target: /app/config.toml
+  #      read_only: true
+  #    #- type: bind
+  #    #  source: ./radio-bridge/dump_audio
+  #    #  target: /app/dump_audio
+  #  privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
+  #  networks:
+  #    - radio-terror-network
 
   valkey:
     image: valkey/valkey:8-alpine

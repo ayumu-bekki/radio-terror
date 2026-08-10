@@ -12,6 +12,9 @@ bridge_id = "BR01"
 reconnect_interval_secs = 5
 
 [gpio]
+# PTT制御に使うGPIOピン番号(BCM番号)。PCB配線はbridgeごとに異なるため、
+# 環境変数 RADIO_BRIDGE_PTT_PIN があればそちらが優先される。
+# ここの値は環境変数が無い場合のフォールバック。
 ptt_pin = 26
 
 [audio]

@@ -35,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         server = %config.server.server_addr,
         input_device = %config.audio.input_device,
         output_device = %config.audio.output_device,
+        ptt_pin = config.gpio.ptt_pin,
         "starting radio-bridge (client mode)"
     );
 
