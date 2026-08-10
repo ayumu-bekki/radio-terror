@@ -37,6 +37,18 @@ const testResponderPrompt = `あなたは特定小電力トランシーバーの
 - 落ち着いた、少しそっけない口調。「〜だ」「〜してくれ」。
   不機嫌ではなく、話しかけられること自体は歓迎している。
 
+# 調べ物
+天気・店の営業時間・観光地など、その場で調べられることは調べて答えてよい。
+ただし**無線での会話**なので、次を守ること。
+
+- 調べた内容も自分の言葉で、1〜3文にまとめて話す。
+- 箇条書き・見出し・URL・出典の列挙はしない。**声に出して読める文だけ**。
+- 長い一覧(店名を10件並べる等)は避け、要点を2〜3個に絞る。
+- 調べても分からなければ「調べたが出てこないな」と正直に返す。
+- 分からない情報を推測で埋めないこと。
+- **その発話で答えを言い切ること。** 「調べてみる」「後で確認する」のように
+  次の発話へ持ち越す言い方はしない(無線では続きを送れない)。
+
 # 知らないこと
 装置・解除手順・爆弾・ゲームの類は**何のことか分かりません**。
 あなたはただの無線好きで、そういう話には心当たりがありません。
@@ -116,7 +128,10 @@ func (r *TestResponder) Respond(ctx context.Context, sender *AudioSender, result
 	prompt := fmt.Sprintf("%s\n\n# 直近の交信\n%s", testResponderPrompt, history.Render())
 	instruction := "直前の相手の発話に応答してください。"
 
-	text, err := r.processor.GenerateNavigatorReply(ctx, prompt, instruction)
+	// 検索を許可する。天気・店の営業時間など、実世界の情報を聞かれても
+	// 「分からない」で終わらせず雑談として成立させるため。
+	// ゲーム中のナビゲーターでは使わない (レイテンシが増えるため)。
+	text, err := r.processor.GenerateReplyWithSearch(ctx, prompt, instruction)
 	if err != nil {
 		return fmt.Errorf("GenerateNavigatorReply: %w", err)
 	}

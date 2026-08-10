@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -81,6 +82,8 @@ func TestTestResponderPromptGuards(t *testing.T) {
 	for _, want := range []string{
 		"話題に普通に応じて", // 雑談への応答
 		"繰り返さないで",   // オウム返しの禁止
+		"言い切ること",    // 検索結果を次の発話へ持ち越さない
+		"声に出して読める",  // 箇条書き・URLを読み上げない
 	} {
 		if !strings.Contains(testResponderPrompt, want) {
 			t.Errorf("プロンプトに %q が含まれていない (雑談に応じられなくなる)", want)
@@ -105,5 +108,27 @@ func TestTestResponderPromptGuards(t *testing.T) {
 		if c.Name == TestResponderCallsign {
 			t.Errorf("疎通確認のコールサイン %q がナビゲーターと重複している", c.Name)
 		}
+	}
+}
+
+// TestSearchScopedToCrow は Google 検索がカラス専用であることを確かめる。
+//
+// ナビゲーターで検索を使うと、カウントダウン中の応答が1往復ぶん遅くなる。
+// また正解はセッションJSONで渡されるので外部情報は不要。
+func TestSearchScopedToCrow(t *testing.T) {
+	crow, err := os.ReadFile("test_responder.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(crow), "GenerateReplyWithSearch") {
+		t.Error("カラスが検索版を使っていない")
+	}
+
+	nav, err := os.ReadFile("navigator_speaker.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(nav), "GenerateReplyWithSearch") {
+		t.Error("ナビゲーターが検索版を使っている (応答が遅くなる)")
 	}
 }

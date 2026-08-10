@@ -188,11 +188,27 @@ func convertSchema(raw map[string]any) (*genai.Schema, error) {
 // instruction は発話トリガーごとの指示 (§3.5)。
 // 会話ターンごとに呼ぶため、低レイテンシの ReasoningModel を使う。
 func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemPrompt, instruction string) (string, error) {
+	return p.generateReply(ctx, systemPrompt, instruction, false)
+}
+
+// GenerateReplyWithSearch は Google 検索を許可して発話を1つ生成する。
+//
+// 天気・店の営業時間など、モデルが知り得ない実世界の情報を扱う相手
+// (カラス) 向け。検索は1往復ぶんレイテンシが増えるため、
+// **ゲーム中のナビゲーターには使わない**(カウントダウン中の体験を損なう)。
+func (p *GeminiProcessor) GenerateReplyWithSearch(ctx context.Context, systemPrompt, instruction string) (string, error) {
+	return p.generateReply(ctx, systemPrompt, instruction, true)
+}
+
+func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instruction string, useSearch bool) (string, error) {
 	contents := []*genai.Content{
 		genai.NewContentFromText(instruction, genai.RoleUser),
 	}
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
+	}
+	if useSearch {
+		config.Tools = []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}
 	}
 
 	start := time.Now()
