@@ -28,6 +28,17 @@ void WSClient::Connect() {
   esp_websocket_client_config_t websocket_config = {};
   websocket_config.uri = CONFIG_CORE_SYSTEM_WEBSOCKET_URI;
 
+  // 死活監視 (docs/game_session_design.md §7.3)。
+  //
+  // 無音区間が長い運用のため、**送信が無いと切断に気付けない**。
+  // WiFiの瞬断・AP再起動・サーバー再起動を検知して再接続へ入るために
+  // ping/pong を有効にする。
+  //
+  // pingpong_timeout_sec は既定 0 (無効) で、**設定しないと pong が
+  // 返らなくても切断しない**。既定値のままにしないこと。
+  websocket_config.ping_interval_sec = kPingIntervalSec;
+  websocket_config.pingpong_timeout_sec = kPingPongTimeoutSec;
+
   websocket_client_ = esp_websocket_client_init(&websocket_config);
   esp_websocket_register_events(websocket_client_, WEBSOCKET_EVENT_ANY,
                                 &::OnWebSocketEvent, this);

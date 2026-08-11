@@ -11,6 +11,19 @@
 
 namespace CoreSystem {
 
+/// WebSocket の死活監視 (§7.3)。
+///
+/// トランシーバー同様、Core も**無音区間が長い**。送信が無いと
+/// WiFiの瞬断・AP再起動・サーバー再起動に気付けないため ping で確かめる。
+/// サーバー側 (game-server) も同様の ping/pong を持つ。
+
+/// ping の送信間隔
+inline constexpr int kPingIntervalSec = 10;
+
+/// pong が返らないと判断するまでの時間。
+/// **既定は 0 (無効)** で、設定しないと pong が途絶えても切断しない。
+inline constexpr int kPingPongTimeoutSec = 30;
+
 class WSClient final {
  public:
   /// 受信テキスト・接続状態変化の通知先。イベントハンドラを軽く保つため、

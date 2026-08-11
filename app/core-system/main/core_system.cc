@@ -150,6 +150,11 @@ void System::StartTasks() {
 
   // kLine A-E と MCP23017のINTAピンを監視する
   SetupLineWatchers();
+
+  // 監視は「変化」しか通知しないため、起動時に切れている線は
+  // イベントが来ない。プルアップ設定後の実レベルを読んで初期状態を渡す
+  // (これが無いと、線が切れたまま Ready になる。§4)
+  ReportInitialLineStates();
   gpio_watcher_.AddMonitor(
       GpioInputWatchTask::GpioInfo(Esp32Pin::kMcp23017Interrupt,
                                    [this]() { input_scanner_.Scan(); }, nullptr),
@@ -165,6 +170,27 @@ void System::StartTasks() {
         game_task_.PostEvent(event);
       });
   battery_monitor_task_->Start();
+}
+
+/// 起動時の kLine A-E の状態を GameTask へ通知する。
+///
+/// GpioInputWatchTask は**レベルの変化**を通知する汎用部品なので、
+/// 起動時点で既に切れている線は通知されない。プルアップ有効化後の
+/// 実レベルを直接読んで、初期状態を1回だけ流し込む。
+///
+/// SetupLineWatchers() の後に呼ぶこと (AddMonitor がプルアップを設定するため、
+/// それより前に読むと未設定のレベルを拾う)。
+void System::ReportInitialLineStates() {
+  for (int i = 0; i < kColorNum; ++i) {
+    // プルアップ入力: LOW=結線, HIGH=切断 (§5.2)
+    const bool connected = gpio_get_level(Esp32Pin::kLineGpiosByColor[i]) == 0;
+
+    GameEvent event;
+    event.type = EVENT_LINE_CHANGED;
+    event.color = static_cast<ColorId>(i);
+    event.level = connected;
+    game_task_.PostEvent(event);
+  }
 }
 
 /// kLine A-E のGPIO監視を登録する。

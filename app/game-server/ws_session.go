@@ -6,8 +6,29 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+// WebSocket の死活監視 (docs/game_session_design.md §7.3)。
+//
+// **電池切れ (Deep Sleep) や電源断は TCP を正常終了しない**ため、
+// ping/pong が無いと ReadMessage が OS の TCP タイムアウト (十数分) まで
+// ブロックし、切断に気付けない。マネージャー画面に「生きている」ように
+// 見え続けるので、アプリ層で検知する。
+const (
+	// wsPongWait はこの時間 pong が来なければ切断とみなす。
+	// 短くしすぎると会場のWiFiが一時的に不安定なだけで切ってしまい、
+	// Ready 中なら Setup へ戻る (プレイ中はゲームが続くため影響は無い)。
+	wsPongWait = 60 * time.Second
+
+	// wsPingPeriod は ping の送信間隔。pong を待つ猶予を残すため
+	// wsPongWait より十分短くする。
+	wsPingPeriod = 25 * time.Second
+
+	// wsWriteWait は1回の書き込みの制限時間。
+	wsWriteWait = 10 * time.Second
 )
 
 // クライアントから送られるコマンドの共通構造
@@ -45,7 +66,12 @@ func newWSSession(conn *websocket.Conn, devices *DeviceRegistry, game *GameCoord
 }
 
 func (s *wsSession) run(ctx context.Context) {
+	// 読み取りを抜けたら ping の送信も止める
+	done := make(chan struct{})
+
 	defer func() {
+		close(done)
+
 		// device_id の登録を解除する。状態はサーバー側に残し、
 		// 再接続時の device_status で再同期する (§7.3)。
 		if s.deviceID != "" && s.devices != nil {
@@ -53,6 +79,10 @@ func (s *wsSession) run(ctx context.Context) {
 		}
 		s.conn.Close()
 	}()
+
+	// 死活監視を開始する。pong が途絶えたら ReadMessage が期限切れで返り、
+	// この関数を抜けて Unregister される。
+	s.startKeepalive(ctx, done)
 
 	for {
 		_, msg, err := s.conn.ReadMessage()
@@ -83,6 +113,45 @@ func (s *wsSession) run(ctx context.Context) {
 		default:
 		}
 	}
+}
+
+// startKeepalive は ping/pong による死活監視を開始する。
+//
+// 読み取りに期限を設け、pong を受けるたび延長する。相手が黙って消えた場合、
+// 最長 wsPongWait で ReadMessage がエラーを返して接続が片付く。
+func (s *wsSession) startKeepalive(ctx context.Context, done <-chan struct{}) {
+	_ = s.conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	s.conn.SetPongHandler(func(string) error {
+		return s.conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
+
+	go func() {
+		ticker := time.NewTicker(wsPingPeriod)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := s.writePing(); err != nil {
+					// 送信できない = 既に切れている。読み取り側が後始末する
+					return
+				}
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// writePing は ping フレームを送る。SendJSON と書き込みを直列化する。
+func (s *wsSession) writePing() error {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+
+	_ = s.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+	return s.conn.WriteMessage(websocket.PingMessage, nil)
 }
 
 // handleDeviceMessage は core-system デバイスからのメッセージを処理する (§7.2)。

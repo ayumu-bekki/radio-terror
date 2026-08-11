@@ -54,6 +54,10 @@ class System final
   /// kLine A-E のGPIO監視を GpioInputWatchTask へ登録する
   void SetupLineWatchers();
 
+  /// 起動時の kLine A-E の状態を GameTask へ通知する。
+  /// 監視は変化しか通知しないため、初期状態はここで読んで流し込む
+  void ReportInitialLineStates();
+
  private:
   MCP23017 mcp23017_;
   HT16K33 ht16k33_;
