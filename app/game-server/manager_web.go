@@ -119,6 +119,7 @@ func (w *ManagerWeb) Register(mux *http.ServeMux) {
 	// 末尾スラッシュのパターンは前方一致。{session_id} をここで受ける
 	mux.HandleFunc("/manager/history/", w.handleSessionPage)
 	mux.HandleFunc("/manager/api/abort", w.handleAbort)
+	mux.HandleFunc("/manager/api/detonate", w.handleDetonate)
 	mux.HandleFunc("/manager/api/transcript", w.handleTranscript)
 }
 
@@ -545,6 +546,30 @@ func (w *ManagerWeb) handleAbort(rw http.ResponseWriter, r *http.Request) {
 		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		rw.WriteHeader(http.StatusAccepted)
 		fmt.Fprintf(rw, "サーバー側のセッションは終了しました。ただしデバイスへは届いていません: %v", err)
+		return
+	}
+	rw.WriteHeader(http.StatusNoContent)
+}
+
+// handleDetonate は Web 画面からの強制破裂。**風船が実際に割れる**。
+//
+// 進行中セッションが無い場合は 409 を返す。誤操作の影響が大きいため、
+// abort と違って「届かなかったが状態は整理した」という緩い扱いはしない。
+func (w *ManagerWeb) handleDetonate(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(rw, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	deviceID := r.URL.Query().Get("device_id")
+	if deviceID == "" {
+		http.Error(rw, "device_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := w.game.ForceDetonate(r.Context(), deviceID); err != nil {
+		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		rw.WriteHeader(http.StatusConflict)
+		fmt.Fprintf(rw, "強制破裂できませんでした: %v", err)
 		return
 	}
 	rw.WriteHeader(http.StatusNoContent)

@@ -39,7 +39,34 @@ idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)の設�
   そこに `build/` を作って失敗する。
 - clangd が `-mlongcalls` や `std::string` について大量のエラーを出すが、
   xtensa ツールチェーンを見ていないだけの**偽陽性**。`idf.py build` が唯一の判断基準。
-- ソースを追加したら `main/CMakeLists.txt` の `SRCS` にも追加する。
+- ソースを追加したら `main/CMakeLists.txt` の `SRCS` にも追加する
+  (`.h` だけのヘッダオンリーなら不要)。
+
+**書き方の決まり**(ユーザーの好み。既存コードもこれで揃えてある):
+
+- **`switch` は使わない。`if` で書く。** 列挙型の分岐も `if (x == A) { ... }` を並べ、
+  最後に既定値を返す形にする。
+- **`if` の本体は必ず中括弧で囲み、改行する。** `if (x) return;` のような
+  一行の書き方はしない。`else if` の連鎖は可。
+
+**ファイルの分かれ方**: 状態を持つのは `GameTask` に寄せ、周辺は
+**ゲーム状態に触れない部品**にしてある。新しい処理を足すときもこの線を保つ。
+
+| ファイル | 役割 |
+|---|---|
+| `core_system.h/.cc` | 組み立てと配線のみ。状態を持たない |
+| `boot_animation.h` | 起動演出・起動インジケータ |
+| `mcp_input_scanner.h` | MCP23017 のピン変化 → GameEvent |
+| `game_task.h/.cc` | 状態機械とゲームルール(中核) |
+| `event_sender.h` | サーバーへの送信。cJSON の組み立て |
+| `status_indicator.h` | 状態 → フルカラーLEDの色・点滅 |
+| `countdown_display.h` | 残り時間 → 7セグ表示 |
+| `timer_digit_rule.h` | timer_digit の桁一致判定と猶予窓 |
+| `game_session.h/.cc` | セッションJSONのパース・検証 |
+| `led_pattern.h/.cc` | LED表示パターンの構築(点滅・モールス) |
+
+**Tick系は GameTask に置いたまま**にしてある。残り時間・進行状態を書き換えるため、
+切り出すと参照の引き回しが増えて逆に読みにくくなる。
 
 ### radio-bridge (Rust)
 
@@ -142,10 +169,20 @@ Core向けJSONとナビゲーター知識は**同一の抽選結果から機械�
 GameTask は**実経過時間の差分で tick を進める**。キュー待ちのタイムアウトだけに
 頼ると入力イベント連続時に tick が飢え、カウントダウンが止まる(実装中に踏んだ)。
 
+### 配線テーブルは hardware_config.h にしかない
+
+色や位置で引く対応表は**すべて `hardware_config.h`** に置く。
+`kLineGpiosByColor` / `kLedPinsByColor` / `kPushGpiosByColor` /
+`kRotaryGpiosByPosition` の4つ。基板を変えるときに見る場所を1つに保つため、
+他のファイルへ同種の表を作らない。
+
+LEDの出力ピンはこの5本がすべてなので、順序を問わない初期化ループも
+`kLedPinsByColor` を回す(同じ配線を別の並びで二重に書かない)。
+
 ### ロータリーの位置対応
 
 `kRotary1`→位置0 〜 `kRotary6`→位置5。GPIO番号は**降順**(GPA7→GPA2)で
-直感に反するため、`core_system.cc` の `kRotaryGpios` は**配列の添字が
+直感に反するため、`kRotaryGpiosByPosition` は**配列の添字が
 そのまま位置番号**になる並びで定義している。ここがずれると全ステージの
 ロータリー条件が1つずれ、「動くが正解しない」形で現れる。
 対応表は `docs/game_session_design.md` §3。

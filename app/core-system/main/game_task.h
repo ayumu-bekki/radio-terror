@@ -15,6 +15,8 @@
 #include <string>
 
 #include "buzzer.h"
+#include "countdown_display.h"
+#include "event_sender.h"
 #include "game_session.h"
 #include "ht16k33.h"
 #include "led_controller.h"
@@ -22,20 +24,12 @@
 #include "message_queue.h"
 #include "pl9823_task.h"
 #include "push_seq_input.h"
+#include "status_indicator.h"
 #include "task.h"
+#include "timer_digit_rule.h"
 #include "whack_game.h"
 
 namespace CoreSystem {
-
-/// デバイス側状態 (§4)
-enum GameState : uint8_t {
-  STATE_SETUP,       ///< 準備中 (風船交換・配線復旧)
-  STATE_READY,       ///< セッティング完了。session_start を受理できる唯一の状態
-  STATE_PLAYING,     ///< ステージ消化中
-  STATE_DETONATING,  ///< 失敗確定。detonate_delay_ms 後にソレノイド駆動
-  STATE_EXPLODED,    ///< 破裂済み
-  STATE_DEFUSED,     ///< 全ステージクリア
-};
 
 /// GameTaskのキューへ積むイベント種別
 enum GameEventType : uint8_t {
@@ -62,9 +56,6 @@ struct GameEvent {
   std::string* payload = nullptr;
 };
 
-/// GameTaskから外部 (WSClient) へメッセージを送るための送信関数
-using SendFunc = std::function<void(const std::string&)>;
-
 class GameTask final : public Task {
  public:
   static constexpr std::string_view TASK_NAME = "GameTask";
@@ -79,9 +70,6 @@ class GameTask final : public Task {
 
   /// forbidden_rotary の違反確定までの停止時間 (§5。実機調整前提)
   static constexpr int32_t kForbiddenRotaryHoldMs = 300;
-
-  /// timer_digit の判定窓のうち、桁が一致しなくなった後の猶予 (§5)
-  static constexpr int32_t kTimerDigitGraceMs = 1000;
 
   /// ソレノイドのパルス幅 (§8.3)
   static constexpr int32_t kSolenoidPulseMs = 200;
@@ -101,10 +89,14 @@ class GameTask final : public Task {
   bool PostEvent(const GameEvent& event);
 
   /// WS送信関数を設定する (WSClient::Send のラッパを渡す)
-  void SetSendFunc(SendFunc send_func) { send_func_ = std::move(send_func); }
+  void SetSendFunc(SendFunc send_func) { sender_.SetSendFunc(std::move(send_func)); }
 
   /// バッテリー測定値 (実電圧) を更新する。device_status に載せる (§8.5)
   void UpdateBatteryVoltage(float voltage) { battery_voltage_ = voltage; }
+
+  /// WiFi接続に失敗したことを伝える。
+  /// サーバー待ちの表示を「紫点灯」から「紫点滅」へ変える (§4.0)。
+  void SetWifiFailed(bool failed) { wifi_failed_ = failed; }
 
  private:
   // --- 状態遷移 ---
@@ -126,7 +118,6 @@ class GameTask final : public Task {
   void HandleSessionStart(const std::string& payload);
   void HandleSessionAbort();
   void HandleForceDetonate();
-  void HandleTimeAdjust(int32_t delta_ms);
 
   // --- 100ms tick 処理 (§8.2) ---
   void Tick();
@@ -139,12 +130,8 @@ class GameTask final : public Task {
   // --- ゲームルール (§5) ---
   void OnLineCut(ColorId color);
   bool IsPreconditionMet(const StageConfig& stage) const;
-  bool IsTimerDigitMet(const TimerDigitSpec& spec) const;
 
-  /// 対象桁が今まさに条件に一致しているか (猶予を考慮しない素の判定)
-  bool IsTimerDigitMatchedNow(const TimerDigitSpec& spec) const;
-
-  /// timer_digit の猶予タイマーを進める (一致中は満タン、外れたら減衰)
+  /// timer_digit の猶予タイマーを進める (§5)
   void UpdateTimerDigitGrace();
   void ApplyPenalty(int32_t penalty_ms);
   void AdvanceStage();
@@ -162,19 +149,9 @@ class GameTask final : public Task {
   void FireSolenoid();
 
   // --- 送信 (§7.2) ---
-  void SendJson(const char* type, const std::function<void(cJSON*)>& fill);
+  /// 送信時点の状態をまとめる (EventSender へ渡す)
+  StatusSnapshot MakeStatusSnapshot() const;
   void SendDeviceStatus();
-  void SendSessionAccepted();
-  void SendSessionRejected(const char* reason, const std::string& detail);
-  void SendStageCleared();
-  void SendWhackCompleted();
-  void SendPushProgress(int32_t seq_index);
-  void SendWrongAction(const char* detail, ColorId line, int32_t penalty_ms);
-  void SendExploded(const char* reason, const char* detail, ColorId line);
-  void SendDefused();
-
-  /// 現在の状態名 (device_status 用)
-  const char* StateName() const;
 
   /// 全kLineが結線されているか
   bool AreAllLinesConnected() const;
@@ -186,7 +163,7 @@ class GameTask final : public Task {
   Buzzer buzzer_;
   LedController leds_;
   std::string device_id_;
-  SendFunc send_func_;
+  EventSender sender_;
 
   MessageQueue<GameEvent> message_queue_;
 
@@ -212,11 +189,14 @@ class GameTask final : public Task {
   int32_t forbidden_hold_ms_ = 0;
 
   // --- timer_digit 判定窓 (§5: 一致期間+直後1秒の猶予) ---
-  int32_t timer_digit_grace_ms_ = 0;
+  TimerDigitRule timer_digit_;
 
   // --- Setup/Ready 遷移 ---
   int32_t lines_stable_ms_ = 0;
   bool ws_connected_ = false;
+
+  /// WiFi接続に失敗したか。サーバー待ちの表示を点滅にする (§4.0)
+  bool wifi_failed_ = false;
 
   // --- Detonating ---
   int32_t detonate_remaining_ms_ = 0;

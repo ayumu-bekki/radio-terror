@@ -65,6 +65,16 @@ function selectSession(id) {
   refresh();
 }
 
+// 強制爆破は風船が実際に割れる。確認文で明示する
+async function detonate(deviceId) {
+  if (!confirm('Core ' + deviceId + ' を強制爆破します。\n風船が割れます。よろしいですか?')) return;
+  const res = await fetch('/manager/api/detonate?device_id=' + encodeURIComponent(deviceId),
+    { method: 'POST' });
+  // 409 = 進行中でない等で実行できなかった
+  if (res.status === 409) alert(await res.text());
+  refresh();
+}
+
 async function abort(deviceId) {
   if (!confirm('Core ' + deviceId + ' をリセットしますか?')) return;
   const res = await fetch('/manager/api/abort?device_id=' + encodeURIComponent(deviceId),
@@ -100,6 +110,7 @@ setInterval(refresh, 2000);
     <td>{{.BridgeID}}</td>
     <td class="row-actions">
       <button onclick="abort('{{.DeviceID}}')">リセット</button>
+      <button class="danger" onclick="detonate('{{.DeviceID}}')">強制爆破</button>
       <a href="/manager/history/{{.SessionID}}">詳細</a>
     </td>
   </tr>

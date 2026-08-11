@@ -133,8 +133,3 @@ func (r *DeviceRegistry) SendSessionAbort(deviceID string) error {
 func (r *DeviceRegistry) SendForceDetonate(deviceID string) error {
 	return r.Send(deviceID, forceDetonateCommand{Type: msgForceDetonate, DeviceID: deviceID})
 }
-
-// SendTimeAdjust は残り時間の増減を指示する。
-func (r *DeviceRegistry) SendTimeAdjust(deviceID string, deltaMS int) error {
-	return r.Send(deviceID, timeAdjustCommand{Type: msgTimeAdjust, DeviceID: deviceID, DeltaMS: deltaMS})
-}

@@ -5,6 +5,7 @@ idf_component_register(SRCS "main.cc"
                             "core_system.cc"
                             "ws_client.cc"
                             "game_session.cc"
+                            "led_pattern.cc"
                             "game_task.cc"
                     INCLUDE_DIRS ""
                     REQUIRES driver esp_event esp_netif esp_wifi nvs_flash

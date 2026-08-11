@@ -14,9 +14,11 @@ menu "Core System Configuration"
 
     config CORE_SYSTEM_WEBSOCKET_URI
         string "WebSocket URI"
-        default "ws://192.168.100.1:8080"
+        default "ws://192.168.100.1:8080/ws"
         help
             接続先WebSocketサーバーのURI。
+            末尾の /ws まで含めること (サーバーはこのパスでのみ受け付ける)。
+            省略するとハンドシェイクが404で失敗する。
 
     config CORE_SYSTEM_DEVICE_ID
         string "Device ID (CoreID)"

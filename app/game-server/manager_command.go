@@ -15,7 +15,8 @@ var deviceIDPattern = regexp.MustCompile(`\d{4}`)
 
 // ManagerCommand はマネージャーの音声コマンドの解析結果 (docs/operation_flow.md §7)。
 type ManagerCommand struct {
-	// Kind は "start" (開始申告) / "reset" (強制リセット) / "" (コマンドではない)
+	// Kind は "start" (開始申告) / "reset" (強制リセット) /
+	// "detonate" (強制破裂) / "" (コマンドではない)
 	Kind string
 	// DeviceID は対象 Core の4桁ID
 	DeviceID string
@@ -25,8 +26,9 @@ type ManagerCommand struct {
 
 // マネージャーコマンドの種別
 const (
-	managerCommandStart = "start"
-	managerCommandReset = "reset"
+	managerCommandStart    = "start"
+	managerCommandReset    = "reset"
+	managerCommandDetonate = "detonate"
 )
 
 // difficultyKeywords は音声申告の難易度語彙 (§5)。
@@ -77,6 +79,10 @@ func (h *ManagerCommandHandler) Handle(ctx context.Context, sender *AudioSender,
 		case managerCommandReset:
 			log.Printf("[manager] reset: bridge=%s device=%s", sender.BridgeID(), cmd.DeviceID)
 			return true, h.game.AbortSession(ctx, sender, cmd.DeviceID)
+
+		case managerCommandDetonate:
+			log.Printf("[manager] force detonate: bridge=%s device=%s", sender.BridgeID(), cmd.DeviceID)
+			return true, h.game.ForceDetonate(ctx, cmd.DeviceID)
 		}
 	}
 	return false, nil
@@ -96,12 +102,21 @@ func (h *ManagerCommandHandler) Parse(message string) ManagerCommand {
 		return ManagerCommand{}
 	}
 
-	// 強制リセット(キルスイッチ): 秘密ワードが一致した場合のみ有効。
+	// 秘密ワードを要するコマンド (強制破裂・強制リセット)。
+	// どちらも運営内でのみ共有する秘密ワードが必須なので、
+	// プレイヤーが定型文を真似ても成立しない。
+	//
 	// 一致判定はかな正規化のゆるい一致とする (認識ゆれでキルスイッチが
 	// 効かない事態を防ぐ。ワード自体が運営外秘のため緩くても安全)。
 	if h.secretWord != "" && strings.Contains(normalized, normalizeForMatch(h.secretWord)) {
-		if strings.Contains(normalized, "りせつと") || strings.Contains(normalized, "りせっと") ||
-			strings.Contains(normalized, "reset") || strings.Contains(message, "リセット") {
+		// 強制破裂: **風船が実際に割れる**ため、リセットより先に判定する
+		if containsAny(message, normalized, []string{"強制爆破", "強制破裂"},
+			[]string{"きようせいばくは", "きようせいはれつ", "ばくは"}) {
+			return ManagerCommand{Kind: managerCommandDetonate, DeviceID: deviceID}
+		}
+
+		if containsAny(message, normalized, []string{"リセット"},
+			[]string{"りせつと", "りせっと", "reset"}) {
 			return ManagerCommand{Kind: managerCommandReset, DeviceID: deviceID}
 		}
 	}
@@ -121,6 +136,22 @@ func (h *ManagerCommandHandler) Parse(message string) ManagerCommand {
 		DeviceID:   deviceID,
 		Difficulty: difficulty,
 	}
+}
+
+// containsAny は原文・正規化文字列のいずれかにキーワードが含まれるかを返す。
+// originals は原文に対して、normalizeds は正規化後の文字列に対して照合する。
+func containsAny(original, normalized string, originals, normalizeds []string) bool {
+	for _, keyword := range originals {
+		if strings.Contains(original, keyword) {
+			return true
+		}
+	}
+	for _, keyword := range normalizeds {
+		if strings.Contains(normalized, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 // findDifficulty は発話から難易度を検出する。

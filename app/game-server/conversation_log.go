@@ -27,6 +27,7 @@ const (
 	EventDefused      = "defused"       // 解除成功
 	EventExploded     = "exploded"      // 爆発 (失敗)
 	EventAborted      = "aborted"       // マネージャーによる強制リセット
+	EventForced       = "forced"        // マネージャーによる強制破裂の指示
 )
 
 // senderPlayer はプレイヤー発話の Sender 名。

@@ -29,6 +29,22 @@ constexpr int kRotaryPositionNum = 6;
 /// GameTaskのtick周期。LEDパターンはこの粒度で進行する
 constexpr int kTickMs = 100;
 
+/// デバイス側状態 (§4)
+///
+/// 状態から表示を決める処理 (status_indicator.h) も参照するため、
+/// GameTask ではなくここに置く。
+enum GameState : uint8_t {
+  STATE_SETUP,       ///< 準備中 (風船交換・配線復旧)
+  STATE_READY,       ///< セッティング完了。session_start を受理できる唯一の状態
+  STATE_PLAYING,     ///< ステージ消化中
+  STATE_DETONATING,  ///< 失敗確定。detonate_delay_ms 後にソレノイド駆動
+  STATE_EXPLODED,    ///< 破裂済み
+  STATE_DEFUSED,     ///< 全ステージクリア
+};
+
+/// 状態名 (device_status 用。§7.2)
+const char* GameStateName(GameState state);
+
 /// HT16K33 4桁 (999.9秒) の表示上限
 constexpr int32_t kCountdownMaxMs = 999900;
 

@@ -46,6 +46,10 @@ button { background: #2a2f3d; color: #e6e8ee; border: 1px solid #3a4152;
          border-radius: 4px; padding: .2rem .6rem; cursor: pointer; font-size: .75rem; }
 button:hover { background: #3a4152; }
 
+/* danger は取り返しのつかない操作 (強制爆破)。リセットと見分けるため赤系にする */
+button.danger { background: #4a1c1c; color: #f5a2a2; border-color: #6a2a2a; }
+button.danger:hover { background: #6a2a2a; color: #ffd0d0; }
+
 /* --- ページ間の行き来 --- */
 
 /* nav はページ上部の戻り導線とページ間リンク。 */

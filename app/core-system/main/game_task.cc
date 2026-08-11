@@ -17,19 +17,6 @@
 
 namespace CoreSystem {
 
-namespace {
-
-/// フルカラーLEDの色 (§4.1)
-constexpr uint8_t kFullColorBrightness = 128;
-
-/// Playing中のフルカラーLED点滅間隔 (通常時 / 終盤警告時)
-constexpr uint32_t kPlayingBlinkOnMs = 50;
-constexpr uint32_t kPlayingBlinkOffMs = 950;
-constexpr uint32_t kPlayingHurryBlinkOnMs = 50;
-constexpr uint32_t kPlayingHurryBlinkOffMs = 250;
-
-}  // namespace
-
 GameTask::GameTask(MCP23017* mcp23017, HT16K33* ht16k33, Pl9823Task* pl9823_task,
                    const std::string& device_id)
     : Task(std::string(TASK_NAME).c_str(), PRIORITY, CORE_ID),
@@ -38,7 +25,8 @@ GameTask::GameTask(MCP23017* mcp23017, HT16K33* ht16k33, Pl9823Task* pl9823_task
       pl9823_task_(pl9823_task),
       buzzer_(Esp32Pin::kBuzzer),
       leds_(mcp23017),
-      device_id_(device_id) {
+      device_id_(device_id),
+      sender_(device_id) {
   constexpr int32_t kQueueSize = 32;
   if (!message_queue_.Create(kQueueSize)) {
     ESP_LOGE(TAG, "GameTask: creating queue failed");
@@ -162,7 +150,7 @@ void GameTask::EnterDetonating(const char* reason, const char* detail, ColorId l
   ESP_LOGI(TAG, "state -> Detonating reason=%s", reason);
 
   // 無線演出と破裂音を同期させるため、ソレノイド駆動前に送信する (§4)
-  SendExploded(reason, detail, line);
+  sender_.SendExploded(reason, detail, line);
 }
 
 void GameTask::EnterExploded() {
@@ -186,48 +174,70 @@ void GameTask::EnterDefused() {
   TickDisplay();
 
   ESP_LOGI(TAG, "state -> Defused remaining_ms=%d", static_cast<int>(remaining_ms_));
-  SendDefused();
+  sender_.SendDefused(remaining_ms_);
 }
 
 // --- イベント処理 ---------------------------------------------------------
 
 void GameTask::HandleEvent(const GameEvent& event) {
-  switch (event.type) {
-    case EVENT_LINE_CHANGED:
-      HandleLineChanged(event.color, event.level);
-      break;
-    case EVENT_PUSH_CHANGED:
-      HandlePushChanged(event.color, event.level);
-      break;
-    case EVENT_ROTARY_CHANGED:
-      HandleRotaryChanged(event.rotary);
-      break;
-    case EVENT_WS_MESSAGE:
-      if (event.payload) {
-        HandleWsMessage(*event.payload);
-        delete event.payload;
-      }
-      break;
-    case EVENT_WS_CONNECTED:
-      ws_connected_ = true;
-      SendDeviceStatus();
-      break;
-    case EVENT_WS_DISCONNECTED:
-      ws_connected_ = false;
-      // ゲーム進行はデバイス内で完結するため Playing は継続する (§7.3)。
-      // Ready の場合のみ session_start を受理できなくなるので Setup へ戻す (§4)。
-      if (state_ == STATE_READY) {
-        EnterSetup();
-      }
-      break;
-    case EVENT_LOW_BATTERY:
-      // 低電圧フラグ付きの device_status を送ってから Deep Sleep へ入る (§8.5)
-      low_battery_ = true;
-      SendDeviceStatus();
-      ESP_LOGW(TAG, "low battery: entering deep sleep");
-      vTaskDelay(pdMS_TO_TICKS(500));
-      esp_deep_sleep_start();
-      break;
+  if (event.type == EVENT_LINE_CHANGED) {
+    HandleLineChanged(event.color, event.level);
+    return;
+  }
+
+  if (event.type == EVENT_PUSH_CHANGED) {
+    HandlePushChanged(event.color, event.level);
+    return;
+  }
+
+  if (event.type == EVENT_ROTARY_CHANGED) {
+    HandleRotaryChanged(event.rotary);
+    return;
+  }
+
+  if (event.type == EVENT_WS_MESSAGE) {
+    if (event.payload) {
+      HandleWsMessage(*event.payload);
+      delete event.payload;
+    }
+    return;
+  }
+
+  if (event.type == EVENT_WS_CONNECTED) {
+    ws_connected_ = true;
+    // 繋がった時点で起動時のWiFi失敗は解消している (§4.0)。
+    // 再接続で復帰した場合に点滅が残らないよう降ろす。
+    wifi_failed_ = false;
+    // Setup中は紫点灯 → 黄点滅へ切り替わる (§4.0)。
+    // 表示は状態変化のたびにしか更新しないため、ここで明示的に反映する。
+    UpdateFullColorLed();
+    SendDeviceStatus();
+    return;
+  }
+
+  if (event.type == EVENT_WS_DISCONNECTED) {
+    ws_connected_ = false;
+    // ゲーム進行はデバイス内で完結するため Playing は継続する (§7.3)。
+    // Ready の場合のみ session_start を受理できなくなるので Setup へ戻す (§4)。
+    if (state_ == STATE_READY) {
+      EnterSetup();  // 中で UpdateFullColorLed() が呼ばれる
+      return;
+    }
+    // Setup中に切断したら黄点滅 → 紫点灯へ戻す (§4.0)
+    if (state_ == STATE_SETUP) {
+      UpdateFullColorLed();
+    }
+    return;
+  }
+
+  if (event.type == EVENT_LOW_BATTERY) {
+    // 低電圧フラグ付きの device_status を送ってから Deep Sleep へ入る (§8.5)
+    low_battery_ = true;
+    SendDeviceStatus();
+    ESP_LOGW(TAG, "low battery: entering deep sleep");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_deep_sleep_start();
+    return;
   }
 }
 
@@ -276,7 +286,7 @@ void GameTask::HandlePushChanged(ColorId color, bool pressed) {
 
   if (whack_.IsRunning()) {
     if (whack_.HandlePush(color, stage, &leds_)) {
-      SendWhackCompleted();
+      sender_.SendWhackCompleted(stage_index_, remaining_ms_);
     }
     ApplyLedOutputs();
     return;
@@ -322,10 +332,6 @@ void GameTask::HandleWsMessage(const std::string& payload) {
   }
 
   const std::string type = type_item->valuestring;
-  const int32_t delta_ms =
-      static_cast<int32_t>(cJSON_GetObjectItemCaseSensitive(root, "delta_ms")
-                               ? cJSON_GetObjectItemCaseSensitive(root, "delta_ms")->valuedouble
-                               : 0);
   cJSON_Delete(root);
 
   if (type == "session_start") {
@@ -334,8 +340,6 @@ void GameTask::HandleWsMessage(const std::string& payload) {
     HandleSessionAbort();
   } else if (type == "force_detonate") {
     HandleForceDetonate();
-  } else if (type == "time_adjust") {
-    HandleTimeAdjust(delta_ms);
   }
 }
 
@@ -353,19 +357,19 @@ void GameTask::HandleSessionStart(const std::string& payload) {
         cut_lines += ColorToChar(static_cast<ColorId>(i));
       }
     }
-    SendSessionRejected("not_ready", cut_lines);
+    sender_.SendSessionRejected("not_ready", cut_lines);
     return;
   }
 
   SessionConfig config;
   const ParseResult result = ParseSessionJson(payload, &config);
   if (!result.ok) {
-    SendSessionRejected(result.reason.c_str(), result.detail);
+    sender_.SendSessionRejected(result.reason.c_str(), result.detail);
     return;
   }
 
   session_ = std::move(config);
-  SendSessionAccepted();
+  sender_.SendSessionAccepted(session_.session_id);
   EnterPlaying();
 }
 
@@ -387,69 +391,39 @@ void GameTask::HandleForceDetonate() {
   EnterDetonating("forced", nullptr, COLOR_NONE);
 }
 
-void GameTask::HandleTimeAdjust(int32_t delta_ms) {
-  if (state_ != STATE_PLAYING) {
-    return;
-  }
-
-  remaining_ms_ += delta_ms;
-  if (remaining_ms_ > kCountdownMaxMs) {
-    remaining_ms_ = kCountdownMaxMs;
-  }
-  ESP_LOGI(TAG, "time_adjust %d -> remaining=%d", static_cast<int>(delta_ms),
-           static_cast<int>(remaining_ms_));
-
-  // 減算で0以下になった場合もタイムアウト扱いにする (§5)
-  if (remaining_ms_ <= 0) {
-    remaining_ms_ = 0;
-    EnterDetonating("timeout", nullptr, COLOR_NONE);
-  }
-}
-
 // --- 100ms tick (§8.2) ----------------------------------------------------
 
 void GameTask::Tick() {
   buzzer_.Tick();
 
-  switch (state_) {
-    case STATE_SETUP:
-      // 全線結線が一定時間安定し、サーバーと接続できたら Ready へ (§4)
-      if (AreAllLinesConnected() && ws_connected_) {
-        lines_stable_ms_ += kTickMs;
-        if (kReadyStableMs <= lines_stable_ms_) {
-          EnterReady();
-        }
-      } else {
-        lines_stable_ms_ = 0;
+  // Ready / Exploded / Defused は tick で進む処理を持たない
+  if (state_ == STATE_SETUP) {
+    // 全線結線が一定時間安定し、サーバーと接続できたら Ready へ (§4)
+    if (AreAllLinesConnected() && ws_connected_) {
+      lines_stable_ms_ += kTickMs;
+      if (kReadyStableMs <= lines_stable_ms_) {
+        EnterReady();
       }
-      break;
-
-    case STATE_PLAYING:
-      TickCountdown();
-      if (state_ != STATE_PLAYING) {
-        // カウントダウンでタイムアウトした場合はここで抜ける
-        break;
-      }
+    } else {
+      lines_stable_ms_ = 0;
+    }
+  } else if (state_ == STATE_PLAYING) {
+    TickCountdown();
+    // カウントダウンでタイムアウトした場合は以降の描画を行わない
+    if (state_ == STATE_PLAYING) {
       TickLeds();
       TickWhack();
       TickForbiddenRotary();
       TickDisplay();
-      break;
-
-    case STATE_DETONATING:
-      if (!solenoid_fired_) {
-        detonate_remaining_ms_ -= kTickMs;
-        if (detonate_remaining_ms_ <= 0) {
-          FireSolenoid();
-          EnterExploded();
-        }
+    }
+  } else if (state_ == STATE_DETONATING) {
+    if (!solenoid_fired_) {
+      detonate_remaining_ms_ -= kTickMs;
+      if (detonate_remaining_ms_ <= 0) {
+        FireSolenoid();
+        EnterExploded();
       }
-      break;
-
-    case STATE_READY:
-    case STATE_EXPLODED:
-    case STATE_DEFUSED:
-      break;
+    }
   }
 
   // device_status の定期送信 (§7.2)
@@ -517,28 +491,12 @@ void GameTask::TickForbiddenRotary() {
   }
 
   ApplyPenalty(stage.forbidden_rotary.on_violation.penalty_ms);
-  SendWrongAction("forbidden_rotary", COLOR_NONE,
-                  stage.forbidden_rotary.on_violation.penalty_ms);
+  sender_.SendWrongAction("forbidden_rotary", COLOR_NONE,
+                          stage.forbidden_rotary.on_violation.penalty_ms, remaining_ms_);
 }
 
 void GameTask::TickDisplay() {
-  // 整数部(3桁)+小数点1桁を右詰めで表示する (先頭の不要なゼロは消灯)
-  const int32_t tenths_total = remaining_ms_ / 100;
-  const int seconds = static_cast<int>(tenths_total / 10);
-  const int tenths = static_cast<int>(tenths_total % 10);
-
-  const int int_digits[3] = {seconds / 100 % 10, seconds / 10 % 10, seconds % 10};
-  ht16k33_->Clear();
-  bool leading = true;
-  for (int i = 0; i < 3; ++i) {
-    if (leading && int_digits[i] == 0 && i < 2) {
-      continue;
-    }
-    leading = false;
-    ht16k33_->WriteDigitNum(i, int_digits[i], i == 2);
-  }
-  ht16k33_->WriteDigitNum(3, tenths);
-  ht16k33_->WriteDisplay();
+  CountdownDisplay::Render(ht16k33_, remaining_ms_);
 }
 
 // --- ゲームルール (§5) ----------------------------------------------------
@@ -551,7 +509,7 @@ void GameTask::OnLineCut(ColorId color) {
 
   if (is_correct_line && precondition_met) {
     ESP_LOGI(TAG, "stage %d cleared", static_cast<int>(stage_index_));
-    SendStageCleared();
+    sender_.SendStageCleared(stage_index_, remaining_ms_);
     AdvanceStage();
     return;
   }
@@ -566,7 +524,7 @@ void GameTask::OnLineCut(ColorId color) {
 
   // penalty の場合
   ApplyPenalty(stage.on_wrong_cut.penalty_ms);
-  SendWrongAction(detail, color, stage.on_wrong_cut.penalty_ms);
+  sender_.SendWrongAction(detail, color, stage.on_wrong_cut.penalty_ms, remaining_ms_);
   if (state_ != STATE_PLAYING) {
     // ペナルティで残り時間が0になった場合
     return;
@@ -603,7 +561,8 @@ bool GameTask::IsPreconditionMet(const StageConfig& stage) const {
     return false;
   }
 
-  if (precondition.has_timer_digit && !IsTimerDigitMet(precondition.timer_digit)) {
+  if (precondition.has_timer_digit &&
+      !timer_digit_.IsMet(precondition.timer_digit, remaining_ms_, rotary_position_)) {
     return false;
   }
 
@@ -614,51 +573,20 @@ bool GameTask::IsPreconditionMet(const StageConfig& stage) const {
   return true;
 }
 
-/// timer_digit の猶予タイマーを進める。
-///
-/// 判定窓は「対象桁が一致する期間 + 直後1秒の猶予」(§5)。
-/// 一致している間は猶予を満タンに保ち、一致から外れた瞬間から減り始める。
-/// これにより「切ろうとしたら桁が変わってしまった」を救済する。
+/// timer_digit の猶予タイマーを進める (§5)。
+/// 条件の無いステージ・Playing以外では猶予を捨てる。
 void GameTask::UpdateTimerDigitGrace() {
   if (state_ != STATE_PLAYING || session_.stages.empty()) {
-    timer_digit_grace_ms_ = 0;
+    timer_digit_.Reset();
     return;
   }
   const StageConfig& stage = session_.stages[stage_index_];
   if (!stage.precondition.has_timer_digit) {
-    timer_digit_grace_ms_ = 0;
+    timer_digit_.Reset();
     return;
   }
 
-  if (IsTimerDigitMatchedNow(stage.precondition.timer_digit)) {
-    timer_digit_grace_ms_ = kTimerDigitGraceMs;
-  } else if (0 < timer_digit_grace_ms_) {
-    timer_digit_grace_ms_ -= kTickMs;
-  }
-}
-
-/// 現在の残り時間の対象桁が条件に一致しているか (猶予を考慮しない素の判定)。
-bool GameTask::IsTimerDigitMatchedNow(const TimerDigitSpec& spec) const {
-  const int32_t seconds = remaining_ms_ / 1000;
-  const int32_t raw_digit =
-      (spec.digit == TIMER_DIGIT_ONES) ? (seconds % 10) : (seconds / 10 % 10);
-
-  // offset を加算してから比較する (暗算を要する謎用。offset=0 なら桁そのもの)
-  const int32_t digit = raw_digit + spec.offset;
-
-  const int32_t target =
-      (spec.match == TIMER_MATCH_ROTARY) ? rotary_position_ : spec.value;
-
-  return digit == target;
-}
-
-bool GameTask::IsTimerDigitMet(const TimerDigitSpec& spec) const {
-  if (IsTimerDigitMatchedNow(spec)) {
-    return true;
-  }
-
-  // 判定窓は「対象桁が一致する期間 + 直後1秒の猶予」(§5)
-  return 0 < timer_digit_grace_ms_;
+  timer_digit_.Tick(stage.precondition.timer_digit, remaining_ms_, rotary_position_);
 }
 
 void GameTask::ApplyPenalty(int32_t penalty_ms) {
@@ -690,7 +618,7 @@ void GameTask::ResetStageProgress() {
   push_seq_.Reset();
 
   forbidden_hold_ms_ = 0;
-  timer_digit_grace_ms_ = 0;
+  timer_digit_.Reset();
 
   ClearLedOverrides();
 
@@ -714,56 +642,55 @@ void GameTask::HandlePushSeqInput(ColorId color) {
       push_seq_.HandlePush(color, spec, rotary_position_, &leds_);
   ApplyLedOutputs();
 
-  switch (result) {
-    case PUSH_SEQ_IGNORED:
-      return;
-
-    case PUSH_SEQ_ADVANCED:
-      SendPushProgress(push_seq_.Index());
-      return;
-
-    case PUSH_SEQ_COMPLETED:
-      SendPushProgress(push_seq_.Index());
-      ESP_LOGI(TAG, "push_seq completed");
-      return;
-
-    case PUSH_SEQ_WRONG:
-      break;
+  if (result == PUSH_SEQ_IGNORED) {
+    return;
   }
 
-  // ミス時の扱いは on_wrong_press に従う (§5)
-  switch (spec.on_wrong_press.action) {
-    case ACTION_EXPLODE:
-      EnterDetonating("wrong_cut", "push_seq", COLOR_NONE);
-      return;
-    case ACTION_PENALTY:
-      ApplyPenalty(spec.on_wrong_press.penalty_ms);
-      SendWrongAction("push_seq", COLOR_NONE, spec.on_wrong_press.penalty_ms);
-      return;
-    case ACTION_RETRY:
-    default:
-      // 列の先頭からやり直し (既定)。PushSeqInput 側で index はリセット済み
-      SendWrongAction("push_seq", COLOR_NONE, 0);
-      return;
+  if (result == PUSH_SEQ_ADVANCED) {
+    sender_.SendPushProgress(stage_index_, push_seq_.Index(), remaining_ms_);
+    return;
   }
+
+  if (result == PUSH_SEQ_COMPLETED) {
+    sender_.SendPushProgress(stage_index_, push_seq_.Index(), remaining_ms_);
+    ESP_LOGI(TAG, "push_seq completed");
+    return;
+  }
+
+  // 以降は PUSH_SEQ_WRONG。ミス時の扱いは on_wrong_press に従う (§5)
+  if (spec.on_wrong_press.action == ACTION_EXPLODE) {
+    EnterDetonating("wrong_cut", "push_seq", COLOR_NONE);
+    return;
+  }
+
+  if (spec.on_wrong_press.action == ACTION_PENALTY) {
+    ApplyPenalty(spec.on_wrong_press.penalty_ms);
+    sender_.SendWrongAction("push_seq", COLOR_NONE, spec.on_wrong_press.penalty_ms,
+                            remaining_ms_);
+    return;
+  }
+
+  // ACTION_RETRY (既定)。列の先頭からやり直し。
+  // PushSeqInput 側で index はリセット済み
+  sender_.SendWrongAction("push_seq", COLOR_NONE, 0, remaining_ms_);
 }
 
 // --- 出力 -----------------------------------------------------------------
 
 void GameTask::ApplyLedOutputs() {
-  switch (state_) {
-    case STATE_SETUP:
-      // 切断中の線に対応するLEDを点灯して復旧ガイドにする (§4.1)
-      leds_.ApplySetupGuide(line_connected_);
-      break;
-    case STATE_PLAYING:
-      leds_.ApplyPlaying();
-      break;
-    default:
-      // Ready / Detonating / Exploded / Defused は全消灯 (§4.1)
-      leds_.ApplyAllOff();
-      break;
+  if (state_ == STATE_SETUP) {
+    // 切断中の線に対応するLEDを点灯して復旧ガイドにする (§4.1)
+    leds_.ApplySetupGuide(line_connected_);
+    return;
   }
+
+  if (state_ == STATE_PLAYING) {
+    leds_.ApplyPlaying();
+    return;
+  }
+
+  // Ready / Detonating / Exploded / Defused は全消灯 (§4.1)
+  leds_.ApplyAllOff();
 }
 
 void GameTask::ClearLedOverrides() {
@@ -778,50 +705,10 @@ void GameTask::ClearLedOverrides() {
 }
 
 void GameTask::UpdateFullColorLed() {
-  Pl9823Task::Command command;
-
-  switch (state_) {
-    case STATE_SETUP:
-      // 黄点滅
-      command.pattern = Pl9823Task::PATTERN_BLINK;
-      command.r = kFullColorBrightness;
-      command.g = kFullColorBrightness;
-      command.b = 0;
-      command.on_ms = 500;
-      command.off_ms = 500;
-      break;
-
-    case STATE_READY:
-      // 青点灯
-      command.pattern = Pl9823Task::PATTERN_SOLID;
-      command.b = kFullColorBrightness;
-      break;
-
-    case STATE_PLAYING: {
-      // 赤の短発点滅 (残り時間僅少で点滅加速)
-      const bool hurry = (remaining_ms_ <= kHurryThresholdMs);
-      command.pattern = Pl9823Task::PATTERN_BLINK;
-      command.r = kFullColorBrightness;
-      command.on_ms = hurry ? kPlayingHurryBlinkOnMs : kPlayingBlinkOnMs;
-      command.off_ms = hurry ? kPlayingHurryBlinkOffMs : kPlayingBlinkOffMs;
-      break;
-    }
-
-    case STATE_DETONATING:
-    case STATE_EXPLODED:
-      // 赤点灯
-      command.pattern = Pl9823Task::PATTERN_SOLID;
-      command.r = kFullColorBrightness;
-      break;
-
-    case STATE_DEFUSED:
-      // 緑点灯
-      command.pattern = Pl9823Task::PATTERN_SOLID;
-      command.g = kFullColorBrightness;
-      break;
-  }
-
-  pl9823_task_->SendCommand(command);
+  // 表示の決定は StatusIndicator に任せる (§4.1)
+  const bool hurry = (remaining_ms_ <= kHurryThresholdMs);
+  pl9823_task_->SendCommand(
+      StatusIndicator::MakeCommand(state_, hurry, ws_connected_, wifi_failed_));
 }
 
 void GameTask::FireSolenoid() {
@@ -839,125 +726,19 @@ void GameTask::FireSolenoid() {
 
 // --- 送信 (§7.2) ----------------------------------------------------------
 
-void GameTask::SendJson(const char* type, const std::function<void(cJSON*)>& fill) {
-  if (!send_func_) {
-    return;
-  }
-
-  cJSON* root = cJSON_CreateObject();
-  cJSON_AddStringToObject(root, "type", type);
-  cJSON_AddStringToObject(root, "device_id", device_id_.c_str());
-  if (fill) {
-    fill(root);
-  }
-
-  char* json_text = cJSON_PrintUnformatted(root);
-  if (json_text) {
-    send_func_(json_text);
-    cJSON_free(json_text);
-  }
-  cJSON_Delete(root);
+StatusSnapshot GameTask::MakeStatusSnapshot() const {
+  StatusSnapshot status;
+  status.state = GameStateName(state_);
+  status.session_id = session_.session_id.c_str();
+  status.stage_index = stage_index_;
+  status.remaining_ms = remaining_ms_;
+  status.battery = battery_voltage_;
+  status.low_battery = low_battery_;
+  status.line_connected = line_connected_;
+  return status;
 }
 
-void GameTask::SendDeviceStatus() {
-  SendJson("device_status", [this](cJSON* root) {
-    cJSON_AddStringToObject(root, "state", StateName());
-    cJSON_AddStringToObject(root, "session_id", session_.session_id.c_str());
-    cJSON_AddNumberToObject(root, "stage_index", stage_index_);
-    cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms_);
-    cJSON_AddNumberToObject(root, "battery", battery_voltage_);
-    cJSON_AddBoolToObject(root, "low_battery", low_battery_);
-
-    // 各配線の結線状態 (Setup中の復旧進捗をマネージャーが確認するのに使う)
-    cJSON* lines = cJSON_CreateObject();
-    for (int i = 0; i < kColorNum; ++i) {
-      const char key[2] = {ColorToChar(static_cast<ColorId>(i)), '\0'};
-      cJSON_AddBoolToObject(lines, key, line_connected_[i]);
-    }
-    cJSON_AddItemToObject(root, "lines", lines);
-  });
-}
-
-void GameTask::SendSessionAccepted() {
-  SendJson("session_accepted", [this](cJSON* root) {
-    cJSON_AddStringToObject(root, "session_id", session_.session_id.c_str());
-  });
-}
-
-void GameTask::SendSessionRejected(const char* reason, const std::string& detail) {
-  ESP_LOGW(TAG, "session_rejected: %s (%s)", reason, detail.c_str());
-  SendJson("session_rejected", [reason, &detail](cJSON* root) {
-    cJSON_AddStringToObject(root, "reason", reason);
-    if (!detail.empty()) {
-      cJSON_AddStringToObject(root, "detail", detail.c_str());
-    }
-  });
-}
-
-void GameTask::SendStageCleared() {
-  SendJson("stage_cleared", [this](cJSON* root) {
-    cJSON_AddNumberToObject(root, "stage_index", stage_index_);
-    cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms_);
-  });
-}
-
-void GameTask::SendWhackCompleted() {
-  SendJson("whack_completed", [this](cJSON* root) {
-    cJSON_AddNumberToObject(root, "stage_index", stage_index_);
-    cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms_);
-  });
-}
-
-void GameTask::SendPushProgress(int32_t seq_index) {
-  SendJson("push_progress", [this, seq_index](cJSON* root) {
-    cJSON_AddNumberToObject(root, "stage_index", stage_index_);
-    cJSON_AddNumberToObject(root, "seq_index", seq_index);
-    cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms_);
-  });
-}
-
-void GameTask::SendWrongAction(const char* detail, ColorId line, int32_t penalty_ms) {
-  SendJson("wrong_action", [this, detail, line, penalty_ms](cJSON* root) {
-    cJSON_AddStringToObject(root, "detail", detail);
-    if (line != COLOR_NONE) {
-      const char value[2] = {ColorToChar(line), '\0'};
-      cJSON_AddStringToObject(root, "line", value);
-    }
-    cJSON_AddNumberToObject(root, "penalty_ms", penalty_ms);
-    cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms_);
-  });
-}
-
-void GameTask::SendExploded(const char* reason, const char* detail, ColorId line) {
-  SendJson("exploded", [reason, detail, line](cJSON* root) {
-    cJSON_AddStringToObject(root, "reason", reason);
-    if (detail) {
-      cJSON_AddStringToObject(root, "detail", detail);
-    }
-    if (line != COLOR_NONE) {
-      const char value[2] = {ColorToChar(line), '\0'};
-      cJSON_AddStringToObject(root, "line", value);
-    }
-  });
-}
-
-void GameTask::SendDefused() {
-  SendJson("defused", [this](cJSON* root) {
-    cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms_);
-  });
-}
-
-const char* GameTask::StateName() const {
-  switch (state_) {
-    case STATE_SETUP: return "setup";
-    case STATE_READY: return "ready";
-    case STATE_PLAYING: return "playing";
-    case STATE_DETONATING: return "detonating";
-    case STATE_EXPLODED: return "exploded";
-    case STATE_DEFUSED: return "defused";
-    default: return "unknown";
-  }
-}
+void GameTask::SendDeviceStatus() { sender_.SendDeviceStatus(MakeStatusSnapshot()); }
 
 bool GameTask::AreAllLinesConnected() const {
   for (int i = 0; i < kColorNum; ++i) {

@@ -7,6 +7,8 @@
 #include <driver/gpio.h>
 #include <driver/i2c_master.h>
 
+#include "game_session.h"  // ColorId / kColorNum / kRotaryPositionNum
+
 namespace CoreSystem {
 
 /// MCP23017 GPIO割り当て (Group A / Group B)
@@ -32,18 +34,11 @@ constexpr uint8_t kLedE = 5;       // GPB5 OUT
 constexpr uint8_t kLedD = 6;       // GPB6 OUT
 constexpr uint8_t kLedC = 7;       // GPB7 OUT
 
-/// OUTPUTピン一覧 ({group, gpio_no})
-/// 出力に設定するピン (初期化用。並びはGPIO番号順で意味を持たない)
-constexpr uint8_t kOutputPins[][2] = {
-    {kGroupA, kLedA},
-    {kGroupA, kLedB},
-    {kGroupB, kLedE},
-    {kGroupB, kLedD},
-    {kGroupB, kLedC},
-};
-
 /// kLED A-E の配置を ColorId 順に並べたもの ({group, gpio_no})。
-/// 色を順に扱う処理 (ヒント表示・起動演出) はこちらを使う。
+///
+/// MCP23017 の出力ピンはこの5本がすべてなので、
+/// **色で引く用途と、出力設定・一括消灯のループの両方をこの表で兼ねる**。
+/// 順序を問わない処理もこれを回せばよく、同じ配線を二重に書かずに済む。
 constexpr uint8_t kLedPinsByColor[][2] = {
     {kGroupA, kLedA},
     {kGroupA, kLedB},
@@ -51,6 +46,44 @@ constexpr uint8_t kLedPinsByColor[][2] = {
     {kGroupB, kLedD},
     {kGroupB, kLedE},
 };
+
+/// kPush A-E を ColorId 順に並べたもの (全て Group B)。
+/// 添字が ColorId になるので、押されたピンから色を引ける。
+constexpr uint8_t kPushGpiosByColor[kColorNum] = {
+    kPushA, kPushB, kPushC, kPushD, kPushE,
+};
+
+/// ロータリー6接点を**位置0-5の順**に並べたもの (全て Group A)。
+///
+/// **配列の添字がそのまま位置番号**になる並びで定義している。
+/// GPIO番号は降順 (kRotary1=GPA7 → kRotary6=GPA2) で直感に反するため、
+/// ここを基板の並び順で書くと全ステージのロータリー条件が1つずれ、
+/// 「動くが正解しない」形で現れる。対応表は
+/// docs/game_session_design.md §3。
+constexpr uint8_t kRotaryGpiosByPosition[kRotaryPositionNum] = {
+    kRotary1, kRotary2, kRotary3, kRotary4, kRotary5, kRotary6,
+};
+
+/// Group B の GPIO番号から kPush の色を引く。該当しなければ COLOR_NONE。
+/// 配線から色を求める処理をここに置き、呼び出し側の探索ループを無くす。
+constexpr ColorId PushColorForGpio(uint8_t gpio_no) {
+  for (int i = 0; i < kColorNum; ++i) {
+    if (kPushGpiosByColor[i] == gpio_no) {
+      return static_cast<ColorId>(i);
+    }
+  }
+  return COLOR_NONE;
+}
+
+/// Group A の GPIO番号がロータリー接点かを返す。
+constexpr bool IsRotaryGpio(uint8_t gpio_no) {
+  for (const uint8_t rotary_gpio : kRotaryGpiosByPosition) {
+    if (rotary_gpio == gpio_no) {
+      return true;
+    }
+  }
+  return false;
+}
 }  // namespace Mcp23017Pin
 
 /// ESP32 GPIO割り当て
@@ -68,6 +101,15 @@ constexpr gpio_num_t kMcp23017Interrupt = GPIO_NUM_23;  // IN
 constexpr gpio_num_t kFullColorLed = GPIO_NUM_27;  // OUT (PL9823)
 constexpr gpio_num_t kLineC = GPIO_NUM_16;         // IN
 constexpr gpio_num_t kLineB = GPIO_NUM_17;         // IN
+
+/// kLine A-E を ColorId 順に並べたもの。
+/// GPIO番号は連番でないため、色から引くには必ずこの表を通す。
+constexpr gpio_num_t kLineGpiosByColor[kColorNum] = {
+    kLineA, kLineB, kLineC, kLineD, kLineE,
+};
+
+/// PL9823 (フルカラーLED) のデイジーチェーン接続数
+constexpr uint32_t kFullColorLedNum = 1;
 }  // namespace Esp32Pin
 
 /// I2Cクライアントアドレス

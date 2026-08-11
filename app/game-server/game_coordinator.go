@@ -216,6 +216,44 @@ func (c *GameCoordinator) StartSession(ctx context.Context, sender *AudioSender,
 	return c.speak(ctx, sender, session, "session_start", "")
 }
 
+// ForceDetonate はマネージャーの判断で爆発シーケンスへ入れる
+// (docs/operation_flow.md §7)。**風船が実際に破裂する**。
+//
+// AbortSession と違いセッションは解放しない。デバイスが破裂後に `exploded` を
+// 返し、既存の失敗演出・スコア確定・混線通知がそのまま動くため
+// (二重に演出を鳴らさない)。
+func (c *GameCoordinator) ForceDetonate(ctx context.Context, deviceID string) error {
+	session := c.sessionFor(deviceID)
+	if session == nil {
+		return errNoActiveSession
+	}
+
+	session.mu.Lock()
+	state := session.State
+	stageIndex, remaining := session.StageIndex, session.RemainingMS
+	session.mu.Unlock()
+
+	// 進行中以外は何もしない。デバイス側も Playing 以外は無視するが、
+	// 届かないコマンドを送って記録だけ残るのを避ける。
+	if state != deviceStatePlaying {
+		return errNotPlaying
+	}
+
+	if err := c.devices.SendForceDetonate(deviceID); err != nil {
+		log.Printf("[game] force_detonate failed: device=%s: %v", deviceID, err)
+		return fmt.Errorf("send force_detonate: %w", err)
+	}
+
+	// 送信できた場合のみ記録する。破裂の事実は device からの exploded で
+	// 別途残るが、「マネージャーが指示した」ことはここにしか現れない。
+	c.logEvent(session, EventForced,
+		"マネージャーによる強制破裂を指示", stageIndex, remaining)
+	c.persist(ctx, session)
+
+	log.Printf("[game] force detonate: device=%s", deviceID)
+	return nil
+}
+
 // AbortSession は強制リセット(キルスイッチ)で Core を Setup へ戻す
 // (docs/operation_flow.md §7)。
 func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender, deviceID string) error {

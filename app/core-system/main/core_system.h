@@ -5,10 +5,12 @@
 
 // Include ----------------------
 #include "battery_monitor_task.h"
+#include "boot_animation.h"
 #include "game_task.h"
 #include "gpio_input_watch_task.h"
 #include "ht16k33.h"
 #include "mcp23017.h"
+#include "mcp_input_scanner.h"
 #include "pl9823_task.h"
 #include "ws_client.h"
 
@@ -20,23 +22,13 @@
 
 namespace CoreSystem {
 
-/// 起動インジケータの色 (フルカラーLED)
-struct BootColor {
-  uint8_t r;
-  uint8_t g;
-  uint8_t b;
-};
-
-/// 初期化中を示す紫。電源投入直後から点灯する。
-inline constexpr BootColor kBootColorInitializing = {80, 0, 120};
-
-/// 初期化失敗を示す紫。点滅で「初期化中」と区別する
-/// (同じ色の点灯では成功/失敗が見分けられないため)。
-inline constexpr BootColor kBootColorFailed = {120, 0, 160};
-
 /// WiFi接続のタイムアウト。会場のWiFiが未設営でも起動を止めない。
 inline constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 
+/// 各デバイス・タスクを組み立てて起動する。
+///
+/// 起動演出は BootAnimation、MCP23017 の入力読み取りは McpInputScanner が担う。
+/// この class 自身は組み立てと配線に専念し、状態を持たない。
 class System final
     : public std::enable_shared_from_this<System> {
  public:
@@ -46,38 +38,32 @@ class System final
   void Start();
 
  private:
-  /// 起動演出 (約3秒)。kLED A-E・7セグ・フルカラーLEDを順に光らせる。
-  /// デバイス初期化の直後、WiFi接続を待たずに実行する。
-  void PlayBootAnimation();
+  /// I2C・MCP23017・HT16K33 を初期化する。失敗したら false。
+  /// LED演出に必要なため WiFi より先に行う (§4.0)。
+  bool InitializeDevices();
 
-  /// フルカラーLEDを起動インジケータとして光らせる。
-  /// 紫点灯=初期化中 / 紫点滅=初期化失敗。
-  void SetBootIndicator(const BootColor& color, Pl9823Task::PatternType pattern);
+  /// WiFiへ接続する。失敗しても起動は続行するので戻り値は表示用。
+  bool ConnectWifi();
 
-  /// MCP23017の全ピンを読み直し、変化したピンを GameEvent としてGameTaskへ通知する
-  void CheckMCP23017Input();
+  /// WSClient ⇔ GameTask のイベント経路を繋ぐ (§8.1)
+  void WireEventRoutes();
+
+  /// 入力監視・ゲーム・バッテリー監視の各タスクを起動する
+  void StartTasks();
 
   /// kLine A-E のGPIO監視を GpioInputWatchTask へ登録する
   void SetupLineWatchers();
 
-  /// ロータリー6接点から「ちょうど1つがLOW」の確定位置を求める (§5.2)
-  void UpdateRotaryPosition();
-
  private:
   MCP23017 mcp23017_;
-  bool last_level_[MCP23017::GPIO_GROUP_NUM][MCP23017::GPIO_NUM];
-  bool has_last_level_ = false;
   HT16K33 ht16k33_;
   Pl9823Task pl9823_task_;
+  BootAnimation boot_animation_;
   GameTask game_task_;
+  McpInputScanner input_scanner_;
   WSClient ws_client_;
   GpioInputWatchTask gpio_watcher_;
   std::unique_ptr<BatteryMonitorTask> battery_monitor_task_;
-
-  /// 直近に確定したロータリー位置 (過渡状態では最後の確定値を保持する)
-  /// -1 は未確定。起動直後は位置が読めていないため 0 で初期化しない
-  /// (0 で初期化すると「実際に位置0にある」ケースで初回通知が飛ばない)
-  int8_t rotary_position_ = -1;
 };
 
 }  // namespace CoreSystem

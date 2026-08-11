@@ -52,7 +52,6 @@ const (
 	msgSessionStart  = "session_start"
 	msgSessionAbort  = "session_abort"
 	msgForceDetonate = "force_detonate"
-	msgTimeAdjust    = "time_adjust"
 )
 
 // sessionAbortCommand は安全に中断して Setup へ戻す指示。
@@ -65,13 +64,6 @@ type sessionAbortCommand struct {
 type forceDetonateCommand struct {
 	Type     string `json:"type"`
 	DeviceID string `json:"device_id"`
-}
-
-// timeAdjustCommand は残り時間を増減させる (ナビゲーター演出用)。
-type timeAdjustCommand struct {
-	Type     string `json:"type"`
-	DeviceID string `json:"device_id"`
-	DeltaMS  int    `json:"delta_ms"`
 }
 
 // デバイスの状態名 (§4)。device_status.state に載る値。

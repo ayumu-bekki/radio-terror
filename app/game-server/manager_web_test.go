@@ -368,3 +368,29 @@ func TestManagerTranscript(t *testing.T) {
 		t.Errorf("イベント行が見当たらない:\n%s", body)
 	}
 }
+
+// 強制破裂のWeb API。誤操作の影響が大きいため、メソッドと引数を厳しく検証する。
+func TestManagerDetonateEndpoint(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+
+	// GET は拒否する (誤ってURLを開いても発動しない)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manager/api/detonate?device_id=0001", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET: status = %d, want 405", rec.Code)
+	}
+
+	// device_id なしは 400
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/manager/api/detonate", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("device_idなし: status = %d, want 400", rec.Code)
+	}
+
+	// 進行中セッションが無ければ 409 (状態を変えずに拒否する)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/manager/api/detonate?device_id=0001", nil))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("セッションなし: status = %d, want 409", rec.Code)
+	}
+}

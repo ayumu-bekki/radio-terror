@@ -196,7 +196,7 @@ func eventClass(event string) string {
 	switch event {
 	case EventStageCleared, EventWhackDone:
 		return "ev-ok"
-	case EventWrongAction, EventExploded:
+	case EventWrongAction, EventExploded, EventForced:
 		return "ev-ng"
 	case EventDefused, EventAborted, EventSessionStart:
 		return "ev-end"

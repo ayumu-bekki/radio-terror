@@ -8,137 +8,12 @@
 
 #include <cstring>
 
+#include "led_pattern.h"
 #include "logger.h"
 
 namespace CoreSystem {
 
 namespace {
-
-/// 文字列 "blink" 指定時の既定点滅周期
-constexpr int32_t kDefaultBlinkMs = 500;
-
-/// モールス信号の既定単位長 (ITU標準タイミングの1単位)
-constexpr int32_t kDefaultMorseUnitMs = 300;
-
-/// モールス信号の単位長の下限 (tick粒度)
-constexpr int32_t kMinMorseUnitMs = kTickMs;
-
-/// ミリ秒をtick数へ切り上げ変換する (0msでも最低1tickは確保する)
-int32_t MsToTicks(int32_t ms) {
-  if (ms <= 0) {
-    return 1;
-  }
-  return (ms + kTickMs - 1) / kTickMs;
-}
-
-/// A-Z / 0-9 のモールス符号表 ('.' = 短点, '-' = 長点)
-struct MorseEntry {
-  char c;
-  const char* code;
-};
-constexpr MorseEntry kMorseTable[] = {
-    {'A', ".-"},    {'B', "-..."},  {'C', "-.-."},  {'D', "-.."},
-    {'E', "."},     {'F', "..-."},  {'G', "--."},   {'H', "...."},
-    {'I', ".."},    {'J', ".---"},  {'K', "-.-"},   {'L', ".-.."},
-    {'M', "--"},    {'N', "-."},    {'O', "---"},   {'P', ".--."},
-    {'Q', "--.-"},  {'R', ".-."},   {'S', "..."},   {'T', "-"},
-    {'U', "..-"},   {'V', "...-"},  {'W', ".--"},   {'X', "-..-"},
-    {'Y', "-.--"},  {'Z', "--.."},  {'0', "-----"}, {'1', ".----"},
-    {'2', "..---"}, {'3', "...--"}, {'4', "....-"}, {'5', "....."},
-    {'6', "-...."}, {'7', "--..."}, {'8', "---.."}, {'9', "----."},
-};
-
-/// 英字1文字のモールス符号を引く。対応外の文字は nullptr
-const char* FindMorseCode(char c) {
-  const char upper = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
-  for (const auto& entry : kMorseTable) {
-    if (entry.c == upper) {
-      return entry.code;
-    }
-  }
-  return nullptr;
-}
-
-/// パターン末尾に「消灯」のステップを積む (直前が消灯なら継続時間を延ばす)
-void AppendOff(LedPattern* pattern, int32_t ticks) {
-  if (ticks <= 0) {
-    return;
-  }
-  if (!pattern->steps.empty() && !pattern->steps.back().on) {
-    pattern->steps.back().ticks += ticks;
-    return;
-  }
-  pattern->steps.push_back(LedStep{false, ticks});
-}
-
-/// パターン末尾に「点灯」のステップを積む
-void AppendOn(LedPattern* pattern, int32_t ticks) {
-  if (ticks <= 0) {
-    return;
-  }
-  pattern->always_off = false;
-  if (!pattern->steps.empty() && pattern->steps.back().on) {
-    pattern->steps.back().ticks += ticks;
-    return;
-  }
-  pattern->steps.push_back(LedStep{true, ticks});
-}
-
-/// 常時点灯のパターンを構築する
-LedPattern MakeSolidOn() {
-  LedPattern pattern;
-  AppendOn(&pattern, 1);
-  return pattern;
-}
-
-/// 常時消灯のパターンを構築する (ステップ列は空のままにする)
-LedPattern MakeSolidOff() { return LedPattern(); }
-
-/// 点灯・消灯時間を指定した点滅パターンを構築する
-LedPattern MakeBlink(int32_t on_ms, int32_t off_ms) {
-  LedPattern pattern;
-  AppendOn(&pattern, MsToTicks(on_ms));
-  AppendOff(&pattern, MsToTicks(off_ms));
-  return pattern;
-}
-
-/// word をモールス信号として1周期分のパターンへ展開する (§6.1)
-/// 対応外の文字が含まれる場合は false を返す
-bool MakeMorse(const std::string& word, int32_t unit_ms, LedPattern* out) {
-  if (word.empty()) {
-    return false;
-  }
-
-  const int32_t unit_ticks = MsToTicks(unit_ms);
-  LedPattern pattern;
-
-  for (size_t i = 0; i < word.size(); ++i) {
-    const char* code = FindMorseCode(word[i]);
-    if (!code) {
-      return false;
-    }
-
-    for (size_t j = 0; code[j] != '\0'; ++j) {
-      // 短点 = 1単位点灯, 長点 = 3単位点灯
-      AppendOn(&pattern, code[j] == '-' ? unit_ticks * 3 : unit_ticks);
-      // 符号内の要素間 = 1単位消灯
-      if (code[j + 1] != '\0') {
-        AppendOff(&pattern, unit_ticks);
-      }
-    }
-
-    // 文字間 = 3単位消灯
-    if (i + 1 < word.size()) {
-      AppendOff(&pattern, unit_ticks * 3);
-    }
-  }
-
-  // 語の末尾は7単位消灯を挟んで先頭から繰り返す
-  AppendOff(&pattern, unit_ticks * 7);
-
-  *out = std::move(pattern);
-  return true;
-}
 
 /// cJSON の数値を int32_t として取り出す。存在しない場合は default_value
 int32_t GetInt(const cJSON* obj, const char* key, int32_t default_value) {
@@ -165,17 +40,17 @@ bool ParseLedValue(const cJSON* value, int32_t led_blink_ms, LedPattern* out,
   if (cJSON_IsString(value)) {
     const char* text = value->valuestring;
     if (std::strcmp(text, "on") == 0) {
-      *out = MakeSolidOn();
+      *out = LedPatternBuilder::MakeSolidOn();
       return true;
     }
     if (std::strcmp(text, "off") == 0) {
-      *out = MakeSolidOff();
+      *out = LedPatternBuilder::MakeSolidOff();
       return true;
     }
     if (std::strcmp(text, "blink") == 0) {
       // デューティ50%: led_blink_ms が周期なので点灯・消灯は各その半分
       const int32_t half = led_blink_ms / 2;
-      *out = MakeBlink(half, half);
+      *out = LedPatternBuilder::MakeBlink(half, half);
       return true;
     }
     *error_detail = std::string("unknown led string: ") + text;
@@ -200,7 +75,7 @@ bool ParseLedValue(const cJSON* value, int32_t led_blink_ms, LedPattern* out,
       *error_detail = "blink requires positive on_ms/off_ms";
       return false;
     }
-    *out = MakeBlink(on_ms, off_ms);
+    *out = LedPatternBuilder::MakeBlink(on_ms, off_ms);
     return true;
   }
 
@@ -210,11 +85,11 @@ bool ParseLedValue(const cJSON* value, int32_t led_blink_ms, LedPattern* out,
       *error_detail = "morse requires \"word\"";
       return false;
     }
-    int32_t unit_ms = GetInt(value, "unit_ms", kDefaultMorseUnitMs);
-    if (unit_ms < kMinMorseUnitMs) {
-      unit_ms = kMinMorseUnitMs;
+    int32_t unit_ms = GetInt(value, "unit_ms", LedPatternBuilder::kDefaultMorseUnitMs);
+    if (unit_ms < LedPatternBuilder::kMinMorseUnitMs) {
+      unit_ms = LedPatternBuilder::kMinMorseUnitMs;
     }
-    if (!MakeMorse(word_item->valuestring, unit_ms, out)) {
+    if (!LedPatternBuilder::MakeMorse(word_item->valuestring, unit_ms, out)) {
       *error_detail =
           std::string("morse word contains unsupported char: ") + word_item->valuestring;
       return false;
@@ -469,7 +344,7 @@ bool ParseForbiddenRotary(const cJSON* obj, ForbiddenRotary* out, std::string* e
 
 /// stages の1要素をパースする
 bool ParseStage(const cJSON* obj, StageConfig* out, std::string* error_detail) {
-  const int32_t led_blink_ms = GetInt(obj, "led_blink_ms", kDefaultBlinkMs);
+  const int32_t led_blink_ms = GetInt(obj, "led_blink_ms", LedPatternBuilder::kDefaultBlinkMs);
   if (led_blink_ms <= 0) {
     *error_detail = "led_blink_ms must be positive";
     return false;
@@ -527,15 +402,14 @@ bool ParseStage(const cJSON* obj, StageConfig* out, std::string* error_detail) {
 
 }  // namespace
 
+/// 色は大文字のみ受け付ける。サーバーが送る色は常に大文字 A-E で
+/// (`allColors` / ステージ定義TOML)、小文字は仕様上ありえない。
+/// 受け入れを広げるとJSONの不正を取りこぼすため、意図的に厳しくしている。
 ColorId ColorFromChar(char c) {
-  switch (c) {
-    case 'A': case 'a': return COLOR_A;
-    case 'B': case 'b': return COLOR_B;
-    case 'C': case 'c': return COLOR_C;
-    case 'D': case 'd': return COLOR_D;
-    case 'E': case 'e': return COLOR_E;
-    default: return COLOR_NONE;
+  if (c < 'A' || 'A' + kColorNum <= c) {
+    return COLOR_NONE;
   }
+  return static_cast<ColorId>(c - 'A');
 }
 
 char ColorToChar(ColorId color) {
@@ -543,6 +417,28 @@ char ColorToChar(ColorId color) {
     return '?';
   }
   return static_cast<char>('A' + color);
+}
+
+const char* GameStateName(GameState state) {
+  if (state == STATE_SETUP) {
+    return "setup";
+  }
+  if (state == STATE_READY) {
+    return "ready";
+  }
+  if (state == STATE_PLAYING) {
+    return "playing";
+  }
+  if (state == STATE_DETONATING) {
+    return "detonating";
+  }
+  if (state == STATE_EXPLODED) {
+    return "exploded";
+  }
+  if (state == STATE_DEFUSED) {
+    return "defused";
+  }
+  return "unknown";
 }
 
 ParseResult ParseSessionJson(const std::string& json_text, SessionConfig* out) {
