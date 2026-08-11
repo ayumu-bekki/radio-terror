@@ -1,0 +1,76 @@
+{{define "page"}}<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RADIO TERROR — 履歴</title>
+<link rel="stylesheet" href="/manager/manager.css">
+</head>
+<body>
+<div class="nav"><a href="/manager">← ダッシュボード</a></div>
+<h1>履歴 — 過去のセッション</h1>
+
+{{/* 絞り込みはクエリパラメータ。URLに状態が残るので共有・ブックマークできる。
+     選択を変えたらそのまま送信する (submitボタンを押させない) */}}
+<form class="filters" method="get" action="/manager/history">
+  <label>日付
+    <select name="date" onchange="this.form.submit()">
+      <option value="">すべて</option>
+      {{range .Dates}}
+        <option value="{{.}}"{{if eq . $.Filter.Date}} selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+  </label>
+  <label>Core
+    <select name="device" onchange="this.form.submit()">
+      <option value="">すべて</option>
+      {{range .Devices}}
+        <option value="{{.}}"{{if eq . $.Filter.Device}} selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+  </label>
+  <label>結果
+    <select name="result" onchange="this.form.submit()">
+      <option value="">すべて</option>
+      <option value="ok"{{if eq "ok" .Filter.Result}} selected{{end}}>解除成功</option>
+      <option value="ng"{{if eq "ng" .Filter.Result}} selected{{end}}>爆発</option>
+      <option value="other"{{if eq "other" .Filter.Result}} selected{{end}}>その他</option>
+    </select>
+  </label>
+  <noscript><button type="submit">絞り込む</button></noscript>
+  <span class="count">{{.Shown}} / {{.Total}} 件</span>
+</form>
+
+<table><thead><tr>
+  <th>開始時刻</th><th>Core</th><th>難易度</th><th>ナビ</th>
+  <th>進行</th><th>結果</th><th></th>
+</tr></thead><tbody>
+{{range .Items}}
+  <tr class="clickable" onclick="openDetail(event, '/manager/history/{{.SessionID}}')">
+    <td class="muted">{{.StartedAt}}</td>
+    <td>{{.DeviceID}}</td>
+    <td>{{.Difficulty}}</td>
+    <td>{{.Character}}</td>
+    <td>{{.Progress}}</td>
+    <td class="{{.ResultClass}}">{{.Result}}</td>
+    <td class="row-actions">
+      <a href="/manager/history/{{.SessionID}}">詳細</a>
+      <a href="/manager/api/transcript?session_id={{.SessionID}}">TXT</a>
+    </td>
+  </tr>
+{{else}}
+  <tr><td colspan="7" class="muted">該当する履歴はありません</td></tr>
+{{end}}
+</tbody></table>
+
+<script>
+// 行のどこをクリックしても詳細へ飛ぶ。
+// 行内のリンク (詳細・TXT) は本来の遷移に任せる
+function openDetail(ev, url) {
+  if (ev.target.closest('a')) return;
+  location.href = url;
+}
+</script>
+</body>
+</html>
+{{end}}

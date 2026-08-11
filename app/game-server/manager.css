@@ -1,0 +1,109 @@
+/* マネージャー向け Web 画面の共通スタイル。
+   ダッシュボード (/manager)・履歴一覧 (/manager/history)・
+   セッション詳細 (/manager/history/{session_id}) の3ページで共有する。 */
+
+:root { color-scheme: dark; }
+body { margin: 0; padding: 1rem; background: #12141a; color: #e6e8ee;
+       font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif; }
+h1 { font-size: 1.1rem; margin: 0 0 1rem; letter-spacing: .04em; }
+h2 { font-size: .85rem; margin: 1.5rem 0 .5rem; color: #9aa3b5;
+     text-transform: uppercase; letter-spacing: .08em; }
+
+table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #262a35; }
+th { color: #9aa3b5; font-weight: 600; }
+
+.state { padding: .1rem .5rem; border-radius: 999px; font-size: .75rem; }
+.setup { background: #4a3f10; color: #f5d76e; }
+.ready { background: #10304a; color: #6ec1f5; }
+.playing { background: #4a1010; color: #f56e6e; }
+.defused { background: #103a1c; color: #6ef58f; }
+.exploded, .detonating { background: #4a1010; color: #f5a26e; }
+
+.warn { color: #f5a26e; }
+.err { color: #f56e6e; }
+.muted { color: #6b7383; }
+.answer { font-family: ui-monospace, monospace; font-size: .8rem; color: #f5d76e; }
+
+.log { font-size: .8rem; line-height: 1.7; max-height: 22rem; overflow-y: auto;
+       background: #0d0f14; border: 1px solid #262a35; border-radius: 6px; padding: .6rem .8rem; }
+.log .t { color: #5a6272; font-family: ui-monospace, monospace; margin-right: .5rem; }
+.log .ev { color: #9aa3b5; }
+.log .ev-ok { color: #6ef58f; }
+.log .ev-ng { color: #f56e6e; }
+.log .ev-end { color: #f5d76e; font-weight: 600; }
+.log .navi { color: #6ec1f5; }
+.log .who { color: #9aa3b5; margin-right: .4rem; }
+
+.tabs { display: flex; gap: .4rem; margin-bottom: .6rem; flex-wrap: wrap; }
+.tab { background: #1c2029; border: 1px solid #2e3543; color: #9aa3b5; border-radius: 4px;
+       padding: .25rem .7rem; cursor: pointer; font-size: .78rem; }
+.tab:hover { background: #262c38; }
+.tab.on { background: #2f4a63; color: #cfe6f7; border-color: #3f6a8f; }
+
+.row-actions a { color: #6ec1f5; font-size: .75rem; text-decoration: none; }
+button { background: #2a2f3d; color: #e6e8ee; border: 1px solid #3a4152;
+         border-radius: 4px; padding: .2rem .6rem; cursor: pointer; font-size: .75rem; }
+button:hover { background: #3a4152; }
+
+/* --- ページ間の行き来 --- */
+
+/* nav はページ上部の戻り導線とページ間リンク。 */
+.nav { display: flex; gap: .8rem; align-items: baseline; margin-bottom: .8rem;
+       font-size: .8rem; }
+.nav a { color: #6ec1f5; text-decoration: none; }
+.nav a:hover { text-decoration: underline; }
+
+/* more は表の下に置く「すべて見る」リンク。 */
+.more { display: inline-block; margin-top: .5rem; font-size: .8rem;
+        color: #6ec1f5; text-decoration: none; }
+.more:hover { text-decoration: underline; }
+
+/* 表の行そのものをリンクにする (履歴一覧の行クリック) */
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: #1a1e27; }
+
+/* --- 履歴一覧の絞り込み --- */
+
+.filters { display: flex; gap: .8rem; flex-wrap: wrap; align-items: center;
+           margin-bottom: .8rem; font-size: .8rem; }
+.filters label { color: #9aa3b5; }
+.filters select { background: #1c2029; color: #e6e8ee; border: 1px solid #2e3543;
+                  border-radius: 4px; padding: .2rem .4rem; font-size: .8rem;
+                  font-family: inherit; }
+.filters .count { color: #6b7383; margin-left: auto; }
+
+/* --- セッション詳細 --- */
+
+/* summary は概要カード。ラベルと値の2列グリッド。 */
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+           gap: .8rem 1.2rem; background: #0d0f14; border: 1px solid #262a35;
+           border-radius: 6px; padding: .9rem 1.1rem; font-size: .85rem; }
+.summary div { display: flex; flex-direction: column; gap: .2rem; }
+.summary .k { color: #6b7383; font-size: .72rem; text-transform: uppercase;
+              letter-spacing: .06em; }
+.summary .v { color: #e6e8ee; }
+
+/* stage はステージ構成の1件。クリア済み・現在地で左端の色を変える。 */
+.stage { background: #0d0f14; border: 1px solid #262a35; border-left: 3px solid #2e3543;
+         border-radius: 6px; padding: .7rem .9rem; margin-bottom: .6rem; font-size: .82rem; }
+.stage.done { border-left-color: #6ef58f; }
+.stage.current { border-left-color: #f5d76e; }
+.stage .head { display: flex; gap: .6rem; align-items: baseline; margin-bottom: .4rem; }
+.stage .no { color: #6b7383; font-family: ui-monospace, monospace; font-size: .75rem; }
+.stage .title { font-weight: 600; }
+.stage .tid { color: #6b7383; font-size: .72rem; font-family: ui-monospace, monospace; }
+.stage dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .8rem;
+            margin: 0; }
+.stage dt { color: #6b7383; font-size: .75rem; }
+.stage dd { margin: 0; }
+
+/* core は Core へ送ったステージ定義そのもの (折りたたみ)。 */
+.stage details { margin-top: .5rem; }
+.stage summary { color: #6b7383; font-size: .75rem; cursor: pointer; }
+.stage pre { background: #12141a; border: 1px solid #262a35; border-radius: 4px;
+             padding: .5rem .7rem; margin: .4rem 0 0; overflow-x: auto;
+             font-size: .75rem; line-height: 1.5; color: #9aa3b5; }
+
+/* 詳細ページのログは高さを制限せず全文を縦に流す。 */
+.log.full { max-height: none; }

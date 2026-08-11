@@ -24,7 +24,7 @@ go test -run TestBuildAllDifficulties -v
 go test -run "TestHintLevel" -v      # 前方一致で複数実行
 ```
 
-`gofmt -w <file>` は編集後に必ず実行する。ただし `callsign.go` は元から未フォーマットなので触らない。
+`gofmt -w <file>` は編集後に必ず実行する(`gofmt -l *.go` が何も出さない状態を保つ)。
 
 ### core-system (ESP-IDF / C++)
 
@@ -97,6 +97,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | バインド・イベント処理の中心 | `game_coordinator.go` |
 | ナビゲーター発話生成 | `navigator_speaker.go` → `navigator_prompt.go` |
 | デバイスとのWS | `ws_session.go` + `device_registry.go` |
+| マネージャー画面 | `manager_web.go`(ハンドラ) + `manager_view.go`(表示整形) + `manager_*.gohtml` |
 
 **`/ws` は1エンドポイントにトランシーバーとデバイスが相乗り**する。
 接続種別は最初のメッセージで判定する(`login` → トランシーバー、
@@ -153,6 +154,21 @@ GameTask は**実経過時間の差分で tick を進める**。キュー待ち�
 
 駆動は単一関数に集約し、**Detonating 状態からのみ**呼べる。二重駆動はフラグで防ぐ。
 この安全ガードを緩めないこと。
+
+### マネージャー画面は表示判断をテンプレートに書かない
+
+画面は `html/template` のサーバー側描画。色分け・時刻書式・進行表示といった
+**表示の判断は `manager_view.go` のビューモデルに寄せ**、テンプレートは
+受け取った値を並べるだけにする。テンプレートへロジックを持ち込むと
+Go のテストで検証できなくなる(`manager_view_test.go` が判断部分を押さえている)。
+
+ステージ名・ナビゲーターの発話は**外部TOMLと生成AI由来**なので、
+表示前のエスケープは `html/template` に任せる。`template.HTML` へ
+キャストして自前で組み立てると、この保護が外れる。
+
+テンプレートの拡張子は **`.gohtml`**(`.html` ではない)。`{{define}}` で始まり
+単体では表示できないため、素のHTMLと取り違えないようにしている。
+VS Code での色付けは `.vscode/settings.json` の `files.associations` で対応済み。
 
 ## 未検証・既知の制約
 

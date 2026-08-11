@@ -110,7 +110,7 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	if n.logs != nil {
 		n.logs.Append(session.SessionID, ConversationEntry{
 			Sender:   session.Character.Name,
-			Receiver: "プレイヤー",
+			Receiver: senderPlayer,
 			Message:  stripTTSTags(text),
 		})
 	}

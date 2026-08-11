@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"sort"
@@ -26,13 +26,13 @@ type APIHealth struct {
 	errorCount  int
 }
 
-// APIHealthSnapshot は APIHealth の複製 (JSON化・受け渡し用)。
+// APIHealthSnapshot は APIHealth の複製 (受け渡し用)。
 // ロックを含まないため安全にコピーできる。
 type APIHealthSnapshot struct {
-	LastSuccess time.Time `json:"last_success"`
-	LastError   time.Time `json:"last_error"`
-	LastMessage string    `json:"last_message"`
-	ErrorCount  int       `json:"error_count"`
+	LastSuccess time.Time
+	LastError   time.Time
+	LastMessage string
+	ErrorCount  int
 }
 
 func (h *APIHealth) NoteSuccess() {
@@ -60,9 +60,15 @@ func (h *APIHealth) Snapshot() APIHealthSnapshot {
 	}
 }
 
-// ManagerWeb はマネージャー向けの簡易 Web 画面を提供する。
-// セッション状況 (Core状態・進行・バインド)、会話・イベントログ、
-// 外部APIの状況を確認できる (docs/game_session_design.md §9)。
+// dashboardHistoryLimit はダッシュボードに出す履歴の件数。
+// 当日の「さっきの回はどうだったか」に即答できれば足り、全件は履歴一覧で見る。
+const dashboardHistoryLimit = 5
+
+// ManagerWeb はマネージャー向けの Web 画面を提供する。
+//
+// 画面はサーバー側で描画する (html/template)。表示の判断はすべて
+// ビューモデル (manager_view.go) に寄せ、テンプレートは値を並べるだけにする
+// (docs/game_session_design.md §10 決定32)。
 type ManagerWeb struct {
 	devices   *DeviceRegistry
 	bridges   *BridgeRegistry
@@ -97,106 +103,327 @@ func NewManagerWeb(
 }
 
 // Register は HTTP ハンドラを登録する。
+//
+// 画面は3ページに分かれる (docs/game_session_design.md §9):
+//
+//	/manager                        … ダッシュボード (進行中の監視)
+//	/manager/history                … 履歴一覧
+//	/manager/history/{session_id}   … セッション詳細
+//
+// 表示用のJSON APIは持たない (ページがサーバー側で完成して返るため)。
+// 残る2つは画面の描画ではなく操作・書き出しの口。
 func (w *ManagerWeb) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/manager", w.handleIndex)
-	mux.HandleFunc("/manager/api/status", w.handleStatus)
-	mux.HandleFunc("/manager/api/log", w.handleLog)
+	mux.HandleFunc("/manager/manager.css", w.handleCSS)
+	mux.HandleFunc("/manager/history", w.handleHistoryPage)
+	// 末尾スラッシュのパターンは前方一致。{session_id} をここで受ける
+	mux.HandleFunc("/manager/history/", w.handleSessionPage)
 	mux.HandleFunc("/manager/api/abort", w.handleAbort)
-	mux.HandleFunc("/manager/api/history", w.handleHistory)
 	mux.HandleFunc("/manager/api/transcript", w.handleTranscript)
 }
 
-// statusResponse は Web 画面が表示する情報一式。
-type statusResponse struct {
-	Devices   []*DeviceStatus   `json:"devices"`
-	Bridges   []string          `json:"bridges"`
-	Bindings  map[string]string `json:"bindings"`
-	Sessions  []sessionSummary  `json:"sessions"`
-	Assets    map[string]int    `json:"assets"`
-	Health    APIHealthSnapshot `json:"health"`
-	Timestamp time.Time         `json:"timestamp"`
+// --- ダッシュボード ---
+
+// dashboardData はダッシュボードのテンプレートへ渡す値。
+type dashboardData struct {
+	Sessions []sessionView
+	Devices  []deviceView
+	Bridges  []bridgeView
+	Health   healthView
+	History  []historyView
+
+	// Tabs は交信ログのタブ (進行中セッション)。
+	Tabs []logTabView
+	// SelectedSession は表示中のログのセッションID
+	SelectedSession string
+	Entries         []entryView
 }
 
-// sessionSummary は進行中セッションの要約 (正解は含めるが表示側で伏せる)。
-type sessionSummary struct {
-	SessionID   string `json:"session_id"`
-	DeviceID    string `json:"device_id"`
-	BridgeID    string `json:"bridge_id"`
-	Difficulty  string `json:"difficulty"`
-	Character   string `json:"character"`
-	State       string `json:"state"`
-	StageIndex  int    `json:"stage_index"`
-	StageCount  int    `json:"stage_count"`
-	StageName   string `json:"stage_name"`
-	Answer      string `json:"answer"`
-	RemainingMS int    `json:"remaining_ms"`
-	Score       int    `json:"score"`
+// logTabView は交信ログのタブ1つ。
+type logTabView struct {
+	SessionID string
+	DeviceID  string
+	Selected  bool
 }
 
-func (w *ManagerWeb) handleStatus(rw http.ResponseWriter, r *http.Request) {
-	sessions := make([]sessionSummary, 0)
-	for _, session := range w.game.Sessions() {
-		session.mu.Lock()
-		summary := sessionSummary{
-			SessionID:   session.SessionID,
-			DeviceID:    session.DeviceID,
-			BridgeID:    session.BridgeID,
-			Difficulty:  session.Difficulty,
-			Character:   session.Character.Name,
-			State:       session.State,
-			StageIndex:  session.StageIndex,
-			RemainingMS: session.RemainingMS,
-			Score:       session.Score,
+// handleIndex はダッシュボードを描画する。
+//
+// partial=live のときは進行中の部分だけを返す。画面側が2秒ごとに取得して
+// 差し替えるため、ページ全体をリロードせずスクロール位置を保てる。
+func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
+	sessions := buildSessionViews(w.game.Sessions())
+
+	data := dashboardData{
+		Sessions: sessions,
+		Devices:  buildDeviceViews(w.devices.AllStatus()),
+		Bridges:  buildBridgeViews(w.bridges.IDs(), w.game.Bindings()),
+		Health:   buildHealthView(w.health.Snapshot(), w.crosstalk.AssetSummary()),
+	}
+
+	// 表示するログのセッションを決める。指定が無ければ先頭の進行中セッション
+	selected := r.URL.Query().Get("session_id")
+	if !hasSession(sessions, selected) {
+		selected = ""
+		if len(sessions) > 0 {
+			selected = sessions[0].SessionID
 		}
-		if session.Built != nil {
-			summary.StageCount = len(session.Built.Stages)
-			if session.StageIndex >= 0 && session.StageIndex < len(session.Built.Stages) {
-				stage := session.Built.Stages[session.StageIndex]
-				summary.StageName = stage.Name
-				summary.Answer = stage.Navigator["answer"]
-			}
-		}
-		session.mu.Unlock()
-		sessions = append(sessions, summary)
 	}
-	sort.Slice(sessions, func(i, j int) bool { return sessions[i].DeviceID < sessions[j].DeviceID })
+	data.SelectedSession = selected
 
-	devices := w.devices.AllStatus()
-	sort.Slice(devices, func(i, j int) bool { return devices[i].DeviceID < devices[j].DeviceID })
-
-	bridges := w.bridges.IDs()
-	sort.Strings(bridges)
-
-	resp := statusResponse{
-		Devices:   devices,
-		Bridges:   bridges,
-		Bindings:  w.game.Bindings(),
-		Sessions:  sessions,
-		Assets:    w.crosstalk.AssetSummary(),
-		Health:    w.health.Snapshot(),
-		Timestamp: time.Now(),
+	for _, s := range sessions {
+		data.Tabs = append(data.Tabs, logTabView{
+			SessionID: s.SessionID,
+			DeviceID:  s.DeviceID,
+			Selected:  s.SessionID == selected,
+		})
+	}
+	if selected != "" {
+		data.Entries = buildEntryViews(w.entriesFor(r.Context(), selected))
 	}
 
-	rw.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(rw).Encode(resp); err != nil {
-		log.Printf("[manager-web] encode error: %v", err)
-	}
-}
-
-func (w *ManagerWeb) handleLog(rw http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("session_id")
-	if sessionID == "" {
-		http.Error(rw, "session_id is required", http.StatusBadRequest)
+	// 差し替え用の部分描画。履歴は変化が遅いのでここには含めない
+	if r.URL.Query().Get("partial") == "live" {
+		w.render(rw, managerPageTmpl, "live", data)
 		return
 	}
 
-	entries := w.entriesFor(r.Context(), sessionID)
-
-	rw.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(rw).Encode(entries); err != nil {
-		log.Printf("[manager-web] encode error: %v", err)
-	}
+	data.History = w.historyViews(r.Context(), historyFilter{}, dashboardHistoryLimit)
+	w.render(rw, managerPageTmpl, "page", data)
 }
+
+// hasSession は指定IDが進行中セッションに含まれるかを返す。
+func hasSession(sessions []sessionView, sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	for _, s := range sessions {
+		if s.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+// --- 履歴一覧 ---
+
+// historyFilter は履歴一覧の絞り込み条件 (クエリパラメータ)。
+// 空文字は「すべて」を意味する。
+type historyFilter struct {
+	Date   string
+	Device string
+	Result string
+}
+
+// matches は1件が条件に合うかを返す。
+func (f historyFilter) matches(item historyView, state string) bool {
+	if f.Date != "" && item.DateKey != f.Date {
+		return false
+	}
+	if f.Device != "" && item.DeviceID != f.Device {
+		return false
+	}
+	if f.Result != "" && resultKind(state) != f.Result {
+		return false
+	}
+	return true
+}
+
+// historyPageData は履歴一覧のテンプレートへ渡す値。
+type historyPageData struct {
+	Items  []historyView
+	Filter historyFilter
+
+	// Dates / Devices は絞り込みの選択肢 (実データから作る)
+	Dates   []string
+	Devices []string
+
+	Shown int
+	Total int
+}
+
+func (w *ManagerWeb) handleHistoryPage(rw http.ResponseWriter, r *http.Request) {
+	filter := historyFilter{
+		Date:   r.URL.Query().Get("date"),
+		Device: r.URL.Query().Get("device"),
+		Result: r.URL.Query().Get("result"),
+	}
+
+	all := w.historyViews(r.Context(), historyFilter{}, 0)
+	shown := w.historyViews(r.Context(), filter, 0)
+
+	// 選択肢は絞り込み前の全件から作る (絞った結果で選択肢が消えないように)
+	dates := make([]string, 0)
+	devices := make([]string, 0)
+	seenDate := map[string]bool{}
+	seenDevice := map[string]bool{}
+	for _, item := range all {
+		if item.DateKey != "" && !seenDate[item.DateKey] {
+			seenDate[item.DateKey] = true
+			dates = append(dates, item.DateKey)
+		}
+		if item.DeviceID != "" && !seenDevice[item.DeviceID] {
+			seenDevice[item.DeviceID] = true
+			devices = append(devices, item.DeviceID)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(dates))) // 新しい日付を上に
+	sort.Strings(devices)
+
+	w.render(rw, managerHistoryTmpl, "page", historyPageData{
+		Items:   shown,
+		Filter:  filter,
+		Dates:   dates,
+		Devices: devices,
+		Shown:   len(shown),
+		Total:   len(all),
+	})
+}
+
+// historyViews は保存済みセッションを新しい順に返す。
+//
+// filter が空なら全件。limit が正なら先頭N件へ絞る。
+func (w *ManagerWeb) historyViews(ctx context.Context, filter historyFilter, limit int) []historyView {
+	items := make([]historyView, 0)
+	if w.store == nil {
+		return items
+	}
+
+	sessions, err := w.store.LoadSessions(ctx)
+	if err != nil {
+		log.Printf("[manager-web] load sessions: %v", err)
+		return items
+	}
+
+	// 並べ替えに使う開始時刻を view と一緒に持つ (view は整形済み文字列のため)
+	type row struct {
+		view      historyView
+		startedAt time.Time
+	}
+	rows := make([]row, 0, len(sessions))
+
+	for _, session := range sessions {
+		session.mu.Lock()
+		state := session.State
+		item := historyView{
+			SessionID:   session.SessionID,
+			DeviceID:    session.DeviceID,
+			Difficulty:  session.Difficulty,
+			Character:   session.Character.Name,
+			Result:      describeSessionResult(state, session.Score),
+			ResultClass: resultClass(state),
+			StartedAt:   fmtDateTime(session.StartedAt),
+			DateKey:     dateKey(session.StartedAt),
+		}
+		stageCount := 0
+		if session.Built != nil {
+			stageCount = len(session.Built.Stages)
+		}
+		item.Progress = fmtProgress(session.StageIndex, stageCount)
+		startedAt := session.StartedAt
+		session.mu.Unlock()
+
+		if !filter.matches(item, state) {
+			continue
+		}
+		rows = append(rows, row{view: item, startedAt: startedAt})
+	}
+
+	// 新しい順
+	sort.Slice(rows, func(i, j int) bool { return rows[i].startedAt.After(rows[j].startedAt) })
+
+	if limit > 0 && limit < len(rows) {
+		rows = rows[:limit]
+	}
+	for _, r := range rows {
+		items = append(items, r.view)
+	}
+	return items
+}
+
+// dateKey は日付絞り込みのキー (YYYY-MM-DD)。ゼロ値は空。
+func dateKey(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02")
+}
+
+// --- セッション詳細 ---
+
+// sessionPageData はセッション詳細のテンプレートへ渡す値。
+type sessionPageData struct {
+	SessionID  string
+	DeviceID   string
+	BridgeID   string
+	Difficulty string
+	Character  string
+	State      string
+	Progress   string
+	Result     string
+	// ResultClass は結果の色分け
+	ResultClass string
+	// Score は残り時間 (解除成功時のみ。それ以外は「—」)
+	Score     string
+	StartedAt string
+
+	// Live が真なら進行中。画面を自動更新する
+	Live bool
+
+	Stages  []stageView
+	Entries []entryView
+}
+
+// handleSessionPage は /manager/history/{session_id} を描画する。
+func (w *ManagerWeb) handleSessionPage(rw http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimPrefix(r.URL.Path, "/manager/history/")
+	// ID無しは一覧へ寄せる
+	if sessionID == "" {
+		http.Redirect(rw, r, "/manager/history", http.StatusFound)
+		return
+	}
+
+	session := w.sessionFor(r.Context(), sessionID)
+	if session == nil {
+		http.Error(rw, "session not found", http.StatusNotFound)
+		return
+	}
+
+	session.mu.Lock()
+	data := sessionPageData{
+		SessionID:   session.SessionID,
+		DeviceID:    session.DeviceID,
+		BridgeID:    session.BridgeID,
+		Difficulty:  session.Difficulty,
+		Character:   session.Character.Name,
+		State:       session.State,
+		Result:      describeSessionResult(session.State, session.Score),
+		ResultClass: resultClass(session.State),
+		Score:       fmtRemaining(session.Score),
+		StartedAt:   fmtDateTimeFull(session.StartedAt),
+		Live:        session.State == deviceStatePlaying,
+	}
+	stageCount := 0
+	if session.Built != nil {
+		stageCount = len(session.Built.Stages)
+		data.Stages = buildStageViews(session.Built.Stages, session.StageIndex, session.State)
+	}
+	data.Progress = fmtProgress(session.StageIndex, stageCount)
+	session.mu.Unlock()
+
+	data.Entries = buildEntryViews(w.entriesFor(r.Context(), sessionID))
+
+	w.render(rw, managerSessionTmpl, "page", data)
+}
+
+// fmtDateTimeFull は詳細ページの開始時刻 (年まで出す)。
+func fmtDateTimeFull(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.Format("2006/01/02 15:04:05")
+}
+
+// --- 共通 ---
 
 // entriesFor はセッションのログを返す。メモリに無ければ永続化層から読む
 // (サーバー再起動後・終了済みセッションの履歴閲覧に対応するため)。
@@ -215,57 +442,32 @@ func (w *ManagerWeb) entriesFor(ctx context.Context, sessionID string) []Convers
 	return entries
 }
 
-// historyItem は履歴一覧の1件。
-type historyItem struct {
-	SessionID  string `json:"session_id"`
-	DeviceID   string `json:"device_id"`
-	Difficulty string `json:"difficulty"`
-	Character  string `json:"character"`
-	State      string `json:"state"`
-	StageIndex int    `json:"stage_index"`
-	StageCount int    `json:"stage_count"`
-	Score      int    `json:"score"`
-	StartedAt  int64  `json:"started_at"`
-	Result     string `json:"result"`
-}
-
-// handleHistory は保存済みセッションを新しい順に返す。
-func (w *ManagerWeb) handleHistory(rw http.ResponseWriter, r *http.Request) {
-	items := make([]historyItem, 0)
-
-	if w.store != nil {
-		sessions, err := w.store.LoadSessions(r.Context())
-		if err != nil {
-			log.Printf("[manager-web] load sessions: %v", err)
-		}
-		for _, session := range sessions {
-			session.mu.Lock()
-			item := historyItem{
-				SessionID:  session.SessionID,
-				DeviceID:   session.DeviceID,
-				Difficulty: session.Difficulty,
-				Character:  session.Character.Name,
-				State:      session.State,
-				StageIndex: session.StageIndex,
-				Score:      session.Score,
-				StartedAt:  session.StartedAt.Unix(),
-			}
-			if session.Built != nil {
-				item.StageCount = len(session.Built.Stages)
-			}
-			item.Result = describeSessionResult(session.State, session.Score)
-			session.mu.Unlock()
-			items = append(items, item)
+// sessionFor はセッション本体を返す。進行中はメモリ、終了済みは永続化層から引く
+// (entriesFor と同じ方針)。見つからなければ nil。
+func (w *ManagerWeb) sessionFor(ctx context.Context, sessionID string) *GameSession {
+	for _, session := range w.game.Sessions() {
+		session.mu.Lock()
+		match := session.SessionID == sessionID
+		session.mu.Unlock()
+		if match {
+			return session
 		}
 	}
 
-	// 新しい順
-	sort.Slice(items, func(i, j int) bool { return items[i].StartedAt > items[j].StartedAt })
-
-	rw.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(rw).Encode(items); err != nil {
-		log.Printf("[manager-web] encode error: %v", err)
+	if w.store == nil {
+		return nil
 	}
+	sessions, err := w.store.LoadSessions(ctx)
+	if err != nil {
+		log.Printf("[manager-web] load sessions: %v", err)
+		return nil
+	}
+	for _, session := range sessions {
+		if session.SessionID == sessionID {
+			return session
+		}
+	}
+	return nil
 }
 
 // describeSessionResult はセッションの結末を短い日本語にする。
@@ -282,6 +484,22 @@ func describeSessionResult(state string, score int) string {
 	}
 }
 
+// render はテンプレートを描画する。
+//
+// 描画中のエラーは応答の途中で起きうる (すでに書き出したバイトは戻せない)。
+// 画面が途中で切れてもサーバーは止めず、ログに残して運営が気付けるようにする。
+func (w *ManagerWeb) render(rw http.ResponseWriter, tmpl *template.Template, name string, data any) {
+	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.ExecuteTemplate(rw, name, data); err != nil {
+		log.Printf("[manager-web] render %s: %v", name, err)
+	}
+}
+
+func (w *ManagerWeb) handleCSS(rw http.ResponseWriter, r *http.Request) {
+	rw.Header().Set("Content-Type", "text/css; charset=utf-8")
+	rw.Write([]byte(managerCSS))
+}
+
 // handleTranscript はセッションのログをテキストで返す (保存・共有用)。
 func (w *ManagerWeb) handleTranscript(rw http.ResponseWriter, r *http.Request) {
 	sessionID := r.URL.Query().Get("session_id")
@@ -295,10 +513,7 @@ func (w *ManagerWeb) handleTranscript(rw http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "RADIO TERROR 交信ログ\nセッション: %s\n\n", sessionID)
 	for _, e := range entries {
-		stamp := "--:--:--"
-		if e.At > 0 {
-			stamp = time.Unix(e.At, 0).Format("15:04:05")
-		}
+		stamp := fmtStamp(e.At)
 		if e.IsEvent() {
 			fmt.Fprintf(&b, "%s [装置] %s\n", stamp, e.Message)
 			continue
@@ -335,16 +550,33 @@ func (w *ManagerWeb) handleAbort(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusNoContent)
 }
 
-func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
-	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-	rw.Write([]byte(managerIndexHTML))
-}
+// マネージャー向け画面のテンプレートと共通CSS。
+//
+// テンプレートは別ファイルに置き、ビルド時に埋め込む。Go の文字列リテラルへ
+// 埋めるとテンプレート記法とエスケープが読みづらくなるため。
+// CSS は3ページで共有するので独立させている。
+//
+// 拡張子が `.gohtml` なのは、中身が素のHTMLではなく **html/template の
+// テンプレート**だから。`{{define}}` で始まり単体では表示できないため、
+// `.html` だと開いた人を誤解させる。
+var (
+	//go:embed manager_page.gohtml
+	managerPageHTML string
 
-// managerIndexHTML はマネージャー向け簡易画面。
-//
-// HTML/CSS/JS は manager_page.html に置き、ビルド時に埋め込む。
-// Go の文字列リテラルに埋めるとバッククォート(JSのテンプレートリテラル)が
-// 使えず可読性を損なうため、別ファイルにしている。
-//
-//go:embed manager_page.html
-var managerIndexHTML string
+	//go:embed manager_history.gohtml
+	managerHistoryHTML string
+
+	//go:embed manager_session.gohtml
+	managerSessionHTML string
+
+	//go:embed manager.css
+	managerCSS string
+)
+
+// テンプレートは起動時に一度だけ解析する。
+// 解析失敗はテンプレートの書き間違いであり、起動時に落として気付けるようにする。
+var (
+	managerPageTmpl    = template.Must(template.New("page").Parse(managerPageHTML))
+	managerHistoryTmpl = template.Must(template.New("history").Parse(managerHistoryHTML))
+	managerSessionTmpl = template.Must(template.New("session").Parse(managerSessionHTML))
+)

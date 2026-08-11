@@ -112,7 +112,7 @@ func (p *AudioPipeline) handlePlayerMessage(ctx context.Context, sender *AudioSe
 		// 会話ログへ記録する (ナビゲーターの文脈になる)
 		if p.logs != nil {
 			p.logs.Append(session.SessionID, ConversationEntry{
-				Sender:   "プレイヤー",
+				Sender:   senderPlayer,
 				Receiver: session.Character.Name,
 				Message:  item.Message,
 			})

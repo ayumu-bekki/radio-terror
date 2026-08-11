@@ -29,6 +29,11 @@ const (
 	EventAborted      = "aborted"       // マネージャーによる強制リセット
 )
 
+// senderPlayer はプレイヤー発話の Sender 名。
+// マネージャー画面はこの名前でナビゲーター側の発話と表示を分けるため、
+// 記録側と表示側で同じ定数を参照する。
+const senderPlayer = "プレイヤー"
+
 // ConversationEntry はログ1件を表す。発話とイベントの両方を扱う。
 //
 // JSONタグは永続化(Valkey)とマネージャー向けWeb画面の両方で使う。
