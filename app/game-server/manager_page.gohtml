@@ -76,9 +76,14 @@ setInterval(refresh, 2000);
   <th>Core</th><th>状態</th><th>残り</th><th>電池</th><th>配線</th><th>最終報告</th>
 </tr></thead><tbody>
 {{range .Devices}}
-  <tr>
+  {{/* 切断中は最後の状態が残っているだけなので、行ごと薄くして区別する */}}
+  <tr{{if not .Connected}} class="offline"{{end}}>
     <td>{{.DeviceID}}</td>
-    <td><span class="state {{.State}}">{{.State}}</span></td>
+    <td>
+      {{- if .Connected}}<span class="state {{.State}}">{{.State}}</span>
+      {{- else}}<span class="state offline">切断</span>
+      {{- end}}
+    </td>
     <td>{{.Remaining}}</td>
     <td><span class="{{.BatteryClass}}">{{.Battery}}</span></td>
     <td>{{range .Lines}}<span class="{{if .Cut}}err{{end}}">{{.Color}}</span> {{end}}</td>

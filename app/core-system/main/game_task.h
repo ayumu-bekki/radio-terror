@@ -148,6 +148,10 @@ class GameTask final : public Task {
   void UpdateFullColorLed();
   void FireSolenoid();
 
+  /// kLED・7セグ・フルカラーLED・ブザーをすべて止める。
+  /// Deep Sleep へ入る前に呼び、消えたまま眠るようにする (§8.5)
+  void TurnOffAllOutputs();
+
   // --- 送信 (§7.2) ---
   /// 送信時点の状態をまとめる (EventSender へ渡す)
   StatusSnapshot MakeStatusSnapshot() const;

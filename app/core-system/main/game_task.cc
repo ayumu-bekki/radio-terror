@@ -235,6 +235,13 @@ void GameTask::HandleEvent(const GameEvent& event) {
     low_battery_ = true;
     SendDeviceStatus();
     ESP_LOGW(TAG, "low battery: entering deep sleep");
+
+    // 全表示を消してから眠る。Deep Sleep 中も MCP23017・HT16K33 は
+    // 自前の電源で点いたままになり、消し忘れると電池を消費し続ける (§8.5)
+    TurnOffAllOutputs();
+
+    // 送信と消灯が終わるのを待つ。フルカラーLEDはキュー経由の別タスクなので、
+    // ここで待たずに眠ると消灯コマンドが処理されないまま点いたまま残る。
     vTaskDelay(pdMS_TO_TICKS(500));
     esp_deep_sleep_start();
     return;
@@ -722,6 +729,29 @@ void GameTask::FireSolenoid() {
   gpio_set_level(Esp32Pin::kSolenoid, 1);
   vTaskDelay(pdMS_TO_TICKS(kSolenoidPulseMs));
   gpio_set_level(Esp32Pin::kSolenoid, 0);
+}
+
+/// 全ての表示・音を止める (§8.5)。
+///
+/// Deep Sleep は ESP32 を眠らせるだけで、MCP23017 (kLED) と HT16K33 (7セグ) は
+/// I2C デバイス自身の電源で点灯を保持する。**消さずに眠ると電池を消費し続け**、
+/// 過放電保護の意味が薄れる。
+void GameTask::TurnOffAllOutputs() {
+  buzzer_.Off();
+
+  // kLED: パターン再生を止めてから全消灯する
+  leds_.Reset();
+  leds_.ClearOverride();
+  leds_.ApplyAllOff();
+
+  // 7セグ
+  ht16k33_->Clear();
+  ht16k33_->WriteDisplay();
+
+  // フルカラーLED
+  Pl9823Task::Command command;
+  command.pattern = Pl9823Task::PATTERN_OFF;
+  pl9823_task_->SendCommand(command);
 }
 
 // --- 送信 (§7.2) ----------------------------------------------------------

@@ -19,6 +19,8 @@ th { color: #9aa3b5; font-weight: 600; }
 .playing { background: #4a1010; color: #f56e6e; }
 .defused { background: #103a1c; color: #6ef58f; }
 .exploded, .detonating { background: #4a1010; color: #f5a26e; }
+/* offline は WS 切断中。最後の状態が残っているだけで、今の状態は不明 */
+.state.offline { background: #2a2f3d; color: #8b93a5; }
 
 .warn { color: #f5a26e; }
 .err { color: #f56e6e; }
@@ -62,6 +64,9 @@ button.danger:hover { background: #6a2a2a; color: #ffd0d0; }
 .more { display: inline-block; margin-top: .5rem; font-size: .8rem;
         color: #6ec1f5; text-decoration: none; }
 .more:hover { text-decoration: underline; }
+
+/* 切断中のデバイスは行ごと薄くし、生きている行と一目で区別する */
+tr.offline td { opacity: .55; }
 
 /* 表の行そのものをリンクにする (履歴一覧の行クリック) */
 tr.clickable { cursor: pointer; }

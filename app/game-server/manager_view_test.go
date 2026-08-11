@@ -147,6 +147,9 @@ func TestBuildNaviFields(t *testing.T) {
 
 // 配線は色順に並べ、切断された線に印を付ける。
 func TestBuildDeviceViews(t *testing.T) {
+	// 0001 は接続中、0002 は切断済み
+	connected := func(deviceID string) bool { return deviceID == "0001" }
+
 	views := buildDeviceViews([]*DeviceStatus{
 		{DeviceID: "0002", State: deviceStateReady, Battery: 4.05},
 		{
@@ -155,7 +158,7 @@ func TestBuildDeviceViews(t *testing.T) {
 			Battery:  3.5,
 			Lines:    map[string]bool{"C": true, "A": false, "B": true},
 		},
-	})
+	}, connected)
 
 	// Core ID 順
 	if views[0].DeviceID != "0001" || views[1].DeviceID != "0002" {
@@ -182,6 +185,14 @@ func TestBuildDeviceViews(t *testing.T) {
 	// 電圧が無い場合は「—」
 	if views[1].Battery != "4.05V" {
 		t.Errorf("Battery = %q, want 4.05V", views[1].Battery)
+	}
+
+	// 接続状態が反映される (切断済みは最後の状態が残っているだけ)
+	if !views[0].Connected {
+		t.Error("0001 は接続中のはず")
+	}
+	if views[1].Connected {
+		t.Error("0002 は切断済みのはず")
 	}
 }
 

@@ -422,3 +422,51 @@ func TestManagerDetonateEndpoint(t *testing.T) {
 		t.Errorf("セッションなし: status = %d, want 409", rec.Code)
 	}
 }
+
+// 切断済みの Core を「最後に見えていた状態」のまま表示しない。
+//
+// Deep Sleep (電池切れ) や電源断で WS が切れても DeviceStatus は残るため、
+// 接続状態を併せて見ないと ready のまま生きているように見える。
+func TestManagerDashboardShowsDisconnectedDevice(t *testing.T) {
+	web, mux, _ := newTestManagerWeb(t)
+
+	// ready 状態の報告を受けた後、接続だけが切れた状況を作る
+	web.devices.UpdateStatus(&deviceMessage{
+		Type: msgDeviceStatus, DeviceID: "0001", State: deviceStateReady,
+		Battery: 4.0,
+	})
+
+	// 接続はしていない (Register していない) = 切断済み
+	_, body := get(t, mux, "/manager")
+
+	if !strings.Contains(body, "切断") {
+		t.Error("切断中の表示が出ていない")
+	}
+	// 最後の状態をそのまま出さない
+	if strings.Contains(body, `<span class="state ready">`) {
+		t.Error("切断済みなのに ready と表示されている")
+	}
+	if !strings.Contains(body, `class="offline"`) {
+		t.Error("切断中の行が区別されていない")
+	}
+}
+
+// 接続中の Core は通常どおり状態を表示する。
+func TestManagerDashboardShowsConnectedDevice(t *testing.T) {
+	web, mux, _ := newTestManagerWeb(t)
+
+	web.devices.Register("0001", &fakeDeviceConn{})
+	web.devices.UpdateStatus(&deviceMessage{
+		Type: msgDeviceStatus, DeviceID: "0001", State: deviceStateReady,
+		Battery: 4.0,
+	})
+
+	_, body := get(t, mux, "/manager")
+
+	if !strings.Contains(body, `<span class="state ready">`) {
+		t.Error("接続中の Core の状態が出ていない")
+	}
+	if strings.Contains(body, `class="offline"`) {
+		t.Error("接続中なのに切断扱いされている")
+	}
+}

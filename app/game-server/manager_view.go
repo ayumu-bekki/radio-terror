@@ -30,6 +30,12 @@ type deviceView struct {
 	BatteryClass string
 	Lines        []lineView
 	UpdatedAt    string
+
+	// Connected は現在 WS 接続中か。
+	//
+	// 切断されても最後の状態 (State) は残るため、これを見ないと
+	// 電池切れ・電源断の Core が「ready のまま」に見える。
+	Connected bool
 }
 
 // sessionView は進行中セッション表の1行。
@@ -233,7 +239,10 @@ func resultKind(state string) string {
 // --- 組み立て ---
 
 // buildDeviceViews はデバイス表を組み立てる (Core ID 順)。
-func buildDeviceViews(devices []*DeviceStatus) []deviceView {
+//
+// connected は device_id → WS接続中か。切断済みの Core を
+// 「最後に見えていた状態」のまま表示しないために要る。
+func buildDeviceViews(devices []*DeviceStatus, connected func(string) bool) []deviceView {
 	views := make([]deviceView, 0, len(devices))
 	for _, d := range devices {
 		battery := "—"
@@ -260,6 +269,7 @@ func buildDeviceViews(devices []*DeviceStatus) []deviceView {
 			BatteryClass: batteryClass(d.Battery, d.LowBattery),
 			Lines:        lines,
 			UpdatedAt:    fmtStamp(d.UpdatedAt),
+			Connected:    connected(d.DeviceID),
 		})
 	}
 	sort.Slice(views, func(i, j int) bool { return views[i].DeviceID < views[j].DeviceID })

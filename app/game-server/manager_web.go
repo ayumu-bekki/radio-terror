@@ -150,7 +150,7 @@ func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
 
 	data := dashboardData{
 		Sessions: sessions,
-		Devices:  buildDeviceViews(w.devices.AllStatus()),
+		Devices:  buildDeviceViews(w.devices.AllStatus(), w.devices.IsConnected),
 		Bridges:  buildBridgeViews(w.bridges.IDs(), w.game.Bindings()),
 	}
 
