@@ -22,6 +22,9 @@ go build ./... && go vet ./... && go test ./...
 # 単体テスト
 go test -run TestBuildAllDifficulties -v
 go test -run "TestHintLevel" -v      # 前方一致で複数実行
+
+# keepalive の切断再現テスト (約5分。既定では飛ばされる)
+go test -run TestKeepaliveAcceptsBridgePings -keepalive -timeout 420s -v
 ```
 
 `gofmt -w <file>` は編集後に必ず実行する(`gofmt -l *.go` が何も出さない状態を保つ)。

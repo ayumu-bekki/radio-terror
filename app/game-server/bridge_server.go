@@ -6,10 +6,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"time"
 
 	pb "game-server/gen"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -120,6 +122,30 @@ func (s *BridgeServer) Connect(stream pb.TransceiverService_ConnectServer) error
 	}
 }
 
+// keepaliveOptions は radio-bridge の keepalive ping を受け入れる設定を返す。
+//
+// **これが無いと接続が約2分で切れる** (docs/bridge_connection_design.md §2 決定6)。
+// radio-bridge は無音区間が長い運用のため30秒ごとに ping を送るが、
+// gRPC-Go の既定 EnforcementPolicy は
+//
+//	MinTime             = 5分   (これより短い間隔の ping は違反)
+//	PermitWithoutStream = false (ストリームが無い間の ping は違反)
+//
+// であり、違反 ping が一定数たまると ENHANCE_YOUR_CALM / "too_many_pings" の
+// GOAWAY で切断される。30秒間隔では**ちょうど121秒**で切れる (実測・再現済み)。
+func keepaliveOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			// bridge の ping 間隔 (30秒) を下回る値にする。
+			// ここが 30秒 より大きいと違反として数えられ、再び切断が始まる。
+			MinTime: 10 * time.Second,
+			// 無音区間 (音声ストリームが流れていない間) の ping を許可する。
+			// トランシーバーは沈黙が普通なので、これが false だと常に違反になる。
+			PermitWithoutStream: true,
+		}),
+	}
+}
+
 // Run は gRPC サーバーを起動し、ctx がキャンセルされたら停止する。
 func (s *BridgeServer) Run(ctx context.Context, addr string) error {
 	listener, err := net.Listen("tcp", addr)
@@ -127,7 +153,7 @@ func (s *BridgeServer) Run(ctx context.Context, addr string) error {
 		return fmt.Errorf("net.Listen: %w", err)
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(keepaliveOptions()...)
 	pb.RegisterTransceiverServiceServer(server, s)
 
 	go func() {

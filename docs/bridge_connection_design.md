@@ -35,6 +35,7 @@ radio-bridge を複数プロセス運用するための接続方式と、
 | 8 | オーディオIFの指定方法(実装時) | bridge ID と同様に**環境変数(`RADIO_BRIDGE_INPUT_DEVICE` / `RADIO_BRIDGE_OUTPUT_DEVICE`)を優先**する。オーディオIFはチーム(周波数)ごとに変わるプロセス固有の設定であり、TOMLに固定すると同じ config.toml を共有できず、プロセスごとに設定ファイルを分ける必要が生じるため(§6.1) |
 | 9 | PTT用GPIOピンの指定方法(実装時) | 同じ理由で**環境変数(`RADIO_BRIDGE_PTT_PIN`)を優先**する。PTT配線(PCB)はbridgeを動かすRaspberry Piごとに異なるため(§6.1) |
 | 10 | コールサイン抽出の廃止(実装時) | 文字起こしで送信者・受信者のコールサインを抽出していたが、**無線側で名乗りを強制する運用をやめた**ため `message` のみにした。開始申告・秘密ワードの判定は元から `message` だけを見ており(「4桁ID + 難易度 + 開始の意図」の一致)、判定ロジックへの影響はない。抽出結果はログ表示にしか使われていなかった |
+| 11 | keepalive の受け入れ設定(実機確認時) | **接続が約2分ごとに切れていた**。radio-bridge は無音区間が長いため30秒ごとに keepalive ping を送るが、gRPC-Go の既定 `EnforcementPolicy` は `MinTime=5分` / `PermitWithoutStream=false` で、これに反する ping が一定数たまると `ENHANCE_YOUR_CALM` / `too_many_pings` の GOAWAY を返す。30秒間隔では**ちょうど121秒**で切断される(テストで再現・修正後は切れないことを確認済み)。サーバー側に `KeepaliveEnforcementPolicy{MinTime: 10s, PermitWithoutStream: true}` を設定して解決した。**`MinTime` は bridge の ping 間隔 (30秒) より短くなければならない** — 逆転すると再発する |
 
 ## 3. 接続シーケンス
 
@@ -57,6 +58,21 @@ radio-bridge (Rust)                     game-server (Go)
 - **同一IDの二重接続**: bridge プロセスの再起動を想定し、後着を採用して
   旧ストリームを閉じる(ログ警告を出す)。
 - **メタデータに bridge-id が無い接続**: 拒否(エラーで閉じる)。
+- **keepalive**: トランシーバーは**無音区間が長い**ため、bridge は30秒ごとに
+  HTTP/2 の keepalive ping を送って接続を維持する
+  (`radio-bridge/src/grpc/client.rs` の `http2_keep_alive_interval`)。
+  **サーバー側はこの ping を受け入れる設定が必須**
+  (`bridge_server.go` の `keepaliveOptions`)。gRPC-Go の既定では
+  短い間隔の ping が違反として数えられ、**約2分で GOAWAY 切断される**
+  (§2 決定11)。設定の対応関係は次のとおり。
+
+  | 側 | 設定 | 値 |
+  |---|---|---|
+  | bridge | ping 間隔 | 30秒 |
+  | server | `EnforcementPolicy.MinTime` | **10秒**(ping 間隔より短いこと) |
+  | server | `EnforcementPolicy.PermitWithoutStream` | **true**(無音中の ping を許可) |
+
+  片方だけ変更すると切断が再発する。
 
 ## 4. game-server 内部の変更
 
