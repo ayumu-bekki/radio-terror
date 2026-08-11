@@ -11,29 +11,7 @@
 
 <div id="live">{{template "live" .}}</div>
 
-<h2>直近の履歴</h2>
-<table><thead><tr>
-  <th>開始時刻</th><th>Core</th><th>難易度</th><th>ナビ</th>
-  <th>進行</th><th>結果</th><th></th>
-</tr></thead><tbody>
-{{range .History}}
-  <tr>
-    <td class="muted">{{.StartedAt}}</td>
-    <td>{{.DeviceID}}</td>
-    <td>{{.Difficulty}}</td>
-    <td>{{.Character}}</td>
-    <td>{{.Progress}}</td>
-    <td class="{{.ResultClass}}">{{.Result}}</td>
-    <td class="row-actions">
-      <a href="/manager/history/{{.SessionID}}">詳細</a>
-      <a href="/manager/api/transcript?session_id={{.SessionID}}">TXT</a>
-    </td>
-  </tr>
-{{else}}
-  <tr><td colspan="7" class="muted">履歴はまだありません</td></tr>
-{{end}}
-</tbody></table>
-<a class="more" href="/manager/history">すべての履歴を見る →</a>
+<a class="more" href="/manager/history">履歴を見る →</a>
 
 <script>
 // 描画はすべてサーバー側 (html/template)。ここは2秒ごとに
@@ -93,6 +71,30 @@ setInterval(refresh, 2000);
 
 {{/* live は2秒ごとに差し替える範囲。進行中の状態だけを含める */}}
 {{define "live"}}
+<h2>デバイス</h2>
+<table><thead><tr>
+  <th>Core</th><th>状態</th><th>残り</th><th>電池</th><th>配線</th><th>最終報告</th>
+</tr></thead><tbody>
+{{range .Devices}}
+  <tr>
+    <td>{{.DeviceID}}</td>
+    <td><span class="state {{.State}}">{{.State}}</span></td>
+    <td>{{.Remaining}}</td>
+    <td><span class="{{.BatteryClass}}">{{.Battery}}</span></td>
+    <td>{{range .Lines}}<span class="{{if .Cut}}err{{end}}">{{.Color}}</span> {{end}}</td>
+    <td class="muted">{{.UpdatedAt}}</td>
+  </tr>
+{{else}}
+  <tr><td colspan="6" class="muted">接続中のデバイスはありません</td></tr>
+{{end}}
+</tbody></table>
+
+<h2>無線接続状況</h2>
+<div class="muted">
+{{- if .Bridges}}{{range $i, $b := .Bridges}}{{if $i}} / {{end}}{{$b.Label}}{{end}}
+{{- else}}接続中の無線はありません{{end}}
+</div>
+
 <h2>セッション</h2>
 <table><thead><tr>
   <th>Core</th><th>難易度</th><th>ナビ</th><th>状態</th><th>進行</th>
@@ -118,39 +120,6 @@ setInterval(refresh, 2000);
   <tr><td colspan="9" class="muted">進行中のセッションはありません</td></tr>
 {{end}}
 </tbody></table>
-
-<h2>デバイス</h2>
-<table><thead><tr>
-  <th>Core</th><th>状態</th><th>残り</th><th>電池</th><th>配線</th><th>最終報告</th>
-</tr></thead><tbody>
-{{range .Devices}}
-  <tr>
-    <td>{{.DeviceID}}</td>
-    <td><span class="state {{.State}}">{{.State}}</span></td>
-    <td>{{.Remaining}}</td>
-    <td><span class="{{.BatteryClass}}">{{.Battery}}</span></td>
-    <td>{{range .Lines}}<span class="{{if .Cut}}err{{end}}">{{.Color}}</span> {{end}}</td>
-    <td class="muted">{{.UpdatedAt}}</td>
-  </tr>
-{{else}}
-  <tr><td colspan="6" class="muted">接続中のデバイスはありません</td></tr>
-{{end}}
-</tbody></table>
-
-<h2>無線 (bridge)</h2>
-<div class="muted">
-{{- if .Bridges}}{{range $i, $b := .Bridges}}{{if $i}} / {{end}}{{$b.Label}}{{end}}
-{{- else}}接続中の無線はありません{{end}}
-</div>
-
-<h2>外部API / アセット</h2>
-<div class="muted" id="health">
-  最終成功: {{.Health.LastSuccess}} / 最終エラー:
-  {{- if .Health.HasError}}
-    <span class="err">{{.Health.LastError}} ({{.Health.ErrorCount}}件) {{.Health.LastMessage}}</span>
-  {{- else}} —{{end}}
-  <br>混線アセット: 邪魔者 {{.Health.Jamming}} / 環境 {{.Health.Ambient}} / 不穏 {{.Health.Uneasy}}
-</div>
 
 <h2>交信ログ / 進行記録</h2>
 <div class="tabs">

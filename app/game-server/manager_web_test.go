@@ -277,24 +277,52 @@ func TestManagerHistoryFilterOptionsStable(t *testing.T) {
 	}
 }
 
-// ダッシュボードは直近N件だけ出し、全件は履歴一覧へ送る。
-func TestManagerDashboardHistoryLimit(t *testing.T) {
+// ダッシュボードは進行中の監視に絞る。履歴そのものは載せず、一覧への導線だけ置く。
+func TestManagerDashboardHasNoHistory(t *testing.T) {
 	_, mux, store := newTestManagerWeb(t)
 
 	base := time.Now().Add(-time.Hour)
-	// limit より多く積む
-	for i := 0; i < dashboardHistoryLimit+3; i++ {
+	for i := 0; i < 3; i++ {
 		saveTestSession(t, store,
 			"s-"+string(rune('a'+i)), "000"+string(rune('1'+i)),
 			deviceStateDefused, base.Add(time.Duration(i)*time.Minute))
 	}
 
 	_, body := get(t, mux, "/manager")
-	if got := strings.Count(body, "/manager/api/transcript?session_id="); got != dashboardHistoryLimit {
-		t.Errorf("履歴の行数 = %d, want %d", got, dashboardHistoryLimit)
+
+	// 履歴の行 (TXTリンク) は出さない
+	if strings.Contains(body, "/manager/api/transcript?session_id=") {
+		t.Error("ダッシュボードに履歴の行が出ている")
 	}
-	if !strings.Contains(body, "すべての履歴を見る") {
+	// 導線だけは残す
+	if !strings.Contains(body, `href="/manager/history"`) {
 		t.Error("履歴一覧への導線がない")
+	}
+}
+
+// ダッシュボードの見出しは デバイス → 無線接続状況 → セッション の順。
+// 当日の運営が上から順に確認する流れに合わせている。
+func TestManagerDashboardSectionOrder(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+	_, body := get(t, mux, "/manager")
+
+	want := []string{"デバイス", "無線接続状況", "セッション", "交信ログ"}
+	pos := make([]int, len(want))
+	for i, heading := range want {
+		pos[i] = strings.Index(body, "<h2>"+heading)
+		if pos[i] < 0 {
+			t.Fatalf("見出しが無い: %s", heading)
+		}
+	}
+	for i := 1; i < len(pos); i++ {
+		if pos[i-1] > pos[i] {
+			t.Errorf("見出しの順序が違う: %s が %s より後ろにある", want[i-1], want[i])
+		}
+	}
+
+	// 外部API / アセットは出さない
+	if strings.Contains(body, "外部API") {
+		t.Error("外部API/アセットのセクションが残っている")
 	}
 }
 

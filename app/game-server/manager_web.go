@@ -60,10 +60,6 @@ func (h *APIHealth) Snapshot() APIHealthSnapshot {
 	}
 }
 
-// dashboardHistoryLimit はダッシュボードに出す履歴の件数。
-// 当日の「さっきの回はどうだったか」に即答できれば足り、全件は履歴一覧で見る。
-const dashboardHistoryLimit = 5
-
 // ManagerWeb はマネージャー向けの Web 画面を提供する。
 //
 // 画面はサーバー側で描画する (html/template)。表示の判断はすべて
@@ -130,8 +126,6 @@ type dashboardData struct {
 	Sessions []sessionView
 	Devices  []deviceView
 	Bridges  []bridgeView
-	Health   healthView
-	History  []historyView
 
 	// Tabs は交信ログのタブ (進行中セッション)。
 	Tabs []logTabView
@@ -158,7 +152,6 @@ func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		Sessions: sessions,
 		Devices:  buildDeviceViews(w.devices.AllStatus()),
 		Bridges:  buildBridgeViews(w.bridges.IDs(), w.game.Bindings()),
-		Health:   buildHealthView(w.health.Snapshot(), w.crosstalk.AssetSummary()),
 	}
 
 	// 表示するログのセッションを決める。指定が無ければ先頭の進行中セッション
@@ -182,13 +175,12 @@ func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		data.Entries = buildEntryViews(w.entriesFor(r.Context(), selected))
 	}
 
-	// 差し替え用の部分描画。履歴は変化が遅いのでここには含めない
+	// 差し替え用の部分描画 (進行中の状態だけ)
 	if r.URL.Query().Get("partial") == "live" {
 		w.render(rw, managerPageTmpl, "live", data)
 		return
 	}
 
-	data.History = w.historyViews(r.Context(), historyFilter{}, dashboardHistoryLimit)
 	w.render(rw, managerPageTmpl, "page", data)
 }
 
