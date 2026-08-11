@@ -25,6 +25,21 @@ namespace CoreSystem {
 /// WiFi接続のタイムアウト。会場のWiFiが未設営でも起動を止めない。
 inline constexpr uint32_t kWifiConnectTimeoutMs = 15000;
 
+/// 起動時の kLine 読み取り (§4)。
+///
+/// 内部プルアップの有効化直後はピンの電圧が安定しておらず、
+/// そのまま読むと誤った値を拾う。落ち着くまで待ってから、
+/// 複数回一致した場合だけ確定する。
+
+/// プルアップ設定後、電圧が安定するまでの待ち時間
+inline constexpr uint32_t kLineSettleMs = 50;
+
+/// 1本あたりの読み取り回数 (全て一致したら確定)
+inline constexpr int kLineReadSamples = 3;
+
+/// 読み取りの間隔
+inline constexpr uint32_t kLineReadIntervalMs = 5;
+
 /// 各デバイス・タスクを組み立てて起動する。
 ///
 /// 起動演出は BootAnimation、MCP23017 の入力読み取りは McpInputScanner が担う。
@@ -57,6 +72,10 @@ class System final
   /// 起動時の kLine A-E の状態を GameTask へ通知する。
   /// 監視は変化しか通知しないため、初期状態はここで読んで流し込む
   void ReportInitialLineStates();
+
+  /// GPIO を複数回読み、一致した場合だけ結線状態を確定する。
+  /// 安定しなければ false を返す (呼び出し側で通知を見送る)
+  static bool ReadLineStable(gpio_num_t gpio_no, bool* connected);
 
  private:
   MCP23017 mcp23017_;

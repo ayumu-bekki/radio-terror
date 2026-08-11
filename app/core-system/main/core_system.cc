@@ -181,9 +181,22 @@ void System::StartTasks() {
 /// SetupLineWatchers() の後に呼ぶこと (AddMonitor がプルアップを設定するため、
 /// それより前に読むと未設定のレベルを拾う)。
 void System::ReportInitialLineStates() {
+  // 内部プルアップを有効にした直後はピンの電圧が安定していない。
+  // ライン容量があると立ち上がりが遅く、そのまま読むと誤った値を拾う。
+  // GpioInputWatchTask のデバウンス (5ms x 3回) と同等の余裕を取る。
+  vTaskDelay(pdMS_TO_TICKS(kLineSettleMs));
+
   for (int i = 0; i < kColorNum; ++i) {
-    // プルアップ入力: LOW=結線, HIGH=切断 (§5.2)
-    const bool connected = gpio_get_level(Esp32Pin::kLineGpiosByColor[i]) == 0;
+    // 複数回読んで一致した場合のみ確定する (単発のノイズを拾わない)
+    bool connected = false;
+    if (!ReadLineStable(Esp32Pin::kLineGpiosByColor[i], &connected)) {
+      // 安定しなかった線は通知しない。切断されていれば GPIO 監視が
+      // 変化を捉えるまで待つ (誤った初期値を入れるより無通知の方が安全)
+      ESP_LOGW(TAG, "line %c: unstable at boot, skipped", 'A' + i);
+      continue;
+    }
+
+    ESP_LOGI(TAG, "line %c initial: %s", 'A' + i, connected ? "connected" : "cut");
 
     GameEvent event;
     event.type = EVENT_LINE_CHANGED;
@@ -191,6 +204,22 @@ void System::ReportInitialLineStates() {
     event.level = connected;
     game_task_.PostEvent(event);
   }
+}
+
+/// GPIO を複数回読み、全て一致した場合だけ確定する。
+/// プルアップ入力なので LOW=結線, HIGH=切断 (§5.2)。
+bool System::ReadLineStable(gpio_num_t gpio_no, bool* connected) {
+  const bool first = gpio_get_level(gpio_no) == 0;
+
+  for (int i = 1; i < kLineReadSamples; ++i) {
+    vTaskDelay(pdMS_TO_TICKS(kLineReadIntervalMs));
+    if ((gpio_get_level(gpio_no) == 0) != first) {
+      return false;
+    }
+  }
+
+  *connected = first;
+  return true;
 }
 
 /// kLine A-E のGPIO監視を登録する。
