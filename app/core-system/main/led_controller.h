@@ -96,11 +96,14 @@ class LedController final {
     return true;
   }
 
-  /// Setup中の復旧ガイドを表示する (切断中の線に対応するLEDを点灯。§4.1)
+  /// Setup中の復旧ガイドを表示する (§4.1)。
+  ///
+  /// **結線済みの線に対応するLEDを点灯**する。復旧が進むほど点灯が増え、
+  /// 全点灯で準備完了になるため、進捗が一目で分かる。
   void ApplySetupGuide(const bool line_connected[kColorNum]) {
     bool desired[kColorNum];
     for (int i = 0; i < kColorNum; ++i) {
-      desired[i] = !line_connected[i];
+      desired[i] = line_connected[i];
     }
     Write(desired);
   }
