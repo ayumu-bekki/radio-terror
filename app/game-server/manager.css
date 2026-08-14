@@ -1,118 +1,187 @@
 /* マネージャー向け Web 画面の共通スタイル。
    ダッシュボード (/manager)・履歴一覧 (/manager/history)・
-   セッション詳細 (/manager/history/{session_id}) の3ページで共有する。 */
+   セッション詳細 (/manager/history/{session_id}) の3ページで共有する。
 
-:root { color-scheme: dark; }
-body { margin: 0; padding: 1rem; background: #12141a; color: #e6e8ee;
-       font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif; }
-h1 { font-size: 1.1rem; margin: 0 0 1rem; letter-spacing: .04em; }
-h2 { font-size: .85rem; margin: 1.5rem 0 .5rem; color: #9aa3b5;
-     text-transform: uppercase; letter-spacing: .08em; }
+   **業務システムの一覧画面**に寄せたライトテーマ。運営が明るい会場で
+   長時間見る画面なので、視認性と情報密度を優先する:
+   - 白地 + 罫線の表。行を目で追いやすい
+   - 状態は矩形の低彩度バッジ。装飾ではなく識別のための色
+   - 余白は詰める。複数チームを同時に見るため一覧性を優先 */
 
-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #262a35; }
-th { color: #9aa3b5; font-weight: 600; }
+:root {
+  color-scheme: light;
 
-.state { padding: .1rem .5rem; border-radius: 999px; font-size: .75rem; }
-.setup { background: #4a3f10; color: #f5d76e; }
-.ready { background: #10304a; color: #6ec1f5; }
-.playing { background: #4a1010; color: #f56e6e; }
-.defused { background: #103a1c; color: #6ef58f; }
-.exploded, .detonating { background: #4a1010; color: #f5a26e; }
+  /* 面 */
+  --bg: #f2f4f7;         /* ページ地 */
+  --surface: #ffffff;    /* 表・カードの地 */
+  --surface-alt: #eef1f5; /* 見出し行・補助面 */
+
+  /* 線 */
+  --line: #d4d9e0;       /* 通常の罫線 */
+  --line-strong: #b9c0ca; /* 表の外枠・見出しの下 */
+
+  /* 文字 */
+  --text: #1c2027;
+  --text-muted: #6a727e;
+  --text-faint: #8b929c;
+
+  /* 状態色 (低彩度。地は薄く、文字を濃くして可読性を確保する) */
+  --ok-bg: #e3f3e7;      --ok-fg: #1f6b34;
+  --info-bg: #e2edf9;    --info-fg: #1f5c96;
+  --warn-bg: #fbf0d9;    --warn-fg: #8a6215;
+  --danger-bg: #fbe4e4;  --danger-fg: #9d2626;
+  --neutral-bg: #e9ecf1; --neutral-fg: #616a76;
+
+  --accent: #1f5c96;     /* リンク・選択中 */
+}
+
+body { margin: 0; padding: .9rem 1rem; background: var(--bg); color: var(--text);
+       font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+       font-size: 14px; }
+h1 { font-size: 1rem; margin: 0 0 .8rem; font-weight: 600; letter-spacing: .01em; }
+h2 { font-size: .78rem; margin: 1.1rem 0 .35rem; color: var(--text-muted);
+     font-weight: 600; letter-spacing: .02em; }
+
+/* --- 表 ---
+   罫線ありの業務表。見出し行は固定色にして、スクロールしても区切りが分かる。 */
+table { width: 100%; border-collapse: collapse; font-size: .82rem;
+        background: var(--surface); border: 1px solid var(--line-strong); }
+th, td { text-align: left; padding: .25rem .5rem; border: 1px solid var(--line);
+         vertical-align: middle; }
+th { background: var(--surface-alt); color: var(--text-muted); font-weight: 600;
+     border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+tbody tr:nth-child(even) td { background: #fafbfc; }
+tbody tr:hover td { background: #f0f4f9; }
+
+/* --- 状態バッジ ---
+   丸ピルではなく矩形。色は識別のためで、装飾ではない。 */
+.state { display: inline-block; padding: .05rem .4rem; border-radius: 3px;
+         font-size: .72rem; font-weight: 600; border: 1px solid transparent;
+         white-space: nowrap; }
+.setup    { background: var(--warn-bg);    color: var(--warn-fg);    border-color: #e8d5a8; }
+.ready    { background: var(--info-bg);    color: var(--info-fg);    border-color: #bcd5ee; }
+.playing  { background: var(--danger-bg);  color: var(--danger-fg);  border-color: #eebfbf; }
+.defused  { background: var(--ok-bg);      color: var(--ok-fg);      border-color: #b8ddc3; }
+.exploded, .detonating { background: var(--danger-bg); color: var(--danger-fg);
+                         border-color: #eebfbf; }
 /* offline は WS 切断中。最後の状態が残っているだけで、今の状態は不明 */
-.state.offline { background: #2a2f3d; color: #8b93a5; }
+.state.offline { background: var(--neutral-bg); color: var(--neutral-fg);
+                 border-color: #d3d8df; }
 
-.warn { color: #f5a26e; }
-.err { color: #f56e6e; }
-.muted { color: #6b7383; }
-.answer { font-family: ui-monospace, monospace; font-size: .8rem; color: #f5d76e; }
+.warn { color: #8a6215; }
+.err { color: #9d2626; font-weight: 600; }
+.muted { color: var(--text-muted); }
+/* answer は運営だけが見る正解。目立たせるが赤 (異常) とは分ける */
+.answer { font-family: ui-monospace, monospace; font-size: .78rem; color: #7a4e00;
+          background: #fdf5e3; padding: .05rem .3rem; border-radius: 3px; }
 
-.log { font-size: .8rem; line-height: 1.7; max-height: 22rem; overflow-y: auto;
-       background: #0d0f14; border: 1px solid #262a35; border-radius: 6px; padding: .6rem .8rem; }
-.log .t { color: #5a6272; font-family: ui-monospace, monospace; margin-right: .5rem; }
-.log .ev { color: #9aa3b5; }
-.log .ev-ok { color: #6ef58f; }
-.log .ev-ng { color: #f56e6e; }
-.log .ev-end { color: #f5d76e; font-weight: 600; }
-.log .navi { color: #6ec1f5; }
-.log .who { color: #9aa3b5; margin-right: .4rem; }
+/* --- 交信ログ ---
+   等幅の時刻+発話。長時間追うのでコントラストは控えめにする。 */
+.log { font-size: .78rem; line-height: 1.55; max-height: 22rem; overflow-y: auto;
+       background: var(--surface); border: 1px solid var(--line-strong);
+       border-radius: 3px; padding: .5rem .7rem; }
+.log .t { color: var(--text-faint); font-family: ui-monospace, monospace;
+          margin-right: .5rem; }
+.log .ev { color: var(--text-muted); }
+.log .ev-ok { color: var(--ok-fg); }
+.log .ev-ng { color: var(--danger-fg); }
+.log .ev-end { color: #7a4e00; font-weight: 600; }
+.log .navi { color: var(--info-fg); }
+.log .who { color: var(--text-muted); margin-right: .4rem; font-weight: 600; }
 
-.tabs { display: flex; gap: .4rem; margin-bottom: .6rem; flex-wrap: wrap; }
-.tab { background: #1c2029; border: 1px solid #2e3543; color: #9aa3b5; border-radius: 4px;
-       padding: .25rem .7rem; cursor: pointer; font-size: .78rem; }
-.tab:hover { background: #262c38; }
-.tab.on { background: #2f4a63; color: #cfe6f7; border-color: #3f6a8f; }
+/* --- タブ --- */
+.tabs { display: flex; gap: .3rem; margin-bottom: .45rem; flex-wrap: wrap; }
+.tab { background: var(--surface); border: 1px solid var(--line-strong);
+       color: var(--text-muted); border-radius: 3px;
+       padding: .2rem .6rem; cursor: pointer; font-size: .76rem; font-family: inherit; }
+.tab:hover { background: var(--surface-alt); }
+.tab.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-.row-actions a { color: #6ec1f5; font-size: .75rem; text-decoration: none; }
-button { background: #2a2f3d; color: #e6e8ee; border: 1px solid #3a4152;
-         border-radius: 4px; padding: .2rem .6rem; cursor: pointer; font-size: .75rem; }
-button:hover { background: #3a4152; }
+/* --- 操作 --- */
+.row-actions { white-space: nowrap; }
+.row-actions a { color: var(--accent); font-size: .75rem; text-decoration: none;
+                 margin-left: .3rem; }
+.row-actions a:hover { text-decoration: underline; }
+button { background: var(--surface); color: var(--text);
+         border: 1px solid var(--line-strong); border-radius: 3px;
+         padding: .15rem .5rem; cursor: pointer; font-size: .75rem;
+         font-family: inherit; }
+button:hover { background: var(--surface-alt); }
 
 /* danger は取り返しのつかない操作 (強制爆破)。リセットと見分けるため赤系にする */
-button.danger { background: #4a1c1c; color: #f5a2a2; border-color: #6a2a2a; }
-button.danger:hover { background: #6a2a2a; color: #ffd0d0; }
+button.danger { background: #fff; color: var(--danger-fg); border-color: #d9a5a5; }
+button.danger:hover { background: var(--danger-bg); border-color: var(--danger-fg); }
 
 /* --- ページ間の行き来 --- */
 
 /* nav はページ上部の戻り導線とページ間リンク。 */
-.nav { display: flex; gap: .8rem; align-items: baseline; margin-bottom: .8rem;
-       font-size: .8rem; }
-.nav a { color: #6ec1f5; text-decoration: none; }
+.nav { display: flex; gap: .8rem; align-items: baseline; margin-bottom: .7rem;
+       font-size: .78rem; }
+.nav a { color: var(--accent); text-decoration: none; }
 .nav a:hover { text-decoration: underline; }
 
 /* more は表の下に置く「すべて見る」リンク。 */
-.more { display: inline-block; margin-top: .5rem; font-size: .8rem;
-        color: #6ec1f5; text-decoration: none; }
+.more { display: inline-block; margin-top: .45rem; font-size: .78rem;
+        color: var(--accent); text-decoration: none; }
 .more:hover { text-decoration: underline; }
 
 /* 切断中のデバイスは行ごと薄くし、生きている行と一目で区別する */
-tr.offline td { opacity: .55; }
+tr.offline td { color: var(--text-faint); }
 
 /* 表の行そのものをリンクにする (履歴一覧の行クリック) */
 tr.clickable { cursor: pointer; }
-tr.clickable:hover { background: #1a1e27; }
+tr.clickable:hover td { background: #e8eef6; }
 
 /* --- 履歴一覧の絞り込み --- */
 
-.filters { display: flex; gap: .8rem; flex-wrap: wrap; align-items: center;
-           margin-bottom: .8rem; font-size: .8rem; }
-.filters label { color: #9aa3b5; }
-.filters select { background: #1c2029; color: #e6e8ee; border: 1px solid #2e3543;
-                  border-radius: 4px; padding: .2rem .4rem; font-size: .8rem;
+.filters { display: flex; gap: .7rem; flex-wrap: wrap; align-items: center;
+           margin-bottom: .6rem; font-size: .78rem;
+           background: var(--surface); border: 1px solid var(--line-strong);
+           border-radius: 3px; padding: .45rem .6rem; }
+.filters label { color: var(--text-muted); }
+.filters select { background: var(--surface); color: var(--text);
+                  border: 1px solid var(--line-strong);
+                  border-radius: 3px; padding: .15rem .35rem; font-size: .78rem;
                   font-family: inherit; }
-.filters .count { color: #6b7383; margin-left: auto; }
+.filters .count { color: var(--text-muted); margin-left: auto; }
 
 /* --- セッション詳細 --- */
 
 /* summary は概要カード。ラベルと値の2列グリッド。 */
-.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-           gap: .8rem 1.2rem; background: #0d0f14; border: 1px solid #262a35;
-           border-radius: 6px; padding: .9rem 1.1rem; font-size: .85rem; }
-.summary div { display: flex; flex-direction: column; gap: .2rem; }
-.summary .k { color: #6b7383; font-size: .72rem; text-transform: uppercase;
-              letter-spacing: .06em; }
-.summary .v { color: #e6e8ee; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+           gap: .6rem 1rem; background: var(--surface);
+           border: 1px solid var(--line-strong);
+           border-radius: 3px; padding: .7rem .9rem; font-size: .82rem; }
+.summary div { display: flex; flex-direction: column; gap: .15rem; }
+.summary .k { color: var(--text-muted); font-size: .7rem; font-weight: 600;
+              letter-spacing: .02em; }
+.summary .v { color: var(--text); }
 
 /* stage はステージ構成の1件。クリア済み・現在地で左端の色を変える。 */
-.stage { background: #0d0f14; border: 1px solid #262a35; border-left: 3px solid #2e3543;
-         border-radius: 6px; padding: .7rem .9rem; margin-bottom: .6rem; font-size: .82rem; }
-.stage.done { border-left-color: #6ef58f; }
-.stage.current { border-left-color: #f5d76e; }
-.stage .head { display: flex; gap: .6rem; align-items: baseline; margin-bottom: .4rem; }
-.stage .no { color: #6b7383; font-family: ui-monospace, monospace; font-size: .75rem; }
+.stage { background: var(--surface); border: 1px solid var(--line);
+         border-left: 3px solid var(--line-strong);
+         border-radius: 3px; padding: .55rem .75rem; margin-bottom: .45rem;
+         font-size: .8rem; }
+.stage.done { border-left-color: #3d9c5b; }
+.stage.current { border-left-color: #d19b2b; }
+.stage .head { display: flex; gap: .5rem; align-items: baseline; margin-bottom: .3rem; }
+.stage .no { color: var(--text-muted); font-family: ui-monospace, monospace;
+             font-size: .74rem; }
 .stage .title { font-weight: 600; }
-.stage .tid { color: #6b7383; font-size: .72rem; font-family: ui-monospace, monospace; }
-.stage dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .8rem;
+.stage .tid { color: var(--text-faint); font-size: .72rem;
+              font-family: ui-monospace, monospace; }
+.stage dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem .7rem;
             margin: 0; }
-.stage dt { color: #6b7383; font-size: .75rem; }
+.stage dt { color: var(--text-muted); font-size: .74rem; }
 .stage dd { margin: 0; }
 
 /* core は Core へ送ったステージ定義そのもの (折りたたみ)。 */
-.stage details { margin-top: .5rem; }
-.stage summary { color: #6b7383; font-size: .75rem; cursor: pointer; }
-.stage pre { background: #12141a; border: 1px solid #262a35; border-radius: 4px;
-             padding: .5rem .7rem; margin: .4rem 0 0; overflow-x: auto;
-             font-size: .75rem; line-height: 1.5; color: #9aa3b5; }
+.stage details { margin-top: .4rem; }
+.stage summary { color: var(--text-muted); font-size: .74rem; cursor: pointer; }
+.stage pre { background: var(--surface-alt); border: 1px solid var(--line);
+             border-radius: 3px;
+             padding: .45rem .6rem; margin: .35rem 0 0; overflow-x: auto;
+             font-size: .74rem; line-height: 1.5; color: #3d434c; }
 
 /* 詳細ページのログは高さを制限せず全文を縦に流す。 */
 .log.full { max-height: none; }

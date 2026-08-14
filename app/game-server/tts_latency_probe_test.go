@@ -766,3 +766,80 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 		t.Error("表情タグが1度も出なかった (プロンプトの指示が効いていない)")
 	}
 }
+
+// TestNavigatorDoesNotLeakAnswer は、L4 未満のヒントレベルで
+// ナビゲーターが正解の色名を直言しないことを確かめる。
+//
+// 実運用で 101 の L3 で「次は緑色の線を切ってください」と色名を言った事例が出た。
+// プロンプトは「正解」を渡した上で「言うな」と指示する構造で、
+// 生成AIが正解文をなぞってしまっていた (docs/navigator_design.md §5 決定19)。
+//
+// 実行:
+//
+//	go test -run TestNavigatorDoesNotLeakAnswer -ttsprobe -ttsprobe-n 5 -timeout 30m -v
+func TestNavigatorDoesNotLeakAnswer(t *testing.T) {
+	if !*runTTSProbe {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-ttsprobe で実行)")
+	}
+
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	ctx := context.Background()
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+
+	leaks := 0
+	total := 0
+
+	// seed を変えて別の正解色を引く
+	for seed := int64(0); seed < int64(*ttsProbeRepeat); seed++ {
+		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		built, err := builder.Build("s-leak", difficultyEasy)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		stage := built.Stages[0]
+		if stage.TemplateID != "101" {
+			t.Fatalf("先頭が 101 でない: %s", stage.TemplateID)
+		}
+		answerJA := colorNameJA[stage.Cut]
+
+		for _, level := range []int{HintL1, HintL2, HintL3} {
+			for _, character := range navCfg.Characters {
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, HintLevel: level,
+				})
+				// プレイヤーがまだ何も報告していない状況を作る
+				text, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("silence"))
+				if err != nil {
+					t.Logf("  L%d/%s: %v", level, character.ID, err)
+					continue
+				}
+				total++
+				if strings.Contains(text, answerJA) {
+					leaks++
+					t.Errorf("L%d/%s が正解色 %q を直言: %s",
+						level, character.ID, answerJA, text)
+					continue
+				}
+				t.Logf("  OK L%d/%s (正解=%s): %s", level, character.ID, answerJA, text)
+			}
+		}
+	}
+
+	t.Logf("=== 色漏れ %d/%d ===", leaks, total)
+}

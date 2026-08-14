@@ -209,3 +209,82 @@ func TestNavigatorMaxRunesMatchesPrompt(t *testing.T) {
 			want, navigatorMaxRunes)
 	}
 }
+
+// TestPromptWarnsAgainstLeakingAnswer は、L4 未満では正解行に
+// 「口に出すな」の警告が併記されることを確かめる。
+//
+// 実運用で L3 のときにナビゲーターが正解の色名を直言した
+// (docs/navigator_design.md §5 決定19)。正解をプロンプトに渡す以上、
+// **禁止指示を正解と同じ場所に置かない限り引きずられる**。
+func TestPromptWarnsAgainstLeakingAnswer(t *testing.T) {
+	cfg := loadTestNavigator(t)
+	lib := loadTestLibrary(t)
+
+	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+	built, err := builder.Build("s-test", difficultyEasy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	character, _ := cfg.ByID("owl")
+
+	build := func(level int) string {
+		return BuildNavigatorPrompt(NavigatorPromptInput{
+			Prompt:      &cfg.Prompt,
+			Character:   character,
+			Session:     built,
+			StageIndex:  0,
+			RemainingMS: 120000,
+			HintLevel:   level,
+		})
+	}
+
+	const warning = "この正解をそのまま口に出してはいけません"
+
+	for _, level := range []int{HintL1, HintL2, HintL3} {
+		p := build(level)
+		if !strings.Contains(p, warning) {
+			t.Errorf("L%d に警告がない", level)
+		}
+		// 現在のレベルが明示されること
+		if !strings.Contains(p, fmt.Sprintf("現在は L%d", level)) {
+			t.Errorf("L%d の表示がない", level)
+		}
+	}
+
+	// L4 は直言してよい段階なので警告を出さない
+	if p := build(HintL4); strings.Contains(p, warning) {
+		t.Error("L4 に不要な警告が入っている (直言してよい段階)")
+	}
+}
+
+// TestTutorialStageAsksPlayerForColor は 101 の進め方が
+// 「プレイヤーに色を報告させてから指示する」形になっていることを確かめる。
+//
+// 101 は正解の色だけが点灯するため、ナビゲーターが先に色名を言うと
+// プレイヤーは装置を見ずに従うだけになり、交信の練習にならない。
+func TestTutorialStageAsksPlayerForColor(t *testing.T) {
+	lib := loadTestLibrary(t)
+	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+
+	built, err := builder.Build("s-test", difficultyEasy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := built.Stages[0]
+	if stage.TemplateID != "101" {
+		t.Fatalf("先頭ステージ = %s, want 101", stage.TemplateID)
+	}
+
+	procedure := stage.Navigator["procedure"]
+	for _, want := range []string{"何色", "先に言わせる"} {
+		if !strings.Contains(procedure, want) {
+			t.Errorf("procedure に %q が含まれていない: %s", want, procedure)
+		}
+	}
+
+	// hint_l3 は色名を言わない方針であること
+	hintL3 := stage.Navigator["hint_l3"]
+	if !strings.Contains(hintL3, "色名を自分から言ってはいけない") {
+		t.Errorf("hint_l3 に色名禁止の指示がない: %s", hintL3)
+	}
+}

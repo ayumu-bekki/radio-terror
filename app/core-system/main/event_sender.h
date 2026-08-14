@@ -30,6 +30,10 @@ struct StatusSnapshot {
   float battery = 0.0f;
   bool low_battery = false;
 
+  /// ロータリースイッチの現在位置 (0-5)。
+  /// マネージャー画面で現場の状況を把握するために送る。
+  int32_t rotary = 0;
+
   /// kLineの結線状態 (true=結線)
   const bool* line_connected = nullptr;
 };
@@ -52,6 +56,7 @@ class EventSender final {
       cJSON_AddNumberToObject(root, "remaining_ms", status.remaining_ms);
       cJSON_AddNumberToObject(root, "battery", status.battery);
       cJSON_AddBoolToObject(root, "low_battery", status.low_battery);
+      cJSON_AddNumberToObject(root, "rotary", status.rotary);
 
       // 各配線の結線状態 (Setup中の復旧進捗をマネージャーが確認するのに使う)
       if (status.line_connected) {

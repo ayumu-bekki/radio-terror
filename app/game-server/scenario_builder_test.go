@@ -585,18 +585,55 @@ func colorCodeFromJA(name string) (string, bool) {
 	return "", false
 }
 
-// TestTutorialProcedureAvoidsForbidden は 101 解体デビューの procedure が
-// 危険位置を経由する手順にならないことを確かめる。
+// TestTutorialStageHasNoForbiddenRotary は 101 に禁止位置が無いことを確かめる。
 //
-// procedure に固定値で中間経路を書いていた頃、その値が forbidden に抽選されると
-// ナビゲーターが「そこへ回せ」と「そこは危険」を同時に言う矛盾が起きた。
-// 経由位置を抽選に変えたので、全 seed で衝突しないことを押さえる。
-func TestTutorialProcedureAvoidsForbidden(t *testing.T) {
+// 101 は「無線で報告し、指示を受けて操作する」交信の型を覚えるステージ。
+// 罠を仕込むと最初の一手で失敗して萎縮させるため、禁止位置は置かない
+// (禁止位置の緊張感は 209 綱渡りが担う)。
+func TestTutorialStageHasNoForbiddenRotary(t *testing.T) {
+	lib := loadTestLibrary(t)
+
+	checked := 0
+	for seed := int64(0); seed < 50; seed++ {
+		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+
+		session, err := builder.Build("s-test", difficultyEasy)
+		if err != nil {
+			t.Fatalf("seed=%d: Build: %v", seed, err)
+		}
+
+		for _, stage := range session.Stages {
+			if stage.TemplateID != "101" {
+				continue
+			}
+			checked++
+			if _, ok := stage.Core["forbidden_rotary"]; ok {
+				t.Fatalf("seed=%d: 101 に forbidden_rotary が設定されている", seed)
+			}
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("101 が1度も選出されなかった (easy 先頭固定のはず)")
+	}
+}
+
+// TestTutorialProcedureUsesDrawnPath は 101 の procedure が
+// 抽選された経路 (via1/via2/final_rotary) で書かれていることを確かめる。
+//
+// かつて procedure に中間経路を固定値で書いていたところ、その値が
+// 危険位置の抽選と衝突し「そこへ回せ」と「そこは危険」を同時に言う
+// 矛盾が起きた。禁止位置は廃止したが、**手順の値を固定値で書かない**
+// という原則は残す (毎回同じ手順になるのを避ける意味もある)。
+func TestTutorialProcedureUsesDrawnPath(t *testing.T) {
 	lib := loadTestLibrary(t)
 	digits := regexp.MustCompile(`[0-9]`)
 
+	// seed ごとに procedure が変わること (固定値なら常に同じになる)
+	seen := map[string]bool{}
 	checked := 0
-	for seed := int64(0); seed < 300; seed++ {
+
+	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
 
 		session, err := builder.Build("s-test", difficultyEasy)
@@ -610,30 +647,22 @@ func TestTutorialProcedureAvoidsForbidden(t *testing.T) {
 			}
 			checked++
 
-			forbidden, ok := stage.Core["forbidden_rotary"].(map[string]any)
-			if !ok {
-				t.Fatalf("seed=%d: 101 に forbidden_rotary がない", seed)
-			}
-			positions, _ := forbidden["positions"].([]any)
-			if len(positions) == 0 {
-				t.Fatalf("seed=%d: forbidden_rotary.positions が空", seed)
-			}
-
-			// procedure に現れる数値が危険位置と一致していないこと
 			procedure := stage.Navigator["procedure"]
-			for _, position := range positions {
-				want := fmt.Sprintf("%v", position)
-				for _, got := range digits.FindAllString(procedure, -1) {
-					if got == want {
-						t.Errorf("seed=%d: procedure が危険位置 %s を経由する: %q",
-							seed, want, procedure)
-					}
-				}
+			if procedure == "" {
+				t.Fatalf("seed=%d: procedure が空", seed)
 			}
+			// 未解決の変数が残っていないこと
+			if strings.Contains(procedure, "${") {
+				t.Fatalf("seed=%d: procedure に未解決の変数が残っている: %q", seed, procedure)
+			}
+			seen[strings.Join(digits.FindAllString(procedure, -1), ",")] = true
 		}
 	}
 
 	if checked == 0 {
 		t.Fatal("101 が1度も選出されなかった (easy 先頭固定のはず)")
+	}
+	if len(seen) < 2 {
+		t.Errorf("procedure の数値が %d 種類しかない (固定値で書かれている疑い)", len(seen))
 	}
 }

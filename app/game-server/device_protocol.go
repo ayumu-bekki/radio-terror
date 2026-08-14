@@ -17,6 +17,11 @@ type deviceMessage struct {
 	Battery    float64         `json:"battery"`
 	LowBattery bool            `json:"low_battery"`
 	Lines      map[string]bool `json:"lines"`
+	// Rotary はロータリースイッチの現在位置 (0-5)。
+	// ポインタなのは**位置0と未報告を区別する**ため。0 は正当な位置であり、
+	// 値が来ない場合 (rotary を送らない旧ファーム) と混同すると
+	// 画面に「ダイヤル: 0」と嘘を表示してしまう。
+	Rotary *int `json:"rotary"`
 
 	// 進行イベント共通
 	StageIndex  int `json:"stage_index"`
@@ -87,7 +92,9 @@ type DeviceStatus struct {
 	Battery     float64         `json:"battery"`
 	LowBattery  bool            `json:"low_battery"`
 	Lines       map[string]bool `json:"lines"`
-	UpdatedAt   int64           `json:"updated_at"`
+	// Rotary はロータリースイッチの現在位置 (0-5)。未報告なら nil。
+	Rotary    *int  `json:"rotary,omitempty"`
+	UpdatedAt int64 `json:"updated_at"`
 }
 
 // IsReady は session_start を受理できる状態かを返す (§4)。

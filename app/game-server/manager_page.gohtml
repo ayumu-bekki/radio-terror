@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RADIO TERROR — マネージャー画面</title>
+<title>📡 RADIO TERROR — マネージャー画面</title>
 <link rel="stylesheet" href="/manager/manager.css">
 </head>
 <body>
-<h1>RADIO TERROR — マネージャー画面</h1>
+<h1>📡 RADIO TERROR — マネージャー画面</h1>
 
 <div id="live">{{template "live" .}}</div>
 
@@ -45,7 +45,7 @@ function selectSession(id) {
 
 // 強制爆破は風船が実際に割れる。確認文で明示する
 async function detonate(deviceId) {
-  if (!confirm('Core ' + deviceId + ' を強制爆破します。\n風船が割れます。よろしいですか?')) return;
+  if (!confirm('CoreID ' + deviceId + ' を強制爆破します。\n風船が割れます。よろしいですか?')) return;
   const res = await fetch('/manager/api/detonate?device_id=' + encodeURIComponent(deviceId),
     { method: 'POST' });
   // 409 = 進行中でない等で実行できなかった
@@ -54,7 +54,7 @@ async function detonate(deviceId) {
 }
 
 async function abort(deviceId) {
-  if (!confirm('Core ' + deviceId + ' をリセットしますか?')) return;
+  if (!confirm('CoreID ' + deviceId + ' をリセットしますか?')) return;
   const res = await fetch('/manager/api/abort?device_id=' + encodeURIComponent(deviceId),
     { method: 'POST' });
   // 202 = サーバー側は終了したがデバイスへ届いていない
@@ -73,7 +73,7 @@ setInterval(refresh, 2000);
 {{define "live"}}
 <h2>デバイス</h2>
 <table><thead><tr>
-  <th>Core</th><th>状態</th><th>残り</th><th>電池</th><th>配線</th><th>最終報告</th>
+  <th>CoreID</th><th>状態</th><th>残り</th><th>電池</th><th>ダイヤル</th><th>配線</th><th>最終報告</th>
 </tr></thead><tbody>
 {{range .Devices}}
   {{/* 切断中は最後の状態が残っているだけなので、行ごと薄くして区別する */}}
@@ -86,23 +86,34 @@ setInterval(refresh, 2000);
     </td>
     <td>{{.Remaining}}</td>
     <td><span class="{{.BatteryClass}}">{{.Battery}}</span></td>
+    <td>{{.Rotary}}</td>
     <td>{{range .Lines}}<span class="{{if .Cut}}err{{end}}">{{.Color}}</span> {{end}}</td>
     <td class="muted">{{.UpdatedAt}}</td>
   </tr>
 {{else}}
-  <tr><td colspan="6" class="muted">接続中のデバイスはありません</td></tr>
+  <tr><td colspan="7" class="muted">接続中のデバイスはありません</td></tr>
 {{end}}
 </tbody></table>
 
 <h2>無線接続状況</h2>
-<div class="muted">
-{{- if .Bridges}}{{range $i, $b := .Bridges}}{{if $i}} / {{end}}{{$b.Label}}{{end}}
-{{- else}}接続中の無線はありません{{end}}
-</div>
+<table><thead><tr>
+  <th>無線</th><th>CoreID</th><th>状態</th>
+</tr></thead><tbody>
+{{range .Bridges}}
+  {{/* 未バインドはまだ開始申告が来ていない状態。行ごと薄くして区別する */}}
+  <tr{{if not .Bound}} class="offline"{{end}}>
+    <td>{{.BridgeID}}</td>
+    <td>{{.DeviceID}}</td>
+    <td class="muted">{{.Status}}</td>
+  </tr>
+{{else}}
+  <tr><td colspan="3" class="muted">接続中の無線はありません</td></tr>
+{{end}}
+</tbody></table>
 
 <h2>セッション</h2>
 <table><thead><tr>
-  <th>Core</th><th>難易度</th><th>ナビ</th><th>状態</th><th>進行</th>
+  <th>CoreID</th><th>難易度</th><th>ナビ</th><th>状態</th><th>進行</th>
   <th>残り</th><th>現在の正解</th><th>無線</th><th></th>
 </tr></thead><tbody>
 {{range .Sessions}}
@@ -130,7 +141,7 @@ setInterval(refresh, 2000);
 <div class="tabs">
 {{range .Tabs}}
   <button class="tab{{if .Selected}} on{{end}}"
-          onclick="selectSession('{{.SessionID}}')">Core {{.DeviceID}}</button>
+          onclick="selectSession('{{.SessionID}}')">CoreID {{.DeviceID}}</button>
 {{end}}
 {{if .SelectedSession}}
   <a class="tab" href="/manager/history/{{.SelectedSession}}">詳細を開く</a>

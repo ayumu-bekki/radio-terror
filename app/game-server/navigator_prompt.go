@@ -80,9 +80,21 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		if briefing := stage.Navigator["briefing"]; briefing != "" {
 			b.WriteString("- 内容: " + briefing + "\n")
 		}
-		// ナビゲーターは正解を知っている状態で話す (§3.1)
+		// ナビゲーターは正解を知っている状態で話す (§3.1)。
+		//
+		// ただし**正解を渡すこと自体が漏洩の原因**になる。実運用で L3 のときに
+		// 「次は緑色の線を切ってください」と色名を直言した事例が出た
+		// (answer の文をほぼそのままなぞっていた)。禁止指示はヒントポリシー側に
+		// あるが、正解文と離れた位置にあると引きずられる。
+		// **正解と同じ行に、今それを言ってよいかを併記する**。
 		if answer := stage.Navigator["answer"]; answer != "" {
 			b.WriteString("- 正解(あなただけが知っている): " + answer + "\n")
+			if in.HintLevel < HintL4 {
+				fmt.Fprintf(&b, "  ⚠ **この正解をそのまま口に出してはいけません。**"+
+					"色名・番号を直言できるのは L4 のみです。現在は L%d なので、"+
+					"上の「進め方」と下の「ヒントポリシー」に従って導いてください。\n",
+					in.HintLevel)
+			}
 		}
 		if procedure := stage.Navigator["procedure"]; procedure != "" {
 			b.WriteString("- 進め方: " + procedure + "\n")

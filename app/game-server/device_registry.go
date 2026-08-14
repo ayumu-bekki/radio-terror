@@ -68,6 +68,11 @@ func (r *DeviceRegistry) UpdateStatus(msg *deviceMessage) *DeviceStatus {
 		Lines:       msg.Lines,
 		UpdatedAt:   time.Now().Unix(),
 	}
+	// ポインタを共有せず値をコピーする (msg は呼び出し後も生きうる)
+	if msg.Rotary != nil {
+		rotary := *msg.Rotary
+		status.Rotary = &rotary
+	}
 	r.status[msg.DeviceID] = status
 	return status
 }

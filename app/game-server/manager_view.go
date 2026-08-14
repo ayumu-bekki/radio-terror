@@ -31,7 +31,11 @@ type deviceView struct {
 	// BatteryClass は電圧に応じた警告色 ("" / "warn" / "err")
 	BatteryClass string
 	Lines        []lineView
-	UpdatedAt    string
+	// Rotary はロータリースイッチの現在位置。
+	// 未報告 (rotary を送らない旧ファーム) は "—" になる。
+	// **位置0と未報告は別物**なので、0 を未報告扱いにしてはいけない。
+	Rotary    string
+	UpdatedAt string
 
 	// Connected は現在 WS 接続中か。
 	//
@@ -58,19 +62,17 @@ type sessionView struct {
 	Remaining string
 }
 
-// bridgeView は無線1台の接続状況。
+// bridgeView は無線1台の接続状況 (表の1行)。
 type bridgeView struct {
 	BridgeID string
-	// DeviceID はバインド先。未バインドなら空
+	// DeviceID はバインド先の CoreID。未バインドなら "—"
 	DeviceID string
-}
-
-// Label はバインド状況を含めた表示文字列を返す。
-func (b bridgeView) Label() string {
-	if b.DeviceID == "" {
-		return b.BridgeID + " (未バインド)"
-	}
-	return b.BridgeID + " → Core " + b.DeviceID
+	// Bound はバインド済みか。未バインド行を薄く表示するのに使う
+	Bound bool
+	// Status は「状態」列の表示文字列 ("バインド済み" / "未バインド")。
+	// デバイス表・セッション表の「状態」がゲームの進行状態を指すのに対し、
+	// こちらは Core と紐付いているかを指す。
+	Status string
 }
 
 // healthView は外部APIの状況。
@@ -146,6 +148,17 @@ func fmtRemaining(ms int) string {
 		return "—"
 	}
 	return fmt.Sprintf("%.1fs", float64(ms)/1000)
+}
+
+// fmtRotary はロータリー位置を表示用にする。未報告 (nil) は「—」。
+//
+// **位置0を未報告扱いにしない**。0 は正当な位置なので、
+// 「0 なら空表示」にすると現場と画面が食い違う。
+func fmtRotary(pos *int) string {
+	if pos == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%d", *pos)
 }
 
 // fmtClock は時刻を「15:04:05」にする。ゼロ値は「—」。
@@ -283,6 +296,7 @@ func buildDeviceViews(devices []*DeviceStatus, connected func(string) bool) []de
 			Battery:      battery,
 			BatteryClass: batteryClass(d.Battery, d.LowBattery),
 			Lines:        lines,
+			Rotary:       fmtRotary(d.Rotary),
 			UpdatedAt:    fmtStamp(d.UpdatedAt),
 			Connected:    connected(d.DeviceID),
 		})
@@ -326,7 +340,20 @@ func buildSessionViews(sessions []*GameSession) []sessionView {
 func buildBridgeViews(ids []string, bindings map[string]string) []bridgeView {
 	views := make([]bridgeView, 0, len(ids))
 	for _, id := range ids {
-		views = append(views, bridgeView{BridgeID: id, DeviceID: bindings[id]})
+		deviceID := bindings[id]
+		view := bridgeView{
+			BridgeID: id,
+			DeviceID: deviceID,
+			Bound:    deviceID != "",
+			Status:   "バインド済み",
+		}
+		if !view.Bound {
+			// 未バインドは「まだ開始申告が来ていない」状態。
+			// 空欄にすると列が抜けて見えるので他の表と同じ「—」で埋める。
+			view.DeviceID = "—"
+			view.Status = "未バインド"
+		}
+		views = append(views, view)
 	}
 	sort.Slice(views, func(i, j int) bool { return views[i].BridgeID < views[j].BridgeID })
 	return views

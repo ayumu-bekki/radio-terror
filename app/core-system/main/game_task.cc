@@ -773,6 +773,7 @@ StatusSnapshot GameTask::MakeStatusSnapshot() const {
   status.remaining_ms = remaining_ms_;
   status.battery = battery_voltage_;
   status.low_battery = low_battery_;
+  status.rotary = rotary_position_;
   status.line_connected = line_connected_;
   return status;
 }

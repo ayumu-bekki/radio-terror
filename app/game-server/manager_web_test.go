@@ -474,3 +474,125 @@ func TestManagerDashboardShowsConnectedDevice(t *testing.T) {
 		t.Error("接続中なのに切断扱いされている")
 	}
 }
+
+// TestManagerPageShowsRotary はマネージャー画面にロータリー位置が
+// 表示されることを確かめる。
+//
+// 表示はテンプレートの列とビューモデルの両方が揃って初めて出る。
+// 列を足し忘れる/colspan がずれるといった崩れをここで捕まえる。
+func TestManagerPageShowsRotary(t *testing.T) {
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	bridges := NewBridgeRegistry()
+	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
+	logs := NewSessionLogStore(store)
+
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store)
+	mux := http.NewServeMux()
+	web.Register(mux)
+
+	pos := 4
+	devices.UpdateStatus(&deviceMessage{
+		Type: "device_status", DeviceID: "0001",
+		State: deviceStatePlaying, Rotary: &pos,
+	})
+	// ロータリー未報告のデバイス (旧ファーム想定)
+	devices.UpdateStatus(&deviceMessage{
+		Type: "device_status", DeviceID: "0002",
+		State: deviceStateReady,
+	})
+
+	code, body := get(t, mux, "/manager")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+
+	if !strings.Contains(body, "<th>ダイヤル</th>") {
+		t.Error("ダイヤル列の見出しがない")
+	}
+
+	// 表の列数が揃っていること (th と各行の td)
+	headers := strings.Count(body[strings.Index(body, "<h2>デバイス</h2>"):], "<th>")
+	if headers < 7 {
+		t.Errorf("デバイス表の列が %d しかない (ダイヤル追加後は7列)", headers)
+	}
+
+	// 値が実際に描画されていること。
+	// 0001 の行に位置 4、0002 の行に未報告の「—」が出る。
+	row0001 := deviceRow(t, body, "0001")
+	if !strings.Contains(row0001, ">4<") {
+		t.Errorf("0001 の行にロータリー位置 4 がない: %s", row0001)
+	}
+	row0002 := deviceRow(t, body, "0002")
+	if !strings.Contains(row0002, "—") {
+		t.Errorf("0002 の行に未報告の表示がない: %s", row0002)
+	}
+}
+
+// deviceRow はデバイス表から device_id を含む <tr> を1行取り出す。
+func deviceRow(t *testing.T, body, deviceID string) string {
+	t.Helper()
+
+	idx := strings.Index(body, ">"+deviceID+"<")
+	if idx < 0 {
+		t.Fatalf("デバイス %s の行が見つからない", deviceID)
+	}
+	start := strings.LastIndex(body[:idx], "<tr")
+	end := strings.Index(body[idx:], "</tr>")
+	if start < 0 || end < 0 {
+		t.Fatalf("デバイス %s の行を切り出せない", deviceID)
+	}
+	return body[start : idx+end]
+}
+
+// TestManagerPageBridgeTable は無線接続状況が表として描画されることを確かめる。
+//
+// かつては "BR01 → Core 3701" のような1行テキストだったが、
+// デバイス表・セッション表と体裁を揃えて表にした。
+// 列の追加漏れや colspan のずれをここで捕まえる。
+func TestManagerPageBridgeTable(t *testing.T) {
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	bridges := NewBridgeRegistry()
+	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
+	logs := NewSessionLogStore(store)
+
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store)
+	mux := http.NewServeMux()
+	web.Register(mux)
+
+	bridges.Register("BR01")
+	bridges.Register("BR02")
+
+	code, body := get(t, mux, "/manager")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+
+	// 無線の節を切り出して検証する (他の表と混ざらないように)
+	start := strings.Index(body, "<h2>無線接続状況</h2>")
+	if start < 0 {
+		t.Fatal("無線接続状況の見出しがない")
+	}
+	end := strings.Index(body[start:], "</table>")
+	if end < 0 {
+		t.Fatal("無線接続状況が表になっていない")
+	}
+	section := body[start : start+end]
+
+	for _, want := range []string{"<th>無線</th>", "<th>CoreID</th>", "<th>状態</th>"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("列 %s がない", want)
+		}
+	}
+	// 未バインドは CoreID を「—」で埋め、行を薄くする
+	if !strings.Contains(section, "未バインド") {
+		t.Error("未バインドの表示がない")
+	}
+	if !strings.Contains(section, `class="offline"`) {
+		t.Error("未バインド行が薄く表示されていない")
+	}
+	if strings.Contains(section, "→ Core") {
+		t.Error("旧形式の1行テキストが残っている")
+	}
+}

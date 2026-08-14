@@ -219,16 +219,44 @@ func TestBuildEntryViews(t *testing.T) {
 	}
 }
 
-// 無線はバインド状況を含めて表示する。
-func TestBridgeViewLabel(t *testing.T) {
-	bound := bridgeView{BridgeID: "bridge-1", DeviceID: "0001"}
-	if got := bound.Label(); got != "bridge-1 → Core 0001" {
-		t.Errorf("Label() = %q", got)
+// 無線表はバインド状況を列に分けて表示する。
+//
+// 未バインドは CoreID 欄を空にせず「—」で埋める (他の表と揃える)。
+// 空欄だと列が抜けて見え、バインド済みの行と縦位置がずれる。
+func TestBuildBridgeViews(t *testing.T) {
+	views := buildBridgeViews(
+		[]string{"BR02", "BR01"},
+		map[string]string{"BR01": "0001"},
+	)
+
+	if len(views) != 2 {
+		t.Fatalf("views = %d, want 2", len(views))
+	}
+	// ID順に並ぶこと
+	if views[0].BridgeID != "BR01" || views[1].BridgeID != "BR02" {
+		t.Errorf("並び順 = %q, %q", views[0].BridgeID, views[1].BridgeID)
 	}
 
-	free := bridgeView{BridgeID: "bridge-2"}
-	if got := free.Label(); got != "bridge-2 (未バインド)" {
-		t.Errorf("Label() = %q", got)
+	bound := views[0]
+	if bound.DeviceID != "0001" {
+		t.Errorf("バインド済みの CoreID = %q, want 0001", bound.DeviceID)
+	}
+	if !bound.Bound {
+		t.Error("バインド済みの Bound が false")
+	}
+	if bound.Status != "バインド済み" {
+		t.Errorf("Status = %q", bound.Status)
+	}
+
+	free := views[1]
+	if free.DeviceID != "—" {
+		t.Errorf("未バインドの CoreID = %q, want —", free.DeviceID)
+	}
+	if free.Bound {
+		t.Error("未バインドの Bound が true")
+	}
+	if free.Status != "未バインド" {
+		t.Errorf("Status = %q", free.Status)
 	}
 }
 
@@ -284,5 +312,82 @@ func TestBuildStageViewsUsesColorName(t *testing.T) {
 	}
 	if views[1].Cut != "緑" {
 		t.Errorf("Cut = %q, want 緑", views[1].Cut)
+	}
+}
+
+// TestRotaryViewDistinguishesZeroFromUnreported は、
+// ロータリー位置0と未報告が別物として表示されることを確かめる。
+//
+// 0 は正当な位置なので、未報告 (rotary を送らない旧ファーム) と
+// 混同すると画面が現場と食い違う。
+func TestRotaryViewDistinguishesZeroFromUnreported(t *testing.T) {
+	zero := 0
+	four := 4
+
+	cases := []struct {
+		name   string
+		rotary *int
+		want   string
+	}{
+		{"未報告", nil, "—"},
+		{"位置0", &zero, "0"},
+		{"位置4", &four, "4"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := fmtRotary(c.rotary); got != c.want {
+				t.Errorf("fmtRotary() = %q, want %q", got, c.want)
+			}
+		})
+	}
+
+	// ビュー全体でも同じこと
+	views := buildDeviceViews([]*DeviceStatus{
+		{DeviceID: "0001", State: deviceStatePlaying, Rotary: &zero},
+		{DeviceID: "0002", State: deviceStatePlaying},
+	}, func(string) bool { return true })
+
+	if len(views) != 2 {
+		t.Fatalf("views = %d, want 2", len(views))
+	}
+	byID := map[string]deviceView{}
+	for _, v := range views {
+		byID[v.DeviceID] = v
+	}
+	if got := byID["0001"].Rotary; got != "0" {
+		t.Errorf("位置0 の表示 = %q, want \"0\"", got)
+	}
+	if got := byID["0002"].Rotary; got != "—" {
+		t.Errorf("未報告の表示 = %q, want \"—\"", got)
+	}
+}
+
+// TestUpdateStatusCopiesRotary は、受信メッセージのポインタを
+// 共有せず値をコピーしていることを確かめる。
+//
+// 共有すると、次のメッセージで msg が書き換わったときに
+// 保存済みの状態まで変わってしまう。
+func TestUpdateStatusCopiesRotary(t *testing.T) {
+	registry := NewDeviceRegistry()
+
+	pos := 3
+	msg := &deviceMessage{
+		Type: "device_status", DeviceID: "0001",
+		State: deviceStatePlaying, Rotary: &pos,
+	}
+	status := registry.UpdateStatus(msg)
+
+	if status.Rotary == nil || *status.Rotary != 3 {
+		t.Fatalf("Rotary = %v, want 3", status.Rotary)
+	}
+	if status.Rotary == msg.Rotary {
+		t.Error("ポインタが共有されている (値をコピーすべき)")
+	}
+
+	// 送信元を書き換えても保存済みの値は変わらないこと
+	pos = 5
+	if *status.Rotary != 3 {
+		t.Errorf("送信元の変更が保存済み状態に波及した: %d", *status.Rotary)
 	}
 }
