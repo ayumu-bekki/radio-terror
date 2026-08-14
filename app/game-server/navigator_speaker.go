@@ -159,15 +159,14 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		sfxDuration = n.playSFX(sender, sfxFailureFile)
 	}
 
-	// 表情は場面説明 (ディレクターズノート) で伝える。
-	// 本文に記号を混ぜると TTS の応答が不安定になる (tts_prompt.go 参照)。
+	// 表情は場面説明 (ディレクターズノート) と本文中の表情タグの
+	// 両方で伝える (tts_prompt.go 参照)。
 	note := directorNote(trigger)
 
-	chunks := splitAnswerForTTS(text)
-	buildPrompt := func(chunk string) string {
-		return buildTTSPrompt(session.Character.TTSStyle, note, chunk)
+	buildPrompt := func(body string) string {
+		return buildTTSPrompt(session.Character.TTSStyle, note, body)
 	}
-	duration, err := speakTTSChunks(ctx, n.ttsClient, sender, chunks, buildPrompt,
+	duration, err := speakTTS(ctx, n.ttsClient, sender, text, buildPrompt,
 		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]")
 	if err != nil {
 		return err

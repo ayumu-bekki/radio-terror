@@ -141,12 +141,11 @@ func (r *TestResponder) Respond(ctx context.Context, sender *AudioSender, result
 		Sender: TestResponderCallsign, Receiver: "相手", Message: text,
 	})
 
-	chunks := splitAnswerForTTS(text)
-	buildPrompt := func(chunk string) string {
-		return buildTTSPrompt(testResponderTTSStyle, "", chunk)
+	buildPrompt := func(body string) string {
+		return buildTTSPrompt(testResponderTTSStyle, "", body)
 	}
 	// 疎通確認用なので混線とは無関係。再生時間は使わない
-	_, err = speakTTSChunks(ctx, r.ttsClient, sender, chunks, buildPrompt,
+	_, err = speakTTS(ctx, r.ttsClient, sender, text, buildPrompt,
 		testResponderTTSVoice, "[test-responder "+bridgeID+"]")
 	return err
 }

@@ -37,15 +37,21 @@ tts_model              = "gemini-3.1-flash-tts-preview"
 transcribe_prompt_file = "transcribe_prompt.txt"
 transcribe_schema_file = "transcribe_schema.json"
 
-# 各API呼び出しのタイムアウト (秒)。省略・0 なら既定値 20 秒。
+# 各API呼び出しのタイムアウト (秒)。省略・0 なら既定値。
 #
-# 実測の正常値は Transcribe 2.8-3.1s / reply 1.1-1.2s / TTS 2.2-5.7s。
-# TTS が 58 秒かかり無線が長時間沈黙する事象が出たため上限を設けた。
 # 上限を切らないと、呼び出し側の ctx はプロセス終了まで生きるので無制限に待つ。
-# 打ち切られたチャンクは捨てられ、後続チャンクの再生は続く。
+#
+# TTS は**応答をストリーミングで受け取る**ようにしてから安定した。
+# 一括受信では音声5秒ぶんに対し 24〜56秒待たされる回が混じっていたが
+# (15回中4回が10秒超)、ストリーミングでは15回すべて 2.2〜3.8秒に収まった。
+# そのため上限は 10 秒で足りる。打ち切った場合は tts_attempts 回まで作り直す。
 transcribe_timeout_sec = 20
 reply_timeout_sec      = 20
-tts_timeout_sec        = 20
+tts_timeout_sec        = 10
+
+# TTS を試す回数 (初回を含む)。省略・0 なら既定値 3。
+# 通常は1回で成功する。通信エラー時の保険。
+tts_attempts = 3
 
 [scenario]
 # シナリオテンプレートの配置 (stages/ と difficulty/ を含むディレクトリ)

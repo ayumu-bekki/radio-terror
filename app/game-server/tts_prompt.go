@@ -8,27 +8,73 @@ import (
 
 // 表情の指定方法について。
 //
-// 以前は本文へ `[calm]` のような角括弧タグを混ぜ、TTS に演技指示として
-// 解釈させていた。しかし**タグを含めると TTS の応答が不安定になる**ことが
-// 実測で分かった (通常2.6秒のところ、8回中2回が20秒超。最大21.7秒)。
-// 音声が途中で途切れる原因になっていたため廃止した
-// (docs/navigator_design.md §2.7)。
+// **ディレクターズノート(場面説明)と角括弧タグを併用する**。
 //
-// 現在は「ディレクターズノート」— 場面の説明文 — をプロンプトの先頭で
-// 添えて表情を伝える。本文には記号を混ぜないので遅延が起きない。
+//	<声質指定>
+//	<場面の説明>            ← ディレクターズノート
+//
+//	次のセリフを読み上げてください:
+//	[relieved] よくやった。  ← 本文中の表情タグ
+//
+// 経緯: タグは一度廃止された。「タグを含めると TTS の応答が不安定になる」
+// という実測があったため (通常2.6秒が8回中2回20秒超、最大21.7秒)。
+// しかし後の調査で、その不安定さの正体は**一括受信**だったと判明した —
+// 一括受信は入力内容と無関係に27%が10秒超になる
+// (docs/navigator_design.md §5 決定15)。
+// ストリーミング受信へ移行後にタグを測り直したところ、各10回で
+// **10秒超はゼロ・中央値2.87〜3.32秒**とタグなしと差がなく、
+// 読み上げ事故 (「リリーブド」と発音してしまう) も起きなかった。
+// 表現としてはノート単独よりタグ併用の方が良いと確認できたので復活させた。
 
 // ttsTagPattern は本文中の角括弧タグにマッチする。
 //
-// 表情タグは廃止したが、**生成AIが過去の学習や指示の揺れで付けてくる**
-// ことがあるため、TTS へ渡す前と記録前に取り除く。残ると読み上げ事故になる。
+// TTS へは**タグを残したまま**渡す (演技指示として解釈させる)。
+// 除去するのは会話ログへ記録するときだけ — マネージャー画面に
+// `[relieved]` が並ぶと読みにくいため。
 var ttsTagPattern = regexp.MustCompile(`\[[^\[\]]*\]\s*`)
 
 // stripTTSTags は角括弧の演技指示を取り除いた本文を返す。
 //
 // 日本語には語間の空白がないため、タグと直後の空白をまとめて除去する
 // (「よくやった。[relieved] あと一息だ。」→「よくやった。あと一息だ。」)。
+//
+// **TTS へ渡す経路では使わない**。表示・記録用。
 func stripTTSTags(s string) string {
 	return strings.TrimSpace(ttsTagPattern.ReplaceAllString(s, ""))
+}
+
+// allowedTTSTags は TTS へ渡してよい表情タグ。
+// navigator/prompt.toml の「表情タグ」一覧と一致させる
+// (整合はテストで担保している)。
+var allowedTTSTags = map[string]bool{
+	"calm":     true, // 落ち着いて
+	"urgent":   true, // 切迫して
+	"relieved": true, // 安堵して
+	"warm":     true, // 温かく
+	"stern":    true, // 厳しく
+	"tense":    true, // 緊張して
+}
+
+// sanitizeTTSTags は許可リストにない角括弧タグだけを取り除く。
+//
+// プロンプトで語彙を限定しているが、**生成AIが一覧外の語を使うことがある**。
+// 未知のタグをそのまま渡すと演技として解釈されず、そのまま読み上げられて
+// 「リリーブド」のような事故になる。既知のタグだけ残して他は落とす。
+func sanitizeTTSTags(s string) string {
+	out := ttsTagPattern.ReplaceAllStringFunc(s, func(match string) string {
+		open := strings.Index(match, "[")
+		close := strings.Index(match, "]")
+		if open < 0 || close < open {
+			return ""
+		}
+		name := strings.ToLower(strings.TrimSpace(match[open+1 : close]))
+		if allowedTTSTags[name] {
+			// 正規化した形で残す (大文字・余分な空白を揃える)
+			return "[" + name + "] "
+		}
+		return ""
+	})
+	return strings.TrimSpace(out)
 }
 
 // directorNotes はトリガーごとの場面説明 (ディレクターズノート)。
@@ -58,9 +104,11 @@ func directorNote(trigger string) string {
 // buildTTSPrompt は声質指定と本文から TTS プロンプトを組み立てる。
 //
 // note は場面説明 (ディレクターズノート)。空なら省略する。
+// chunk に含まれる角括弧タグは**許可リストのものだけ残す** — TTS に
+// 演技指示として解釈させるため (ファイル冒頭の経緯を参照)。
+// 一覧外のタグは読み上げ事故になるので落とす。
 func buildTTSPrompt(style, note, chunk string) string {
-	// 生成AIがタグを付けてきた場合に備えて取り除く (読み上げ事故を防ぐ)
-	chunk = stripTTSTags(chunk)
+	chunk = sanitizeTTSTags(chunk)
 
 	var b strings.Builder
 	b.WriteString(style)

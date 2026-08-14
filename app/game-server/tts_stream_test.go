@@ -14,11 +14,12 @@ func makeTone(samples int, freq float64) []int16 {
 	return pcm
 }
 
-// TestConcatenatedPCMEncodesAsOneStream は、チャンクごとの PCM を連結してから
+// TestConcatenatedPCMEncodesAsOneStream は、複数の PCM 片を連結してから
 // エンコードすると、全体が 1 つの Ogg Opus になることを確かめる。
 //
-// 分割送信をやめて一括送出にした (docs/navigator_design.md §5 決定12) ため、
-// 連結後の長さが各チャンクの合計と一致していることが前提になる。
+// TTS の応答はストリーミングで細かく分かれて届き (実測150片程度)、
+// それらを連結して1つの音声にする (tts.go の generateOnce)。
+// 連結後の長さが各片の合計と一致していることが前提になる。
 func TestConcatenatedPCMEncodesAsOneStream(t *testing.T) {
 	chunks := [][]int16{
 		makeTone(sampleRate/2, 440), // 0.5s

@@ -92,16 +92,41 @@ type GeminiConfig struct {
 	TranscribeTimeoutSec int `toml:"transcribe_timeout_sec"`
 	ReplyTimeoutSec      int `toml:"reply_timeout_sec"`
 	TTSTimeoutSec        int `toml:"tts_timeout_sec"`
+
+	// TTSAttempts は TTS を試す回数 (初回を含む)。0 なら既定値。
+	// 打ち切った呼び出しは作り直す。詳細は defaultTTSAttempts 参照。
+	TTSAttempts int `toml:"tts_attempts"`
 }
 
-// 各API呼び出しのタイムアウト既定値。実測 (Transcribe 2.8-3.1s /
-// reply 1.1-1.2s / TTS 2.2-5.7s) に対して十分な余裕を取りつつ、
-// 詰まったときに無線が沈黙し続けない長さにしてある。
+// TTSAttemptCount は TTS の試行回数を返す (未設定なら既定値)。
+func (c GeminiConfig) TTSAttemptCount() int {
+	if c.TTSAttempts <= 0 {
+		return defaultTTSAttempts
+	}
+	return c.TTSAttempts
+}
+
+// 各API呼び出しのタイムアウト既定値。
+//
+// **TTS は待たずに切って作り直す**。実測 (tts_latency_probe_test.go) では
+// 中央値 4.16秒に対し、同じプロンプトで 24〜56秒かかる回が混じる。
+// 待ち時間は出力の長さと**無関係** (遅い回も音声は 5秒前後) で、
+// 遅い回が連続する時間帯もある。Gemini 側の事情なのでこちらでは直せない。
+//
+// 無線で10秒の無音は事故に見えるため、10秒で見切って作り直す。
+// 遅い回を引いても次は当たり直せる (実測でも 56秒 → 29秒 → 24秒 → 4秒 と
+// 呼び出しごとに変わる)。長く待つより速く終わる。
 const (
 	defaultTranscribeTimeout = 20 * time.Second
 	defaultReplyTimeout      = 20 * time.Second
-	defaultTTSTimeout        = 20 * time.Second
+	defaultTTSTimeout        = 10 * time.Second
 )
+
+// defaultTTSAttempts は TTS を試す回数 (初回 + リトライ)。
+//
+// 実測では 10秒以内に返るのが約73%。3回試せば大半が拾える。
+// 最悪でも 10秒×3 = 30秒で見切りをつける。
+const defaultTTSAttempts = 3
 
 // TranscribeTimeout / ReplyTimeout / TTSTimeout は設定値を time.Duration で返す。
 // 未設定 (0) の場合は既定値を返す。

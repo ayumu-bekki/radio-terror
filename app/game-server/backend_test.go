@@ -153,3 +153,23 @@ func TestTimeoutsFromTOML(t *testing.T) {
 		t.Errorf("ReplyTimeout() = %v, want %v", got, defaultReplyTimeout)
 	}
 }
+
+// TTS の試行回数が未指定なら既定値、指定があればその値になること。
+func TestTTSAttemptCount(t *testing.T) {
+	var zero GeminiConfig
+	if got := zero.TTSAttemptCount(); got != defaultTTSAttempts {
+		t.Errorf("TTSAttemptCount() = %d, want %d", got, defaultTTSAttempts)
+	}
+
+	if got := (GeminiConfig{TTSAttempts: 5}).TTSAttemptCount(); got != 5 {
+		t.Errorf("TTSAttemptCount() = %d, want 5", got)
+	}
+
+	// 0以下は設定ミス。既定値へ倒す (0回だと発話が出ない)
+	if got := (GeminiConfig{TTSAttempts: -1}).TTSAttemptCount(); got != defaultTTSAttempts {
+		t.Errorf("負値の TTSAttemptCount() = %d, want %d", got, defaultTTSAttempts)
+	}
+	if got := (GeminiConfig{TTSAttempts: 0}).TTSAttemptCount(); got != defaultTTSAttempts {
+		t.Errorf("0 の TTSAttemptCount() = %d, want %d", got, defaultTTSAttempts)
+	}
+}

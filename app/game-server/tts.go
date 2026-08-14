@@ -55,10 +55,20 @@ const ttsPersona = `# VOICE CHARACTER: 無線オペレーターA (Despina)
 
 // TTSClient は Gemini TTS クライアントを保持する。
 type TTSClient struct {
-	client  *genai.Client
-	model   string
-	timeout time.Duration
+	client   *genai.Client
+	model    string
+	timeout  time.Duration
+	attempts int
+
+	// health は外部APIの成否を記録し、マネージャー向け Web 画面で
+	// 障害を検知できるようにする (docs/game_session_design.md §9)。
+	// TTS の失敗は発話が丸ごと無音になる形で表れるため、
+	// 画面で気づけるようにしておく。
+	health *APIHealth
 }
+
+// SetHealth は外部API状況の記録先を設定する。
+func (t *TTSClient) SetHealth(health *APIHealth) { t.health = health }
 
 // NewTTSClient は設定に応じたバックエンド (Gemini API / Vertex AI) で
 // TTS クライアントを作る。model が空なら defaultTTSModel を使う。
@@ -71,7 +81,12 @@ func NewTTSClient(ctx context.Context, cfg GeminiConfig) (*TTSClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
-	return &TTSClient{client: client, model: model, timeout: cfg.TTSTimeout()}, nil
+	return &TTSClient{
+		client:   client,
+		model:    model,
+		timeout:  cfg.TTSTimeout(),
+		attempts: cfg.TTSAttemptCount(),
+	}, nil
 }
 
 // GenerateOggOpusFromPrompt は組み立て済みプロンプトから TTS 音声を生成して Ogg Opus で返す。
@@ -88,66 +103,126 @@ func (t *TTSClient) GenerateOggOpusFromPrompt(ctx context.Context, prompt, voice
 //
 // voice はキャラクターごとのボイス名 (navigator/characters/*.toml の tts_voice、
 // 疎通確認は testResponderTTSVoice)。空文字の場合のみ既定値を使う。
+//
+// 失敗した場合は作り直す (attempts 回まで)。ストリーミング受信にしてから
+// 外れ値はほぼ消えたが、通信エラーの保険として残してある。
 func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice string) ([]int16, error) {
+	attempts := t.attempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		// 呼び出し元がやめた場合はリトライしない
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		pcm, err := t.generateOnce(ctx, prompt, voice)
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("[gemini] TTS succeeded on attempt %d/%d", attempt, attempts)
+			}
+			return pcm, nil
+		}
+		lastErr = err
+
+		if attempt < attempts {
+			log.Printf("[gemini] TTS attempt %d/%d failed, retrying: %v", attempt, attempts, err)
+		}
+	}
+	return nil, fmt.Errorf("TTS failed after %d attempts: %w", attempts, lastErr)
+}
+
+// generateOnce は TTS を1回だけ呼ぶ。
+//
+// **応答はストリーミングで受け取る** (GenerateContentStream)。
+// 一括受信 (GenerateContent) では、音声が5秒ぶんしかないのに
+// 応答待ちが 24〜56秒に達する回が混じっていた (15回中4回が10秒超)。
+// ストリーミングに変えたところ**外れ値が消え**、同じプロンプト15回が
+// すべて 2.16〜3.75秒に収まった (tts_latency_probe_test.go の実測)。
+// 遅延はモデルの推論ではなく一括応答の待ち受け側にあった。
+//
+// 受け取ったチャンクは全て連結してから返す。先頭から順次無線へ流す方式は
+// 採らない — 1チャンクの遅延が発話全体を人質に取る問題を避けるため
+// (docs/navigator_design.md §5 決定12)。
+func (t *TTSClient) generateOnce(ctx context.Context, prompt, voice string) ([]int16, error) {
 	if voice == "" {
 		voice = defaultTTSVoice
 	}
 
-	// チャンクごとに上限を切る。1つが詰まっても他のチャンクは流れる
-	// (speakTTSChunks が失敗チャンクをスキップして続行する)。
 	if t.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, t.timeout)
 		defer cancel()
 	}
 
-	start := time.Now()
-	resp, err := t.client.Models.GenerateContent(ctx, t.model,
-		[]*genai.Content{
-			genai.NewContentFromText(prompt, genai.RoleUser),
-		},
-		&genai.GenerateContentConfig{
-			ResponseModalities: []string{"audio"},
-			SpeechConfig: &genai.SpeechConfig{
-				VoiceConfig: &genai.VoiceConfig{
-					PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
-						VoiceName: voice,
-					},
+	genConfig := &genai.GenerateContentConfig{
+		ResponseModalities: []string{"audio"},
+		SpeechConfig: &genai.SpeechConfig{
+			VoiceConfig: &genai.VoiceConfig{
+				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+					VoiceName: voice,
 				},
 			},
 		},
-	)
+	}
+
+	start := time.Now()
+	var raw []byte
+	var ttfb time.Duration
+	var streamErr error
+
+	for resp, err := range t.client.Models.GenerateContentStream(ctx, t.model,
+		[]*genai.Content{genai.NewContentFromText(prompt, genai.RoleUser)},
+		genConfig,
+	) {
+		if err != nil {
+			streamErr = err
+			break
+		}
+		if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+			continue
+		}
+		for _, part := range resp.Candidates[0].Content.Parts {
+			if part.InlineData == nil {
+				continue
+			}
+			if len(raw) == 0 {
+				ttfb = time.Since(start)
+			}
+			// WAVヘッダは先頭チャンクにしか付かないので、チャンクごとに剥がす
+			raw = append(raw, stripWAVHeader(part.InlineData.Data)...)
+		}
+	}
+
 	elapsed := time.Since(start)
-	log.Printf("[gemini] TTS latency: %v (voice=%s, %d runes)", elapsed, voice, countRunes(prompt))
+	log.Printf("[gemini] TTS latency: %v (ttfb=%v, voice=%s, %d runes)",
+		elapsed, ttfb.Round(time.Millisecond), voice, countRunes(prompt))
 
 	// 遅かった呼び出しはプロンプト全文を残す。
-	//
-	// 過去に角括弧タグ入りの本文で応答が不安定になった前例があり
-	// (通常2.6秒が最大21.7秒。tts_prompt.go)、**どの入力で詰まるか**が
-	// 分からないと対処できない。チャンクは並列生成されるためレイテンシ行
-	// 単体では対応が取れないので、遅い時だけ本文ごと出す。
+	// ストリーミングで外れ値はほぼ消えたが、再発を検知できるようにしておく。
 	if elapsed >= ttsSlowThreshold {
 		log.Printf("[gemini] TTS SLOW (%v) prompt=%q", elapsed, prompt)
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("GenerateContent: %w", err)
+	if t.health != nil {
+		if streamErr != nil {
+			t.health.NoteError(streamErr)
+		} else {
+			t.health.NoteSuccess()
+		}
 	}
 
-	if len(resp.Candidates) == 0 ||
-		resp.Candidates[0].Content == nil ||
-		len(resp.Candidates[0].Content.Parts) == 0 {
+	if streamErr != nil {
+		return nil, fmt.Errorf("GenerateContentStream: %w", streamErr)
+	}
+	if len(raw) == 0 {
 		return nil, fmt.Errorf("empty TTS response")
 	}
 
-	blob := resp.Candidates[0].Content.Parts[0].InlineData
-	if blob == nil {
-		return nil, fmt.Errorf("no inline audio data in TTS response")
-	}
-
-	pcmData := stripWAVHeader(blob.Data)
-
-	pcm, err := parsePCM16(pcmData)
+	pcm, err := parsePCM16(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parsePCM16: %w", err)
 	}

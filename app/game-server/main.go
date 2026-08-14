@@ -147,6 +147,8 @@ func main() {
 	}
 	health := &APIHealth{}
 	processor.SetHealth(health)
+	// TTS の失敗は発話が丸ごと無音になる形で表れるため、画面で検知できるようにする
+	ttsClient.SetHealth(health)
 
 	managerWeb := NewManagerWeb(devices, bridges, game, sessionLogs, crosstalkLib, health, store)
 

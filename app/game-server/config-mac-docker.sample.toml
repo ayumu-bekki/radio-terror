@@ -37,11 +37,12 @@ tts_model              = "gemini-3.1-flash-tts-preview"
 transcribe_prompt_file = "transcribe_prompt.txt"
 transcribe_schema_file = "transcribe_schema.json"
 
-# 各API呼び出しのタイムアウト (秒)。省略・0 なら既定値 20 秒。
-# TTS が 58 秒かかり無線が長時間沈黙する事象が出たため上限を設けた。
+# 各API呼び出しのタイムアウト (秒)。省略・0 なら既定値。
+# TTS はストリーミング受信で安定したため 10 秒で足りる (config.sample.toml 参照)。
 transcribe_timeout_sec = 20
 reply_timeout_sec      = 20
-tts_timeout_sec        = 20
+tts_timeout_sec        = 10
+tts_attempts           = 3
 
 [scenario]
 # シナリオテンプレートの配置 (stages/ と difficulty/ を含むディレクトリ)
