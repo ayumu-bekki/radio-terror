@@ -16,6 +16,8 @@ import (
 
 // lineView は配線1本の状態。切断されていれば Cut が真になる。
 type lineView struct {
+	// Color は日本語の色名 (赤/黄/緑/青/白)。
+	// 現場は色で配線を扱うため、色コード (A-E) では読み替えが要る。
 	Color string
 	Cut   bool
 }
@@ -118,7 +120,8 @@ type stageView struct {
 	No         int
 	TemplateID string
 	Name       string
-	Cut        string
+	// Cut は正解の切断線 (日本語の色名)
+	Cut string
 	// Class は到達状況 ("" / "done" / "current")
 	Class string
 	// Navigator はナビゲーター知識を表示順に並べたもの
@@ -182,6 +185,15 @@ func indentJSON(v any) string {
 		return fmt.Sprintf("(表示できません: %v)", err)
 	}
 	return string(data)
+}
+
+// colorLabel は色コード (A-E) を日本語の色名にする。
+// 未知のコードはそのまま返す (デバイスが想定外の値を送っても表示は壊さない)。
+func colorLabel(code string) string {
+	if name, ok := colorNameJA[code]; ok {
+		return name
+	}
+	return code
 }
 
 // batteryClass は電圧に応じた警告色を返す。
@@ -258,7 +270,10 @@ func buildDeviceViews(devices []*DeviceStatus, connected func(string) bool) []de
 
 		lines := make([]lineView, 0, len(colors))
 		for _, color := range colors {
-			lines = append(lines, lineView{Color: color, Cut: !d.Lines[color]})
+			lines = append(lines, lineView{
+				Color: colorLabel(color),
+				Cut:   !d.Lines[color],
+			})
 		}
 
 		views = append(views, deviceView{
@@ -365,7 +380,7 @@ func buildStageViews(stages []*BuiltStage, stageIndex int, state string) []stage
 			No:         i + 1,
 			TemplateID: stage.TemplateID,
 			Name:       stage.Name,
-			Cut:        stage.Cut,
+			Cut:        colorLabel(stage.Cut),
 			Class:      stageClass(i, stageIndex, state),
 			Navigator:  buildNaviFields(stage.Navigator),
 			CoreJSON:   indentJSON(stage.Core),

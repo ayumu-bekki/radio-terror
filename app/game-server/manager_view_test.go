@@ -165,7 +165,7 @@ func TestBuildDeviceViews(t *testing.T) {
 		t.Fatalf("並び順が Core ID 順でない: %s, %s", views[0].DeviceID, views[1].DeviceID)
 	}
 
-	// 色順に並び、A だけ切断済み
+	// 色順 (A-E の並び) に、日本語色名で出る。A だけ切断済み
 	lines := views[0].Lines
 	if len(lines) != 3 {
 		t.Fatalf("len(Lines) = %d, want 3", len(lines))
@@ -173,7 +173,7 @@ func TestBuildDeviceViews(t *testing.T) {
 	for i, want := range []struct {
 		color string
 		cut   bool
-	}{{"A", true}, {"B", false}, {"C", false}} {
+	}{{"赤", true}, {"黄", false}, {"緑", false}} {
 		if lines[i].Color != want.color || lines[i].Cut != want.cut {
 			t.Errorf("Lines[%d] = %+v, want {%s %v}", i, lines[i], want.color, want.cut)
 		}
@@ -247,5 +247,42 @@ func TestIndentJSONFallback(t *testing.T) {
 	// チャネルは JSON にできない
 	if got := indentJSON(map[string]any{"bad": make(chan int)}); got == "" {
 		t.Error("エラー時に空文字を返している")
+	}
+}
+
+// 配線は日本語の色名で表示する。
+// 現場は色で配線を扱うため、色コード (A-E) では読み替えが要る。
+func TestColorLabel(t *testing.T) {
+	cases := map[string]string{
+		"A": "赤",
+		"B": "黄",
+		"C": "緑",
+		"D": "青",
+		"E": "白",
+	}
+	for code, want := range cases {
+		if got := colorLabel(code); got != want {
+			t.Errorf("colorLabel(%q) = %q, want %q", code, got, want)
+		}
+	}
+
+	// 想定外のコードでも表示を壊さない
+	if got := colorLabel("Z"); got != "Z" {
+		t.Errorf("未知のコードは素通しする: got %q", got)
+	}
+}
+
+// セッション詳細の切断線も色名で表示する。
+func TestBuildStageViewsUsesColorName(t *testing.T) {
+	views := buildStageViews([]*BuiltStage{
+		{TemplateID: "102", Name: "シグナル", Cut: "A"},
+		{TemplateID: "203", Name: "暗号電文", Cut: "C"},
+	}, 0, deviceStatePlaying)
+
+	if views[0].Cut != "赤" {
+		t.Errorf("Cut = %q, want 赤", views[0].Cut)
+	}
+	if views[1].Cut != "緑" {
+		t.Errorf("Cut = %q, want 緑", views[1].Cut)
 	}
 }
