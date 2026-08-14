@@ -177,3 +177,91 @@ func TestWSSessionKeepsHealthyConnection(t *testing.T) {
 		t.Error("無通信だけで切断された")
 	}
 }
+
+// ping の後に SendJSON が失敗しないことを確認する。
+//
+// SetWriteDeadline は**接続単位の永続設定**なので、ping で設定した期限が
+// そのまま残る。SendJSON 側で更新しないと、前回の ping から wsWriteWait を
+// 過ぎた時点で接続が生きていても i/o timeout になる
+// (マネージャー画面からのリセットが届かない不具合を起こした)。
+func TestWSSessionSendAfterPingDeadline(t *testing.T) {
+	// 書き込み期限 (10秒) を過ぎるまで待つ必要があるため既定では飛ばす。
+	// 実行するには: go test -run TestWSSessionSendAfterPingDeadline -keepalive
+	if !*runKeepaliveTest {
+		t.Skip("低速なため既定では飛ばす (-keepalive で実行)")
+	}
+
+	devices := NewDeviceRegistry()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		s := newWSSession(conn, devices, nil)
+		go s.run(context.Background())
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	conn.SetPingHandler(func(appData string) error {
+		return conn.WriteMessage(websocket.PongMessage, []byte(appData))
+	})
+	go func() {
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	if err := conn.WriteMessage(websocket.TextMessage,
+		[]byte(`{"type":"device_status","device_id":"0003","state":"playing"}`)); err != nil {
+		t.Fatalf("WriteMessage: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !devices.IsConnected("0003") {
+		if time.Now().After(deadline) {
+			t.Fatal("デバイスが登録されない")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// ping を1回送らせてから、書き込み期限を過ぎるまで待つ。
+	// 実際の運用では ping 間隔 (25秒) の合間にリセットが押される。
+	session := findSession(t, devices, "0003")
+	if err := session.writePing(); err != nil {
+		t.Fatalf("writePing: %v", err)
+	}
+	time.Sleep(wsWriteWait + 200*time.Millisecond)
+
+	// この時点で SendJSON が期限切れにならないこと
+	if err := devices.SendSessionAbort("0003"); err != nil {
+		t.Errorf("ping の後に session_abort が送れない: %v", err)
+	}
+}
+
+// findSession はレジストリから wsSession を取り出す (テスト用)。
+func findSession(t *testing.T, devices *DeviceRegistry, deviceID string) *wsSession {
+	t.Helper()
+
+	devices.mu.RLock()
+	defer devices.mu.RUnlock()
+
+	conn, ok := devices.conns[deviceID]
+	if !ok {
+		t.Fatalf("device %s が登録されていない", deviceID)
+	}
+	session, ok := conn.(*wsSession)
+	if !ok {
+		t.Fatalf("DeviceConn が wsSession ではない")
+	}
+	return session
+}

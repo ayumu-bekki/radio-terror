@@ -354,8 +354,11 @@ func TestSpeedRankingConsistency(t *testing.T) {
 		t.Fatalf("Stage(208): %v", err)
 	}
 
-	// answer の「速い順に X(最速) → Y → Z → W → V(最遅)」から並びを取る
-	orderRe := regexp.MustCompile(`速い順に ([A-E])\(最速\) → ([A-E]) → ([A-E]) → ([A-E]) → ([A-E])\(最遅\)`)
+	// answer の「速い順に X(最速) → Y → Z → W → V(最遅)」から並びを取る。
+	// ナビゲーター知識は無線で読み上げるため**日本語色名**で展開される
+	// (Core向けJSON は A-E のまま)。
+	orderRe := regexp.MustCompile(
+		`速い順に (.)\(最速\) → (.) → (.) → (.) → (.)\(最遅\)`)
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
@@ -368,7 +371,15 @@ func TestSpeedRankingConsistency(t *testing.T) {
 		if m == nil {
 			t.Fatalf("seed=%d: answer から速い順を読み取れない: %s", seed, built.Navigator["answer"])
 		}
-		order := m[1:6]
+		// 日本語色名を色コードへ戻して、leds (A-E キー) と突き合わせる
+		order := make([]string, 0, 5)
+		for _, name := range m[1:6] {
+			code, ok := colorCodeFromJA(name)
+			if !ok {
+				t.Fatalf("seed=%d: 未知の色名 %q (answer=%s)", seed, name, built.Navigator["answer"])
+			}
+			order = append(order, code)
+		}
 
 		leds, ok := built.Core["leds"].(map[string]any)
 		if !ok || len(leds) != len(allColors) {
@@ -561,4 +572,15 @@ func TestPickWordByColorRespectsExclude(t *testing.T) {
 			t.Errorf("%s: 候補が尽きてもエラーにならない", c.name)
 		}
 	}
+}
+
+// colorCodeFromJA は日本語色名を色コード (A-E) へ戻す。
+// ナビゲーター知識は日本語で展開されるため、Core向けJSON と突き合わせる際に使う。
+func colorCodeFromJA(name string) (string, bool) {
+	for code, ja := range colorNameJA {
+		if ja == name {
+			return code, true
+		}
+	}
+	return "", false
 }

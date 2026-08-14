@@ -4,7 +4,13 @@
 // (C)2026 bekki.jp
 
 // Include ----------------------
+// CONFIG_* を参照するため、条件付き include より先に読む
+#include <sdkconfig.h>
+
+#if CONFIG_CORE_SYSTEM_BATTERY_MONITOR
 #include "battery_monitor_task.h"
+#endif
+
 #include "boot_animation.h"
 #include "game_task.h"
 #include "gpio_input_watch_task.h"
@@ -86,7 +92,9 @@ class System final
   McpInputScanner input_scanner_;
   WSClient ws_client_;
   GpioInputWatchTask gpio_watcher_;
+#if CONFIG_CORE_SYSTEM_BATTERY_MONITOR
   std::unique_ptr<BatteryMonitorTask> battery_monitor_task_;
+#endif
 };
 
 }  // namespace CoreSystem

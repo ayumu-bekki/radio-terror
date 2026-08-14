@@ -27,4 +27,21 @@ menu "Core System Configuration"
             この個体のCoreID。トランシーバー経由の音声申告に使うため数字4桁で設定する。
             サーバーはこのIDでデバイスを識別する。
 
+    config CORE_SYSTEM_BATTERY_MONITOR
+        bool "Enable battery monitor"
+        default y
+        help
+            バッテリー電圧監視を有効にする。
+
+            30秒ごとに電圧を測定し、3.4Vを2回連続で下回ったら
+            過放電保護のため Deep Sleep へ入る (docs/game_session_design.md §8.5)。
+            測定値は device_status でサーバーへ報告し、マネージャー画面に出る。
+
+            **USB給電やACアダプタで動かす場合は無効にすること。**
+            バッテリーを繋がない構成では分圧回路の入力が不定になり、
+            低電圧と誤判定して起動直後に Deep Sleep へ入ることがある。
+
+            無効にすると測定・報告・Deep Sleep のすべてを行わない
+            (マネージャー画面の電池欄は「—」になる)。
+
 endmenu

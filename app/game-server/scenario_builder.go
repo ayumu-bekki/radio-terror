@@ -231,6 +231,23 @@ func (b *ScenarioBuilder) composeStages(tmpl *DifficultyTemplate, difficulty str
 	return selected, nil
 }
 
+// toJapaneseColorVars は抽選変数の色コード (A-E) を日本語色名へ置き換える。
+//
+// ナビゲーターの発話はそのまま読み上げられるため、「A色の線」ではなく
+// 「赤色の線」にする必要がある。色以外の変数 (ロータリー位置・数値・語句) は
+// そのまま残す。
+func toJapaneseColorVars(vars map[string]string) map[string]string {
+	converted := make(map[string]string, len(vars))
+	for name, value := range vars {
+		if japanese, ok := colorNameJA[value]; ok {
+			converted[name] = japanese
+			continue
+		}
+		converted[name] = value
+	}
+	return converted
+}
+
 // buildStage は1ステージの抽選変数を解決し、Core向け要素とナビゲーター知識を生成する。
 func (b *ScenarioBuilder) buildStage(tmpl *StageTemplate, usedLines map[string]bool) (*BuiltStage, error) {
 	vars, err := b.resolveVars(tmpl, usedLines)
@@ -248,9 +265,13 @@ func (b *ScenarioBuilder) buildStage(tmpl *StageTemplate, usedLines map[string]b
 		return nil, fmt.Errorf("core.cut is not resolved")
 	}
 
+	// ナビゲーター知識は**無線で読み上げられる**ため、色を日本語名で展開する。
+	// Core向けJSON (core) は A-E のままにする — デバイスはその表記で解釈するため。
+	naviVars := toJapaneseColorVars(vars)
+
 	navigator := make(map[string]string, len(tmpl.Navigator))
 	for key, text := range tmpl.Navigator {
-		expanded, err := expandString(text, vars)
+		expanded, err := expandString(text, naviVars)
 		if err != nil {
 			return nil, fmt.Errorf("navigator.%s: %w", key, err)
 		}

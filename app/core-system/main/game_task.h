@@ -65,17 +65,18 @@ class GameTask final : public Task {
   /// device_status の定期送信間隔 (§7.2)
   static constexpr int32_t kStatusIntervalMs = 5000;
 
-  /// Setup → Ready 遷移に必要な全線結線の安定時間 (§4)
-  static constexpr int32_t kReadyStableMs = 1000;
+  /// Setup → Ready 遷移に必要な全線結線の安定時間 (§4)。
+  ///
+  /// 1本でも外れるとカウンタは0へ戻るため、**この時間ずっと全線が
+  /// 結線されていた**場合だけ Ready へ進む。実機の接触不良で
+  /// Ready と Setup を往復したため 1秒 から伸ばした。
+  static constexpr int32_t kReadyStableMs = 3000;
 
   /// forbidden_rotary の違反確定までの停止時間 (§5。実機調整前提)
   static constexpr int32_t kForbiddenRotaryHoldMs = 300;
 
   /// ソレノイドのパルス幅 (§8.3)
   static constexpr int32_t kSolenoidPulseMs = 200;
-
-  /// 終盤警告として点滅を加速させる残り時間の閾値 (§4.1。実機調整前提)
-  static constexpr int32_t kHurryThresholdMs = 30000;
 
  public:
   GameTask(MCP23017* mcp23017, HT16K33* ht16k33, Pl9823Task* pl9823_task,
@@ -201,6 +202,10 @@ class GameTask final : public Task {
 
   /// WiFi接続に失敗したか。サーバー待ちの表示を点滅にする (§4.0)
   bool wifi_failed_ = false;
+
+  /// 最後に送った点滅の消灯時間。段階が変わったときだけ再送するために持つ
+  /// (毎tick送ると Pl9823Task が位相をリセットしてしまう。§4.1)
+  uint32_t last_blink_off_ms_ = 0;
 
   // --- Detonating ---
   int32_t detonate_remaining_ms_ = 0;

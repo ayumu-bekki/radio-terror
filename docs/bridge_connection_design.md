@@ -36,6 +36,7 @@ radio-bridge を複数プロセス運用するための接続方式と、
 | 9 | PTT用GPIOピンの指定方法(実装時) | 同じ理由で**環境変数(`RADIO_BRIDGE_PTT_PIN`)を優先**する。PTT配線(PCB)はbridgeを動かすRaspberry Piごとに異なるため(§6.1) |
 | 10 | コールサイン抽出の廃止(実装時) | 文字起こしで送信者・受信者のコールサインを抽出していたが、**無線側で名乗りを強制する運用をやめた**ため `message` のみにした。開始申告・秘密ワードの判定は元から `message` だけを見ており(「4桁ID + 難易度 + 開始の意図」の一致)、判定ロジックへの影響はない。抽出結果はログ表示にしか使われていなかった |
 | 11 | keepalive の受け入れ設定(実機確認時) | **接続が約2分ごとに切れていた**。radio-bridge は無音区間が長いため30秒ごとに keepalive ping を送るが、gRPC-Go の既定 `EnforcementPolicy` は `MinTime=5分` / `PermitWithoutStream=false` で、これに反する ping が一定数たまると `ENHANCE_YOUR_CALM` / `too_many_pings` の GOAWAY を返す。30秒間隔では**ちょうど121秒**で切断される(テストで再現・修正後は切れないことを確認済み)。サーバー側に `KeepaliveEnforcementPolicy{MinTime: 10s, PermitWithoutStream: true}` を設定して解決した。**`MinTime` は bridge の ping 間隔 (30秒) より短くなければならない** — 逆転すると再発する |
+| 12 | ストリーム待ち時間を5秒へ(実機確認時) | ナビゲーターの音声が途中で途切れた。TTS を分割生成して順次送るが、bridge 側は現ストリームの後続チャンクを **2秒**しか待たず、間に合わなかったチャンクを `audio discarded: stream closed` で破棄していた。TTS は通常2〜3秒かかるため、わずかな遅れでも千切れる設定だった。`STREAM_TIMEOUT_MS` を **5秒**へ伸ばした。長くすると遅延中ずっと PTT を握って無線を塞ぐため、大半のケースを救えて塞ぎすぎない範囲に留める。**遅延そのものの主因は TTS プロンプトの表情タグ**で、そちらは廃止済み (`navigator_design.md` §4.1) |
 
 ## 3. 接続シーケンス
 

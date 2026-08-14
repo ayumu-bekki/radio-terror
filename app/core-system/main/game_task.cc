@@ -123,6 +123,9 @@ void GameTask::EnterPlaying() {
   remaining_ms_ = session_.countdown_ms;
   ResetStageProgress();
   buzzer_.Off();
+
+  // 点滅の段階を今の残り時間で確定させる (前セッションの値を持ち越さない)
+  last_blink_off_ms_ = StatusIndicator::PlayingBlinkOffMs(remaining_ms_);
   UpdateFullColorLed();
 
   ESP_LOGI(TAG, "state -> Playing session_id=%s stages=%d", session_.session_id.c_str(),
@@ -449,8 +452,14 @@ void GameTask::TickCountdown() {
     return;
   }
 
-  // 終盤で点滅を加速させる (§4.1)
-  UpdateFullColorLed();
+  // 残り時間に応じて点滅を加速させる (§4.1)。
+  // **段階が変わったときだけ**送る。毎tick送ると Pl9823Task が
+  // コマンドのたびに位相をリセットし、点灯しっぱなしに見えてしまう。
+  const uint32_t blink_off_ms = StatusIndicator::PlayingBlinkOffMs(remaining_ms_);
+  if (blink_off_ms != last_blink_off_ms_) {
+    last_blink_off_ms_ = blink_off_ms;
+    UpdateFullColorLed();
+  }
 
   UpdateTimerDigitGrace();
 
@@ -712,10 +721,10 @@ void GameTask::ClearLedOverrides() {
 }
 
 void GameTask::UpdateFullColorLed() {
-  // 表示の決定は StatusIndicator に任せる (§4.1)
-  const bool hurry = (remaining_ms_ <= kHurryThresholdMs);
+  // 表示の決定は StatusIndicator に任せる (§4.1)。
+  // 点滅の速さは残り時間から段階的に決まる
   pl9823_task_->SendCommand(
-      StatusIndicator::MakeCommand(state_, hurry, ws_connected_, wifi_failed_));
+      StatusIndicator::MakeCommand(state_, remaining_ms_, ws_connected_, wifi_failed_));
 }
 
 void GameTask::FireSolenoid() {

@@ -161,7 +161,10 @@ void System::StartTasks() {
       GpioInputWatchTask::PULL_UP_REGISTOR_ENABLE);
   gpio_watcher_.Start();
 
-  // バッテリー電圧監視 (§8.5)
+  // バッテリー電圧監視 (§8.5)。
+  // USB給電など電池を繋がない構成では menuconfig で無効にできる
+  // (分圧回路の入力が不定になり、低電圧と誤判定するため)。
+#if CONFIG_CORE_SYSTEM_BATTERY_MONITOR
   battery_monitor_task_ = std::make_unique<BatteryMonitorTask>(
       [this](float voltage) { game_task_.UpdateBatteryVoltage(voltage); },
       [this]() {
@@ -170,6 +173,9 @@ void System::StartTasks() {
         game_task_.PostEvent(event);
       });
   battery_monitor_task_->Start();
+#else
+  ESP_LOGW(TAG, "battery monitor disabled (CONFIG_CORE_SYSTEM_BATTERY_MONITOR=n)");
+#endif
 }
 
 /// 起動時の kLine A-E の状態を GameTask へ通知する。

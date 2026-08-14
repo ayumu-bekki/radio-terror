@@ -35,7 +35,7 @@ go test -run TestKeepaliveAcceptsBridgePings -keepalive -timeout 420s -v
 cd app/core-system
 source /opt/esp-idf/export.sh   # または get_idf
 idf.py build                    # ESP-IDF v6.0
-idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)の設定
+idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)・バッテリー監視の設定
 ```
 
 - **必ずプロジェクトルート (`app/core-system`) で実行する**。`main/` で実行すると
