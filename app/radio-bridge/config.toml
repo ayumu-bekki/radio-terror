@@ -32,9 +32,9 @@ dump_ogg_enabled = false
 dump_ogg_dir     = "/app/dump_audio"
 
 [timing]
-ptt_on_delay_ms  = 300
+ptt_on_delay_ms  = 500
 ptt_off_delay_ms = 100
-cooldown_ms      = 1000
+cooldown_ms      = 500
 
 [queue]
 max_audio_duration_secs = 40
