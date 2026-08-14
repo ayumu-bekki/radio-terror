@@ -20,6 +20,17 @@ const (
 	crosstalkUneasy  = "uneasy"  // 不穏系: 世界観を深める。色・操作の指示はしない
 )
 
+// 無線が塞がっているときの待ち方。
+const (
+	// crosstalkBusyRetries は鳴り終わりを待ち直す回数。待っている間に
+	// 次の発話が入ることがあるため複数回試す。
+	crosstalkBusyRetries = 3
+
+	// crosstalkBusyMargin は再生完了予定に足す余裕。
+	// PTT の on/off (bridge 側で約0.5秒ずつ) と経路の遅延を見込む。
+	crosstalkBusyMargin = 2 * time.Second
+)
+
 // crosstalkEventFile は「別現場の通信」のアセット名。
 // ランダム再生に加え、他チームのCoreの exploded を契機にイベント駆動でも流す。
 const crosstalkEventFile = "uneasy_bessgenba"
@@ -186,18 +197,25 @@ type CrosstalkScheduler struct {
 	mu sync.Mutex
 	// cancels は device_id → スケジュール停止関数
 	cancels map[string]context.CancelFunc
-	// speaking はナビゲーターが発話中のセッション (device_id)。
-	// 発話中は混線を再生しない。
-	speaking map[string]bool
+	// busyUntil は device_id → 無線が塞がっている終了予定時刻。
+	//
+	// 「発話中か」を bool で持つと、**送出完了と再生完了がずれる**。
+	// サーバーが最後のパケットを送った時点でフラグを落としてしまい、
+	// bridge がこれから十数秒かけて再生する間に混線が割り込む
+	// (実運用で発生。docs/operation_flow.md §5.1)。
+	// 送出した音声の再生時間を足した時刻を持ち、それまでは塞がっている
+	// とみなす。bridge からの再生完了通知は proto に無いため、
+	// サーバー側で分かる情報から推定する。
+	busyUntil map[string]time.Time
 }
 
 func NewCrosstalkScheduler(lib *CrosstalkLibrary, bridges *BridgeRegistry, rng *rand.Rand) *CrosstalkScheduler {
 	return &CrosstalkScheduler{
-		lib:      lib,
-		bridges:  bridges,
-		rng:      rng,
-		cancels:  make(map[string]context.CancelFunc),
-		speaking: make(map[string]bool),
+		lib:       lib,
+		bridges:   bridges,
+		rng:       rng,
+		cancels:   make(map[string]context.CancelFunc),
+		busyUntil: make(map[string]time.Time),
 	}
 }
 
@@ -232,15 +250,64 @@ func (s *CrosstalkScheduler) Stop(deviceID string) {
 		cancel()
 		delete(s.cancels, deviceID)
 	}
-	delete(s.speaking, deviceID)
+	delete(s.busyUntil, deviceID)
 }
 
-// SetSpeaking はナビゲーターの発話中フラグを更新する。
-// 発話と混線が重ならないようにするために使う (§5.1)。
-func (s *CrosstalkScheduler) SetSpeaking(deviceID string, speaking bool) {
+// MarkBusy は無線が塞がる時間を登録する。
+//
+// 発話の生成中 (再生時間がまだ分からない段階) は d に見込み時間を渡し、
+// 送出後に実際の再生時間で上書きする。既に登録済みの時刻より手前になる
+// 場合は延長しない (先に入っている予定を縮めない)。
+func (s *CrosstalkScheduler) MarkBusy(deviceID string, d time.Duration) {
+	if d <= 0 {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.speaking[deviceID] = speaking
+
+	until := time.Now().Add(d)
+	if cur, ok := s.busyUntil[deviceID]; ok && cur.After(until) {
+		return
+	}
+	s.busyUntil[deviceID] = until
+}
+
+// SetBusy は塞がり時間を d で置き換える。
+//
+// MarkBusy と違い**短くする方向にも効く**。見込みで押さえておいた時間を、
+// 送出後に判明した実際の再生時間へ差し替えるために使う。
+func (s *CrosstalkScheduler) SetBusy(deviceID string, d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if d <= 0 {
+		delete(s.busyUntil, deviceID)
+		return
+	}
+	s.busyUntil[deviceID] = time.Now().Add(d)
+}
+
+// ClearBusy は塞がり予定を取り消す (発話の生成に失敗した場合など)。
+func (s *CrosstalkScheduler) ClearBusy(deviceID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.busyUntil, deviceID)
+}
+
+// BusyFor は無線が塞がっている残り時間を返す。塞がっていなければ 0。
+func (s *CrosstalkScheduler) BusyFor(deviceID string) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	until, ok := s.busyUntil[deviceID]
+	if !ok {
+		return 0
+	}
+	if remain := time.Until(until); remain > 0 {
+		return remain
+	}
+	delete(s.busyUntil, deviceID)
+	return 0
 }
 
 // NotifyExplosion は他チームのCoreの爆発を契機に「別現場の通信」を流す
@@ -263,7 +330,7 @@ func (s *CrosstalkScheduler) NotifyExplosion(ctx context.Context, explodedDevice
 		}
 		log.Printf("[crosstalk] event-driven: device %s exploded -> notifying %s",
 			explodedDeviceID, target.DeviceID)
-		s.play(NewAudioSender(s.bridges, target.BridgeID), path)
+		s.play(NewAudioSender(s.bridges, target.BridgeID), path, target.DeviceID)
 	}
 }
 
@@ -293,13 +360,26 @@ func (s *CrosstalkScheduler) runSchedule(ctx context.Context, session *GameSessi
 		case <-time.After(wait):
 		}
 
-		// ナビゲーターの発話中は少し待って再試行する
-		for attempt := 0; attempt < 10 && s.isSpeaking(session.DeviceID); attempt++ {
+		// 無線が塞がっている間は待つ。残り時間が分かるので、
+		// 固定間隔で様子を見るのではなく鳴り終わりまで一気に待つ。
+		// 発話が続けざまに入る場合に備えて上限回数は設ける。
+		for attempt := 0; attempt < crosstalkBusyRetries; attempt++ {
+			remain := s.BusyFor(session.DeviceID)
+			if remain <= 0 {
+				break
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(2 * time.Second):
+			case <-time.After(remain + crosstalkBusyMargin):
 			}
+		}
+		if s.isSpeaking(session.DeviceID) {
+			// 待ち切れなかった (発話が連続している)。この回は諦める。
+			// 無理に流すと発話に重なる。
+			log.Printf("[crosstalk] skipped %s for device %s (radio still busy)",
+				kind, session.DeviceID)
+			continue
 		}
 
 		path, ok := s.pick(session, kind)
@@ -307,7 +387,7 @@ func (s *CrosstalkScheduler) runSchedule(ctx context.Context, session *GameSessi
 			continue
 		}
 		log.Printf("[crosstalk] playing %s for device %s: %s", kind, session.DeviceID, filepath.Base(path))
-		s.play(sender, path)
+		s.play(sender, path, session.DeviceID)
 	}
 }
 
@@ -341,19 +421,25 @@ func (s *CrosstalkScheduler) pick(session *GameSession, kind string) (string, bo
 }
 
 // play は音声アセットを読み込んで無線へ送出する。
-func (s *CrosstalkScheduler) play(sender *AudioSender, path string) {
+//
+// deviceID が空でなければ、再生時間のぶん無線を塞がっている扱いにする。
+// 混線どうし・混線とナビゲーター発話が重ならないようにするため。
+func (s *CrosstalkScheduler) play(sender *AudioSender, path, deviceID string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("[crosstalk] read asset error: %v", err)
 		return
 	}
-	sender.Send(oneshot(data))
+	if !sender.Send(oneshot(data)) {
+		return
+	}
+	if deviceID != "" {
+		s.MarkBusy(deviceID, oggOpusDuration(data))
+	}
 }
 
 func (s *CrosstalkScheduler) isSpeaking(deviceID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.speaking[deviceID]
+	return s.BusyFor(deviceID) > 0
 }
 
 // AssetSummary はアセットの読み込み状況を返す (Web画面用)。

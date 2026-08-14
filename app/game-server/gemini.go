@@ -95,6 +95,9 @@ func (p *GeminiProcessor) Transcribe(ctx context.Context, oggData []byte) (*Tran
 		ResponseSchema:   p.transcribeSchema,
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, p.cfg.TranscribeTimeout())
+	defer cancel()
+
 	start := time.Now()
 	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.TranscribeModel, contents, config)
 	log.Printf("[gemini] Transcribe latency: %v", time.Since(start))
@@ -213,6 +216,14 @@ func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instr
 	if useSearch {
 		config.Tools = []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}
 	}
+
+	// 検索ありは1往復増えるぶん余裕を持たせる (ゲーム中は使わない経路)
+	timeout := p.cfg.ReplyTimeout()
+	if useSearch {
+		timeout *= 2
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	start := time.Now()
 	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, config)

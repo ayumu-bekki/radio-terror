@@ -584,3 +584,56 @@ func colorCodeFromJA(name string) (string, bool) {
 	}
 	return "", false
 }
+
+// TestTutorialProcedureAvoidsForbidden は 101 解体デビューの procedure が
+// 危険位置を経由する手順にならないことを確かめる。
+//
+// procedure に固定値で中間経路を書いていた頃、その値が forbidden に抽選されると
+// ナビゲーターが「そこへ回せ」と「そこは危険」を同時に言う矛盾が起きた。
+// 経由位置を抽選に変えたので、全 seed で衝突しないことを押さえる。
+func TestTutorialProcedureAvoidsForbidden(t *testing.T) {
+	lib := loadTestLibrary(t)
+	digits := regexp.MustCompile(`[0-9]`)
+
+	checked := 0
+	for seed := int64(0); seed < 300; seed++ {
+		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+
+		session, err := builder.Build("s-test", difficultyEasy)
+		if err != nil {
+			t.Fatalf("seed=%d: Build: %v", seed, err)
+		}
+
+		for _, stage := range session.Stages {
+			if stage.TemplateID != "101" {
+				continue
+			}
+			checked++
+
+			forbidden, ok := stage.Core["forbidden_rotary"].(map[string]any)
+			if !ok {
+				t.Fatalf("seed=%d: 101 に forbidden_rotary がない", seed)
+			}
+			positions, _ := forbidden["positions"].([]any)
+			if len(positions) == 0 {
+				t.Fatalf("seed=%d: forbidden_rotary.positions が空", seed)
+			}
+
+			// procedure に現れる数値が危険位置と一致していないこと
+			procedure := stage.Navigator["procedure"]
+			for _, position := range positions {
+				want := fmt.Sprintf("%v", position)
+				for _, got := range digits.FindAllString(procedure, -1) {
+					if got == want {
+						t.Errorf("seed=%d: procedure が危険位置 %s を経由する: %q",
+							seed, want, procedure)
+					}
+				}
+			}
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("101 が1度も選出されなかった (easy 先頭固定のはず)")
+	}
+}

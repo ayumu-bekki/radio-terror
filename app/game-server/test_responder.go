@@ -145,8 +145,10 @@ func (r *TestResponder) Respond(ctx context.Context, sender *AudioSender, result
 	buildPrompt := func(chunk string) string {
 		return buildTTSPrompt(testResponderTTSStyle, "", chunk)
 	}
-	return streamTTSChunks(ctx, r.ttsClient, sender, chunks, buildPrompt,
+	// 疎通確認用なので混線とは無関係。再生時間は使わない
+	_, err = speakTTSChunks(ctx, r.ttsClient, sender, chunks, buildPrompt,
 		testResponderTTSVoice, "[test-responder "+bridgeID+"]")
+	return err
 }
 
 // logFor は bridge ごとの交信ログを返す (無ければ作る)。

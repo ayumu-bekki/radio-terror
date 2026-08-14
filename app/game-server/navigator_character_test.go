@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 	"strings"
 	"testing"
@@ -80,9 +81,11 @@ func TestNavigatorPromptContentPreserved(t *testing.T) {
 		}
 	}
 
-	// [F] 出力ルールに含まれるべき要点
+	// [F] 出力ルールに含まれるべき要点。
+	// 文数・文字数の上限は無線を塞がないための制約なので、指示が
+	// 消えていないことを押さえる (docs/navigator_design.md)。
 	for _, want := range []string{
-		"1〜3文", "コールサイン", "どうぞ", "口調", "システム用語",
+		"2文以内", "60文字以内", "コールサイン", "どうぞ", "口調", "システム用語",
 	} {
 		if !strings.Contains(cfg.Prompt.Output, want) {
 			t.Errorf("output に %q が含まれていない", want)
@@ -189,5 +192,20 @@ func TestBuildPromptUsesConfig(t *testing.T) {
 	}
 	if !strings.Contains(urgent, character.UrgentStyle) {
 		t.Error("緊迫時の崩し方が含まれていない")
+	}
+}
+
+// TestNavigatorMaxRunesMatchesPrompt は発話長の上限が
+// プロンプトの指示とサーバー側の警告閾値で一致していることを確かめる。
+//
+// 片方だけ変えると、プロンプトは守られているのに WARN が出続ける
+// (またはその逆) という分かりにくい状態になる。
+func TestNavigatorMaxRunesMatchesPrompt(t *testing.T) {
+	cfg := loadTestNavigator(t)
+
+	want := fmt.Sprintf("%d文字以内", navigatorMaxRunes)
+	if !strings.Contains(cfg.Prompt.Output, want) {
+		t.Errorf("output に %q が含まれていない (navigatorMaxRunes=%d と揃えること)",
+			want, navigatorMaxRunes)
 	}
 }

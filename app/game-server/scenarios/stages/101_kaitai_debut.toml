@@ -9,10 +9,27 @@ easy_only = true # ノーマル・ハードでは選出しない
 
 [random]
 cut = { pick = "line" }
-# 誘導する手順の最終位置と、その途中経路
+# 誘導する手順の最終位置
 final_rotary = { pick = "int", min = 0, max = 5 }
-# 禁止位置は最終位置と重ならないよう exclude で外す
-forbidden = { pick = "int", min = 0, max = 5, exclude = ["${final_rotary}"] }
+# 禁止位置は最終位置と重ならないよう exclude で外す。
+# 0 は procedure の「まず0に戻す」基準点なので危険位置にしない。
+forbidden = { pick = "int", min = 0, max = 5, exclude = [
+  "0",
+  "${final_rotary}",
+] }
+# 途中経路。procedure に固定値で書くと危険位置と衝突して
+# 「そこへ回せ」と「そこは危険」を同時に言う矛盾が起きるため、
+# forbidden と final_rotary を避けて抽選する。
+# 1〜5 の5個から最大3個を除くので、候補は必ず2個以上残る。
+via1 = { pick = "int", min = 1, max = 5, exclude = [
+  "${forbidden}",
+  "${final_rotary}",
+] }
+via2 = { pick = "int", min = 1, max = 5, exclude = [
+  "${forbidden}",
+  "${final_rotary}",
+  "${via1}",
+] }
 
 [core]
 leds = { "${cut}" = "on" }
@@ -27,8 +44,9 @@ on_wrong_cut = { action = "penalty", penalty_ms = 30000 }
 [navigator]
 briefing = "解体の基本手順を確認する。ダイヤル(ロータリースイッチ)を指示どおりに合わせてから、指定の線を切る。"
 answer = "正解はダイヤルを${final_rotary}に合わせた状態で${cut}色の線を切ること。ダイヤル${forbidden}は危険位置で、そこで止めるとペナルティになる。"
-# 会話でロータリーを誘導する。初期位置が不定でも「まず0に戻す」で解決する
-procedure = "まず0に戻させ、次に4まで回させ、2に戻させ、最後に${final_rotary}に合わせさせる。中間手順の確認はプレイヤーの返答で行う。"
+# 会話でロータリーを誘導する。初期位置が不定でも「まず0に戻す」で解決する。
+# 経由位置は抽選値なので、危険位置${forbidden}を通る手順にはならない。
+procedure = "まず0に戻させ、次に${via1}まで回させ、${via2}に合わせさせ、最後に${final_rotary}に合わせさせる。中間手順の確認はプレイヤーの返答で行う。最終位置が0の場合は途中で戻ってくる形になるので、そのまま最後まで誘導してよい。"
 hint_l1 = "装置の正面にあるダイヤルに注目させ、まず0に戻すよう指示する"
 hint_l2 = "手順を1つずつ区切って伝え、そのつど返答を待つ。ダイヤル${forbidden}には合わせないよう警告する"
 hint_l3 = "最終的にダイヤルを合わせる位置と、切る線を色以外の言い方(点灯しているランプと同じ色など)で伝えてよい"

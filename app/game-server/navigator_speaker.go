@@ -16,6 +16,20 @@ const (
 	sfxFailureFile = "failure.ogg"
 )
 
+// navigatorMaxRunes は1発話の想定上限 (navigator/prompt.toml の出力ルールと同じ値)。
+//
+// 超えても発話は止めない。長い発話は無線を塞いで次の交信を遅らせるため、
+// プロンプトが効いているかを運用中に確認できるようログへ警告を残す。
+const navigatorMaxRunes = 60
+
+// navigatorSpeakReserve は発話の生成中に無線を押さえておく見込み時間。
+//
+// 生成 (reply + TTS) にかかる時間も、その後の再生時間も事前には分からない。
+// 生成中に混線が入ると、発話が届いた時点で無線が塞がって発話が後ろへずれる。
+// 送出後は実際の再生時間で置き換わる (Speak 参照) ので、ここは
+// 「生成にかかる想定時間 + 発話の平均的な長さ」程度の粗い見積もりでよい。
+const navigatorSpeakReserve = 30 * time.Second
+
 // GeminiNavigator はナビゲーターの発話を生成して無線へ送出する。
 type GeminiNavigator struct {
 	processor *GeminiProcessor
@@ -54,10 +68,24 @@ func (n *GeminiNavigator) SetCrosstalkScheduler(scheduler *CrosstalkScheduler) {
 // Speak はトリガーに応じたナビゲーターの発話を生成し、TTS で無線へ送出する
 // (docs/navigator_design.md §3.5 の発話トリガー)。
 func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) error {
-	// 発話中は混線を止める (§5.1: ナビゲーターの発話と重ならないようにする)
+	// spoke は音声を送出できたか。混線の予約を解放するかの判断に使う。
+	spoke := false
+
+	// 発話中は混線を止める (§5.1: ナビゲーターの発話と重ならないようにする)。
+	//
+	// 生成にかかる時間は事前に分からないので、まず見込みで押さえておき、
+	// 送出後に**実際の再生時間**で上書きする。生成に失敗した場合は取り消す。
+	// フラグを送出完了で落とすと、bridge がこれから再生する十数秒の間に
+	// 混線が割り込む (実運用で発生)。
 	if n.crosstalk != nil {
-		n.crosstalk.SetSpeaking(session.DeviceID, true)
-		defer n.crosstalk.SetSpeaking(session.DeviceID, false)
+		n.crosstalk.MarkBusy(session.DeviceID, navigatorSpeakReserve)
+		defer func() {
+			// 送出まで到達しなかった場合に予約を解放する。
+			// 成功時は下で実測値に置き換わっているので、ここでは触らない。
+			if !spoke {
+				n.crosstalk.ClearBusy(session.DeviceID)
+			}
+		}()
 	}
 
 	session.mu.Lock()
@@ -102,8 +130,14 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		return fmt.Errorf("GenerateNavigatorReply: %w", err)
 	}
 
-	log.Printf("[navigator %s/%s] (%s L%d) %s",
-		session.DeviceID, session.Character.Name, trigger, level, text)
+	// 文字数を併記する。無線を塞ぐ長さになっていないか運用中に確認するため
+	// (出力ルールで 60 文字以内を指示しているが、生成AIが守るとは限らない)。
+	log.Printf("[navigator %s/%s] (%s L%d, %d runes) %s",
+		session.DeviceID, session.Character.Name, trigger, level, countRunes(text), text)
+	if n := countRunes(text); n > navigatorMaxRunes {
+		log.Printf("[navigator %s] WARN reply too long: %d runes (limit %d)",
+			session.DeviceID, n, navigatorMaxRunes)
+	}
 
 	// 生成AIが角括弧の演技指示を付けてくることがあるため、記録前に取り除く
 	// (表情の指定方法としては廃止済み。tts_prompt.go 参照)。
@@ -115,12 +149,14 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		})
 	}
 
-	// 成功・失敗は効果音を先に鳴らしてからメッセージを再生する (§6)
+	// 成功・失敗は効果音を先に鳴らしてからメッセージを再生する (§6)。
+	// 効果音の再生時間も無線を塞ぐので、発話の分と合算する。
+	sfxDuration := time.Duration(0)
 	switch trigger {
 	case "defused":
-		n.playSFX(sender, sfxSuccessFile)
+		sfxDuration = n.playSFX(sender, sfxSuccessFile)
 	case "exploded":
-		n.playSFX(sender, sfxFailureFile)
+		sfxDuration = n.playSFX(sender, sfxFailureFile)
 	}
 
 	// 表情は場面説明 (ディレクターズノート) で伝える。
@@ -131,20 +167,35 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	buildPrompt := func(chunk string) string {
 		return buildTTSPrompt(session.Character.TTSStyle, note, chunk)
 	}
-	return streamTTSChunks(ctx, n.ttsClient, sender, chunks, buildPrompt,
+	duration, err := speakTTSChunks(ctx, n.ttsClient, sender, chunks, buildPrompt,
 		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]")
+	if err != nil {
+		return err
+	}
+
+	// 実際の再生時間で押さえ直す。ここから鳴り終わるまでが「無線が塞がっている」
+	// 時間で、その間は混線を流さない。効果音を先に鳴らした場合はその分も足す。
+	if total := sfxDuration + duration; total > 0 && n.crosstalk != nil {
+		spoke = true
+		n.crosstalk.SetBusy(session.DeviceID, total)
+	}
+	return nil
 }
 
 // playSFX は効果音アセットを再生する。未制作の場合は黙ってスキップする。
-func (n *GeminiNavigator) playSFX(sender *AudioSender, name string) {
+// 戻り値は送出した効果音の再生時間 (送出しなかった場合は 0)。
+func (n *GeminiNavigator) playSFX(sender *AudioSender, name string) time.Duration {
 	if n.sfxDir == "" {
-		return
+		return 0
 	}
 	path := filepath.Join(n.sfxDir, name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("[navigator] sfx not available (%s): %v", path, err)
-		return
+		return 0
 	}
-	sender.Send(oneshot(data))
+	if !sender.Send(oneshot(data)) {
+		return 0
+	}
+	return oggOpusDuration(data)
 }

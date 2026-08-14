@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"google.golang.org/genai"
@@ -80,6 +81,47 @@ type GeminiConfig struct {
 	TTSModel             string `toml:"tts_model"`
 	TranscribePromptFile string `toml:"transcribe_prompt_file"`
 	TranscribeSchemaFile string `toml:"transcribe_schema_file"`
+
+	// 各API呼び出しのタイムアウト (秒)。0 なら既定値を使う。
+	//
+	// 実運用で TTS が 58 秒かかり、その間ずっと後続チャンクの送出が
+	// 止まる事象が出た。呼び出し側の ctx はプロセス終了まで生きるため、
+	// ここで上限を切らないと無制限に待つ。
+	// 無線は「無音のまま待たされる」のが最悪なので、待ち続けるより
+	// 打ち切ってそのチャンクを捨てるほうがよい (欠けても後続は流れる)。
+	TranscribeTimeoutSec int `toml:"transcribe_timeout_sec"`
+	ReplyTimeoutSec      int `toml:"reply_timeout_sec"`
+	TTSTimeoutSec        int `toml:"tts_timeout_sec"`
+}
+
+// 各API呼び出しのタイムアウト既定値。実測 (Transcribe 2.8-3.1s /
+// reply 1.1-1.2s / TTS 2.2-5.7s) に対して十分な余裕を取りつつ、
+// 詰まったときに無線が沈黙し続けない長さにしてある。
+const (
+	defaultTranscribeTimeout = 20 * time.Second
+	defaultReplyTimeout      = 20 * time.Second
+	defaultTTSTimeout        = 20 * time.Second
+)
+
+// TranscribeTimeout / ReplyTimeout / TTSTimeout は設定値を time.Duration で返す。
+// 未設定 (0) の場合は既定値を返す。
+func (c GeminiConfig) TranscribeTimeout() time.Duration {
+	return timeoutOrDefault(c.TranscribeTimeoutSec, defaultTranscribeTimeout)
+}
+
+func (c GeminiConfig) ReplyTimeout() time.Duration {
+	return timeoutOrDefault(c.ReplyTimeoutSec, defaultReplyTimeout)
+}
+
+func (c GeminiConfig) TTSTimeout() time.Duration {
+	return timeoutOrDefault(c.TTSTimeoutSec, defaultTTSTimeout)
+}
+
+func timeoutOrDefault(sec int, fallback time.Duration) time.Duration {
+	if sec <= 0 {
+		return fallback
+	}
+	return time.Duration(sec) * time.Second
 }
 
 // Validate は接続先が揃っているかを確認する。

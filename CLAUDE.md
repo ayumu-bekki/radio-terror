@@ -161,6 +161,17 @@ Core向けJSONとナビゲーター知識は**同一の抽選結果から機械�
 抽選の余地が消え、切る色が構造的に決まるステージ(203 暗号電文=語の頭文字→対照表の色)が
 組み立て不能になる。203の候補語は全5色分を揃えてある。
 
+### Opus の granule position は常に 48kHz
+
+音声は 24kHz で生成・エンコードしているが、Ogg の granule position は
+**入力レートによらず 48kHz で数える**(RFC 7845 §4)。
+`encodePCMToOggOpus` で `opusGranuleRate / sampleRate` を掛けているのはこのため。
+
+ここを入力レートのまま書くと、**granule から尺を求める側が実尺の半分と誤認する**。
+再生自体はデコード後のサンプル数で行われるため**表面化しにくい**
+(実際、radio-bridge の音声長上限チェックが2倍ゆるく効いていた)。
+尺を使う箇所は `audio_duration.go`(サーバー)と `queue.rs`(bridge)。
+
 ### ナビゲーター知識に固定値を書かない
 
 ステージTOMLの `[navigator]`(briefing / answer / procedure / hint_*)に

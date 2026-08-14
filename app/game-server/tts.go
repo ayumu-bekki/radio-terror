@@ -18,9 +18,17 @@ const (
 	channels    = 1
 	frameSize   = 480   // 20ms @ 24kHz
 	opusBitrate = 16000 // 16kbps
+
+	// opusGranuleRate は Ogg の granule position が使う基準レート。
+	// Opus は入力が何 Hz でも granule を 48kHz で数える (RFC 7845 §4)。
+	opusGranuleRate = 48000
 )
 
 const defaultTTSModel = "gemini-3.1-flash-tts-preview"
+
+// ttsSlowThreshold を超えた TTS 呼び出しはプロンプト全文をログに残す。
+// 実測の正常値は 2.2〜5.7 秒なので、その上に取ってある。
+const ttsSlowThreshold = 10 * time.Second
 
 // defaultTTSVoice は tts_voice が未指定だった場合のフォールバック。
 // 通常はキャラクター定義側で必ず指定する (navigator_character.go が検証する)。
@@ -47,8 +55,9 @@ const ttsPersona = `# VOICE CHARACTER: 無線オペレーターA (Despina)
 
 // TTSClient は Gemini TTS クライアントを保持する。
 type TTSClient struct {
-	client *genai.Client
-	model  string
+	client  *genai.Client
+	model   string
+	timeout time.Duration
 }
 
 // NewTTSClient は設定に応じたバックエンド (Gemini API / Vertex AI) で
@@ -62,7 +71,7 @@ func NewTTSClient(ctx context.Context, cfg GeminiConfig) (*TTSClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
-	return &TTSClient{client: client, model: model}, nil
+	return &TTSClient{client: client, model: model, timeout: cfg.TTSTimeout()}, nil
 }
 
 // GenerateOggOpusFromPrompt は組み立て済みプロンプトから TTS 音声を生成して Ogg Opus で返す。
@@ -83,6 +92,15 @@ func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice 
 	if voice == "" {
 		voice = defaultTTSVoice
 	}
+
+	// チャンクごとに上限を切る。1つが詰まっても他のチャンクは流れる
+	// (speakTTSChunks が失敗チャンクをスキップして続行する)。
+	if t.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, t.timeout)
+		defer cancel()
+	}
+
 	start := time.Now()
 	resp, err := t.client.Models.GenerateContent(ctx, t.model,
 		[]*genai.Content{
@@ -99,7 +117,19 @@ func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice 
 			},
 		},
 	)
-	log.Printf("[gemini] TTS latency: %v", time.Since(start))
+	elapsed := time.Since(start)
+	log.Printf("[gemini] TTS latency: %v (voice=%s, %d runes)", elapsed, voice, countRunes(prompt))
+
+	// 遅かった呼び出しはプロンプト全文を残す。
+	//
+	// 過去に角括弧タグ入りの本文で応答が不安定になった前例があり
+	// (通常2.6秒が最大21.7秒。tts_prompt.go)、**どの入力で詰まるか**が
+	// 分からないと対処できない。チャンクは並列生成されるためレイテンシ行
+	// 単体では対応が取れないので、遅い時だけ本文ごと出す。
+	if elapsed >= ttsSlowThreshold {
+		log.Printf("[gemini] TTS SLOW (%v) prompt=%q", elapsed, prompt)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("GenerateContent: %w", err)
 	}
@@ -121,7 +151,11 @@ func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice 
 	if err != nil {
 		return nil, fmt.Errorf("parsePCM16: %w", err)
 	}
-	log.Printf("[tts] decoded %d samples (%.1fs @ 24kHz)", len(pcm), float64(len(pcm))/sampleRate)
+	// 秒数とプロンプト長を併記する。読み上げ本文に対して音声が不自然に
+	// 長い場合、プロンプトの指示文まで読み上げている疑いがある。
+	seconds := float64(len(pcm)) / sampleRate
+	log.Printf("[tts] decoded %d samples (%.1fs @ 24kHz, prompt %d runes)",
+		len(pcm), seconds, countRunes(prompt))
 
 	return pcm, nil
 }
@@ -214,7 +248,11 @@ func encodePCMToOggOpus(pcm []int16) ([]byte, error) {
 		}
 
 		totalSamples += uint64(frameSize)
-		granule := uint64(preSkip) + totalSamples
+		// granule position は**常に 48kHz 基準**で数える (RFC 7845 §4)。
+		// 入力は 24kHz なのでサンプル数を2倍する。
+		// ここを 24kHz のまま書くと、granule から尺を求める側 (radio-bridge の
+		// 長さ上限チェック) が実尺の半分と誤認する。
+		granule := uint64(preSkip) + totalSamples*(opusGranuleRate/sampleRate)
 		isLast := i+frameSize+frameSize > len(pcm)
 
 		if err := pw.WritePacket(packet[:n], granule, false, isLast); err != nil {
