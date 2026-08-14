@@ -105,8 +105,8 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	log.Printf("[navigator %s/%s] (%s L%d) %s",
 		session.DeviceID, session.Character.Name, trigger, level, text)
 
-	// ログ・マネージャー画面には表情タグを除いた本文を残す。
-	// タグは音声合成への指示で、運営が読む交信記録には不要なノイズになる。
+	// 生成AIが角括弧の演技指示を付けてくることがあるため、記録前に取り除く
+	// (表情の指定方法としては廃止済み。tts_prompt.go 参照)。
 	if n.logs != nil {
 		n.logs.Append(session.SessionID, ConversationEntry{
 			Sender:   session.Character.Name,
@@ -123,9 +123,13 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		n.playSFX(sender, sfxFailureFile)
 	}
 
+	// 表情は場面説明 (ディレクターズノート) で伝える。
+	// 本文に記号を混ぜると TTS の応答が不安定になる (tts_prompt.go 参照)。
+	note := directorNote(trigger)
+
 	chunks := splitAnswerForTTS(text)
 	buildPrompt := func(chunk string) string {
-		return buildTTSPrompt(session.Character.TTSStyle, chunk)
+		return buildTTSPrompt(session.Character.TTSStyle, note, chunk)
 	}
 	return streamTTSChunks(ctx, n.ttsClient, sender, chunks, buildPrompt,
 		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]")

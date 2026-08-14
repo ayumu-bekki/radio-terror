@@ -143,7 +143,7 @@ func (r *TestResponder) Respond(ctx context.Context, sender *AudioSender, result
 
 	chunks := splitAnswerForTTS(text)
 	buildPrompt := func(chunk string) string {
-		return buildTTSPrompt(testResponderTTSStyle, chunk)
+		return buildTTSPrompt(testResponderTTSStyle, "", chunk)
 	}
 	return streamTTSChunks(ctx, r.ttsClient, sender, chunks, buildPrompt,
 		testResponderTTSVoice, "[test-responder "+bridgeID+"]")

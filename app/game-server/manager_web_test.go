@@ -182,11 +182,15 @@ func TestManagerSessionPageNotFound(t *testing.T) {
 func TestManagerHistoryFilter(t *testing.T) {
 	_, mux, store := newTestManagerWeb(t)
 
+	// 日付の境界をまたがないよう、その日の正午を基準にする。
+	// time.Now() を直接使うと深夜0時付近で「同じ日」の前提が崩れる。
 	now := time.Now()
-	saveTestSession(t, store, "s-ok", "0001", deviceStateDefused, now)
-	saveTestSession(t, store, "s-ng", "0002", deviceStateExploded, now.Add(-time.Minute))
+	noon := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.Local)
+
+	saveTestSession(t, store, "s-ok", "0001", deviceStateDefused, noon)
+	saveTestSession(t, store, "s-ng", "0002", deviceStateExploded, noon.Add(-time.Minute))
 	// 前日のセッション (日付絞り込み用)
-	yesterday := now.AddDate(0, 0, -1)
+	yesterday := noon.AddDate(0, 0, -1)
 	saveTestSession(t, store, "s-old", "0001", deviceStateDefused, yesterday)
 
 	cases := []struct {

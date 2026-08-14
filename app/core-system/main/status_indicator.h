@@ -32,13 +32,54 @@ inline constexpr uint8_t Dim(uint8_t value) {
   return static_cast<uint8_t>(value / 5);
 }
 
-/// Playing中の点滅間隔 (通常時)
-inline constexpr uint32_t kPlayingBlinkOnMs = 50;
-inline constexpr uint32_t kPlayingBlinkOffMs = 950;
+/// Playing中の点滅 (§4.1)。
+///
+/// **短く光って長く消える**「パッ … パッ」のリズムから始め、
+/// 残り時間に応じて段階的に速くする。点灯時間は一定 (100ms) にして
+/// 消灯時間だけを詰めるため、加速が素直に伝わる。
+///
+/// 序盤から速く点滅させると「はじめから爆発しそう」に見えてしまうので、
+/// 残り1分を切るまでは落ち着かせておく。
+inline constexpr uint32_t kPlayingBlinkOnMs = 100;
 
-/// Playing中の点滅間隔 (終盤警告時。点滅が速くなる)
-inline constexpr uint32_t kPlayingHurryBlinkOnMs = 50;
-inline constexpr uint32_t kPlayingHurryBlinkOffMs = 250;
+/// 点滅の1段階。
+struct BlinkStage {
+  /// **この残り時間より多い**間、下の off_ms を使う
+  int32_t above_ms;
+  /// 消灯時間
+  uint32_t off_ms;
+};
+
+/// 残り時間ごとの点滅間隔 (残り時間の多い順)。
+///
+/// | 残り | 点灯 | 消灯 | 周期 |
+/// |---|---|---|---|
+/// | 60秒超 | 100ms | 1900ms | 2.0秒 |
+/// | 60秒以下 | 100ms | 1400ms | 1.5秒 |
+/// | 30秒以下 | 100ms | 900ms | 1.0秒 |
+/// | 10秒以下 | 100ms | 400ms | 0.5秒 |
+inline constexpr BlinkStage kPlayingBlinkStages[] = {
+    {60000, 1900},
+    {30000, 1400},
+    {10000, 900},
+    {0, 400},
+};
+
+/// 残り時間に対応する消灯時間を返す。
+///
+/// 表の上から順に「この残り時間より多いか」を見て、最初に該当した段階を使う。
+/// どれにも該当しない (残り0秒付近) 場合は**最後の段階**、つまり最も速い
+/// 点滅になる。ここで先頭の段階へ戻すと、時間切れ寸前に急に遅くなってしまう。
+inline constexpr uint32_t PlayingBlinkOffMs(int32_t remaining_ms) {
+  constexpr size_t kStageNum = sizeof(kPlayingBlinkStages) / sizeof(BlinkStage);
+
+  for (const BlinkStage& stage : kPlayingBlinkStages) {
+    if (stage.above_ms < remaining_ms) {
+      return stage.off_ms;
+    }
+  }
+  return kPlayingBlinkStages[kStageNum - 1].off_ms;
+}
 
 /// Setup中の黄点滅の周期
 inline constexpr uint32_t kSetupBlinkMs = 500;
@@ -84,10 +125,10 @@ inline Pl9823Task::Command MakeWaitingCommand(bool wifi_failed) {
 
 /// 状態に対応するフルカラーLEDのコマンドを組み立てる。
 ///
-/// hurry は Playing中に残り時間が僅少かどうか (点滅を加速する)。
+/// remaining_ms は Playing中の残り時間 (点滅の速さを決める)。
 /// ws_connected / wifi_failed は Setup 以外では無視される。
-inline Pl9823Task::Command MakeCommand(GameState state, bool hurry, bool ws_connected,
-                                       bool wifi_failed) {
+inline Pl9823Task::Command MakeCommand(GameState state, int32_t remaining_ms,
+                                       bool ws_connected, bool wifi_failed) {
   Pl9823Task::Command command;
 
   if (state == STATE_SETUP) {
@@ -114,11 +155,12 @@ inline Pl9823Task::Command MakeCommand(GameState state, bool hurry, bool ws_conn
   }
 
   if (state == STATE_PLAYING) {
-    // 赤の短発点滅 (残り時間僅少で点滅加速)。緊張感を出すので落とさない
+    // 赤の短発点滅。残り時間が減るほど間隔が詰まる (§4.1)。
+    // 緊張感を出す場面なので明るさは落とさない
     command.pattern = Pl9823Task::PATTERN_BLINK;
     command.r = kBrightness;
-    command.on_ms = hurry ? kPlayingHurryBlinkOnMs : kPlayingBlinkOnMs;
-    command.off_ms = hurry ? kPlayingHurryBlinkOffMs : kPlayingBlinkOffMs;
+    command.on_ms = kPlayingBlinkOnMs;
+    command.off_ms = PlayingBlinkOffMs(remaining_ms);
     return command;
   }
 

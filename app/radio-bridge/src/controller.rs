@@ -126,7 +126,12 @@ impl Controller {
     /// decode は async コンテキストで高速に行い、ALSA 書き込みだけを spawn_blocking に渡す。
     async fn handle_playing(&self, player: &AudioPlayer) -> State {
         // 連続再生中に現ストリームのチャンクが尽きたとき、後続をこの時間だけ待つ。
-        const STREAM_TIMEOUT_MS: u64 = 2000;
+        //
+        // TTS は通常2〜3秒かかるため、2秒では**わずかな遅れでも音声が千切れる**。
+        // 実測でナビゲーターの発話が途中で切れたため 5秒 へ伸ばした。
+        // 長くしすぎると遅延中ずっと PTT を握って無線を塞ぐので、
+        // 「大半のケースを救えて、塞ぎすぎない」範囲に留める。
+        const STREAM_TIMEOUT_MS: u64 = 5000;
         const POLL_INTERVAL_MS: u64 = 100;
 
         let stream_id = {

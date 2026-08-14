@@ -150,7 +150,9 @@ func (s *wsSession) writePing() error {
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
 
-	_ = s.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+	if err := s.conn.SetWriteDeadline(time.Now().Add(wsWriteWait)); err != nil {
+		return err
+	}
 	return s.conn.WriteMessage(websocket.PingMessage, nil)
 }
 
@@ -192,6 +194,14 @@ func (s *wsSession) SendJSON(v any) error {
 
 	s.connMu.Lock()
 	defer s.connMu.Unlock()
+
+	// **書き込みのたびに期限を設定し直す**。SetWriteDeadline は接続単位の
+	// 永続設定なので、ping で設定した期限がそのまま残る。更新しないと
+	// 前回の ping から wsWriteWait を過ぎた時点で、接続が生きていても
+	// 即座に i/o timeout になる (session_abort が届かない不具合を起こした)。
+	if err := s.conn.SetWriteDeadline(time.Now().Add(wsWriteWait)); err != nil {
+		return fmt.Errorf("SetWriteDeadline: %w", err)
+	}
 	return s.conn.WriteMessage(websocket.TextMessage, data)
 }
 
