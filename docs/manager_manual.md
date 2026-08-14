@@ -23,6 +23,19 @@ RADIO TERROR を運営する人(マネージャー)のための手順書。
 
 ## 1. 起動前の準備(開場前に1回)
 
+### 1.0 ホストの初期設定(最初の1回だけ)
+
+`docker compose up` 時に Valkey が `Memory overcommit must be enabled!` という警告を出すことがある。
+低メモリ環境(Raspberry Pi など)ではバックグラウンド保存が失敗する要因になるため、
+サーバーを動かすホストで一度だけ設定しておく。
+
+```bash
+echo 'vm.overcommit_memory = 1' | sudo tee -a /etc/sysctl.conf
+sudo sysctl vm.overcommit_memory=1
+```
+
+設定は再起動後も保持されるため、**新しいホストにセットアップしたときの1回だけ**でよい。
+
 ### 1.1 起動順序
 
 1. **サーバー** を起動する
