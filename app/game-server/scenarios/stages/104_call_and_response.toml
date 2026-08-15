@@ -8,7 +8,11 @@ difficulty = "easy"
 
 [random]
 cut = { pick = "line" }
-lit = { pick = "color" }
+# 最初に報告させる点灯色は**切る線と別の色にする**。
+# 同色だと leds が1エントリに潰れ (点灯が点滅で上書きされる)、
+# 「点灯している色を報告 → 最後に点滅している色を切る」という
+# このステージの対話が成立しなくなる。
+lit = { pick = "color", exclude = ["${cut}"] }
 p1 = { pick = "color" }
 p2 = { pick = "color" }
 

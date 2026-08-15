@@ -155,10 +155,21 @@ void System::StartTasks() {
   // イベントが来ない。プルアップ設定後の実レベルを読んで初期状態を渡す
   // (これが無いと、線が切れたまま Ready になる。§4)
   ReportInitialLineStates();
+  // MCP23017 の INTA。**エッジではなくレベルで見る** (§5.2)。
+  //
+  // MCP23017 の割り込みは GPIO を読み出すまでクリアされず、その間 INTA は
+  // LOW に張り付く。一方 GpioInfo の on_up_ は「LOW が3サンプル続いた瞬間」の
+  // 1回しか呼ばれないため、読み出す前に次の入力変化が起きると
+  // **INTA が LOW のまま次の通知も来ず、入力検知が永久に止まる**
+  // (ロータリーを速く回すと検知ログが出なくなる不具合として実機で発生した)。
+  //
+  // AddMonitor は INTA ピンのプルアップ設定のために残し、走査自体は
+  // 毎周期のレベル確認 (ScanIfPending) で行う。取りこぼしても次の周期で拾える。
   gpio_watcher_.AddMonitor(
-      GpioInputWatchTask::GpioInfo(Esp32Pin::kMcp23017Interrupt,
-                                   [this]() { input_scanner_.Scan(); }, nullptr),
+      GpioInputWatchTask::GpioInfo(Esp32Pin::kMcp23017Interrupt, nullptr,
+                                   nullptr),
       GpioInputWatchTask::PULL_UP_REGISTOR_ENABLE);
+  gpio_watcher_.SetPollHandler([this]() { input_scanner_.ScanIfPending(); });
   gpio_watcher_.Start();
 
   // バッテリー電圧監視 (§8.5)。

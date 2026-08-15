@@ -300,14 +300,25 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 
 	sender := NewAudioSender(c.bridges, session.BridgeID)
 
+	// stage_cleared の stage_index は「**クリアした**ステージ」の番号
+	// (デバイスは送信後に AdvanceStage する)。そのまま代入すると
+	// session.StageIndex がクリア済みのステージを指したままになり、
+	// ナビゲーターが**次の課題の知識を持たずに喋る**
+	// (実運用で発生: ステージ2でランプに気づかせるヒントが出なかった)。
+	// この1件だけ +1 して次のステージを指す。
+	nextStage := msg.StageIndex
+	if msg.Type == msgStageCleared {
+		nextStage = msg.StageIndex + 1
+	}
+
 	session.mu.Lock()
 	previousStage := session.StageIndex
-	session.StageIndex = msg.StageIndex
+	session.StageIndex = nextStage
 	session.RemainingMS = msg.RemainingMS
 	if msg.State != "" {
 		session.State = msg.State
 	}
-	stageChanged := msg.StageIndex != previousStage
+	stageChanged := nextStage != previousStage
 	session.mu.Unlock()
 
 	// ステージが切り替わったらヒントレベルを L1 にリセットする

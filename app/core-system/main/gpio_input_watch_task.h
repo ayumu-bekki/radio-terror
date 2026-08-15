@@ -114,9 +114,22 @@ class GpioInputWatchTask final : public Task {
           for (auto&& gpio_info : gpio_list_) {
             gpio_info.Check();
           }
+          if (on_poll_) {
+            on_poll_();
+          }
         }
       }
     }
+  }
+
+  /// 毎周期 (5ms) 呼ぶ処理を登録する。
+  ///
+  /// GpioInfo の on_up_/on_down_ は**レベルが変化した瞬間の1回**しか呼ばれず、
+  /// 「LOW が続いている間ずっと処理したい」用途には使えない
+  /// (カウンタが飽和して二度と発火しない)。MCP23017 の INTA のように
+  /// **読み出すまで LOW に張り付く**信号は、レベルを毎周期見る必要がある。
+  void SetPollHandler(std::function<void()> on_poll) {
+    on_poll_ = std::move(on_poll);
   }
 
   void AddMonitor(GpioInfo gpio_info,
@@ -152,6 +165,7 @@ class GpioInputWatchTask final : public Task {
   MessageQueue<int> message_queue_;
   GPTimer gptimer_;
   std::vector<GpioInfo> gpio_list_;
+  std::function<void()> on_poll_;
 };
 
 #endif  // GPIO_INPUT_WATCH_TASK_H_

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -691,5 +692,55 @@ func TestTutorialProcedureUsesDrawnPath(t *testing.T) {
 	}
 	if len(seen) < 2 {
 		t.Errorf("procedure の数値が %d 種類しかない (固定値で書かれている疑い)", len(seen))
+	}
+}
+
+// TestDistinctLedRolesNotCollapsed は「役割の違うLEDに別々の色を割り当てる」
+// ステージで、**抽選次第で同色になって表示が潰れない**ことを確かめる。
+//
+// leds はテーブルなので同じ色を2回指定すると1エントリに畳まれ、後勝ちで
+// 上書きされる (点灯が点滅で潰れる)。103 ホールド&カットで hold と cut が
+// 同色になると「点滅=押すボタン / 点灯=切る線」の対応が画面に現れず、
+// 104 コール&レスポンスで lit と cut が同色になると
+// 「点灯を報告 → 点滅を切る」という対話そのものが成立しない。
+// どちらも**抽選の2割前後で発生**していた (実プレイで発覚)。
+func TestDistinctLedRolesNotCollapsed(t *testing.T) {
+	lib := loadTestLibrary(t)
+
+	// ステージID → 常に出るべき leds のエントリ数
+	want := map[string]int{
+		"103": 2, // 点滅(押すボタン) + 点灯(切る線)
+		"104": 2, // 点灯(報告させる色) + 点滅(切る線)
+		"306": 3, // 点滅2(押さえる2色) + 点灯1(切る線)
+		"307": 2, // 点滅(押さえるボタン) + 点灯(切る線)
+	}
+
+	ids := make([]string, 0, len(want))
+	for id := range want {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		stageTmpl, err := lib.Stage(id)
+		if err != nil {
+			t.Fatalf("Stage(%s): %v", id, err)
+		}
+		for seed := int64(0); seed < 300; seed++ {
+			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+			built, err := builder.buildStage(stageTmpl, map[string]bool{})
+			if err != nil {
+				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
+			}
+			leds, ok := built.Core["leds"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s seed=%d: leds is not a table", id, seed)
+			}
+			if len(leds) != want[id] {
+				t.Fatalf("%s seed=%d: leds が %d エントリ (want %d) — "+
+					"役割の違う色が同色に抽選され、表示が潰れている",
+					id, seed, len(leds), want[id])
+			}
+		}
 	}
 }

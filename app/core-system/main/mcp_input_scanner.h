@@ -5,6 +5,8 @@
 // MCP23017 のピン変化を GameEvent へ翻訳する (docs/game_session_design.md §5.2)
 
 // Include ----------------------
+#include <driver/gpio.h>
+
 #include <functional>
 
 #include "game_task.h"
@@ -21,14 +23,36 @@ class McpInputScanner final {
  public:
   using EventSink = std::function<void(const GameEvent&)>;
 
-  McpInputScanner(MCP23017* mcp23017, EventSink sink)
-      : mcp23017_(mcp23017), sink_(std::move(sink)) {}
+  /// interrupt_gpio は MCP23017 の INTA を受けている GPIO。
+  /// ScanIfPending() がこのレベルを見て取りこぼしを拾い直す。
+  McpInputScanner(MCP23017* mcp23017, EventSink sink,
+                  gpio_num_t interrupt_gpio = Esp32Pin::kMcp23017Interrupt)
+      : mcp23017_(mcp23017),
+        sink_(std::move(sink)),
+        interrupt_gpio_(interrupt_gpio) {}
+
+  /// INTA が LOW (割り込み要求中) なら Scan() する。
+  ///
+  /// **エッジではなくレベルで見る**のがこの関数の要点。MCP23017 の割り込みは
+  /// GPIO/INTCAP を読むまでクリアされず、その間 INTA は LOW に張り付く。
+  /// 一方 GpioInputWatchTask の通知は「LOW が3サンプル続いた**瞬間**」の
+  /// 1回だけで、以降カウンタが飽和して二度と呼ばれない。
+  ///
+  /// そのため「ロータリーを速く回して、Scan() が走る前に次の変化が起きる」と、
+  /// INTA が LOW のまま次の通知も来ず、**入力検知が永久に止まる**。
+  /// (実機で発生: 高速に回すと rotary ログが出なくなる)
+  ///
+  /// レベルで毎周期見れば、取りこぼしても次の周期で必ず拾い直せる。
+  void ScanIfPending() {
+    if (gpio_get_level(interrupt_gpio_) != 0) {
+      return;  // 割り込み要求なし
+    }
+    Scan();
+  }
 
   /// 全ピンを読み直し、前回値と差分があったピンを通知する。
-  /// INTA割り込みのたびに呼ぶほか、起動時の初期状態取得にも使う。
+  /// 起動時の初期状態取得にも使う。
   void Scan() {
-    bool rotary_changed = false;
-
     for (uint8_t group = 0; group < MCP23017::GPIO_GROUP_NUM; ++group) {
       // グループ単位でI2Cを読み直す
       mcp23017_->RefreshInputGroup(group);
@@ -43,19 +67,19 @@ class McpInputScanner final {
         if (group == Mcp23017Pin::kGroupB) {
           NotifyPushIfMatched(gpio_no, level);
         }
-
-        // ロータリーは接点が複数変化するため、走査後にまとめて確定させる
-        if (group == Mcp23017Pin::kGroupA && Mcp23017Pin::IsRotaryGpio(gpio_no)) {
-          rotary_changed = true;
-        }
       }
     }
 
     has_last_level_ = true;
 
-    if (rotary_changed) {
-      UpdateRotaryPosition();
-    }
+    // ロータリーは**差分の有無によらず毎回確定を試みる**。
+    //
+    // 「差分があったときだけ」にすると、接点が離れている過渡状態
+    // (全OFF) を読んだスキャンで差分を消費してしまい、その後ピンが
+    // 安定しても「差分なし」で確定処理に入れない。読み値から現在位置を
+    // 決めるだけの処理なので、毎回呼んでも副作用はない
+    // (同一位置なら UpdateRotaryPosition 側で通知を抑止する)。
+    UpdateRotaryPosition();
   }
 
  private:
@@ -100,6 +124,7 @@ class McpInputScanner final {
 
   MCP23017* mcp23017_;
   EventSink sink_;
+  gpio_num_t interrupt_gpio_;
 
   bool last_level_[MCP23017::GPIO_GROUP_NUM][MCP23017::GPIO_NUM] = {};
   bool has_last_level_ = false;
