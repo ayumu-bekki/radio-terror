@@ -257,12 +257,18 @@ func TestPromptWarnsAgainstLeakingAnswer(t *testing.T) {
 	}
 }
 
-// TestTutorialStageAsksPlayerForColor は 101 の進め方が
-// 「プレイヤーに色を報告させてから指示する」形になっていることを確かめる。
+// TestTutorialStageNeverNamesCutColor は 101 の進め方が
+// **色名を言わずに「光っているランプと同じ色」で指示する**形に
+// なっていることを確かめる。
 //
-// 101 は正解の色だけが点灯するため、ナビゲーターが先に色名を言うと
-// プレイヤーは装置を見ずに従うだけになり、交信の練習にならない。
-func TestTutorialStageAsksPlayerForColor(t *testing.T) {
+// 101 は正解の色だけが点灯するため、この言い方で一意に決まる。
+// ナビゲーターが色名を言うとプレイヤーは装置を見ずに従うだけになり、
+// 「装置を見て操作する」というチュートリアルの目的が果たせない。
+//
+// かつては「何色が光っているか尋ね、報告を復唱してから切らせる」形だったが、
+// 最後に1往復増えるだけで冗長だった (実プレイで確認)。ゴールを最初に伝え、
+// ダイヤルが合ったらそのまま切らせる形へ変更した。
+func TestTutorialStageNeverNamesCutColor(t *testing.T) {
 	lib := loadTestLibrary(t)
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
 
@@ -276,10 +282,19 @@ func TestTutorialStageAsksPlayerForColor(t *testing.T) {
 	}
 
 	procedure := stage.Navigator["procedure"]
-	for _, want := range []string{"何色", "先に言わせる"} {
-		if !strings.Contains(procedure, want) {
-			t.Errorf("procedure に %q が含まれていない: %s", want, procedure)
-		}
+	// 「光っているランプと同じ色」という指示の形になっていること
+	if !strings.Contains(procedure, "光っているランプと同じ色") {
+		t.Errorf("procedure が『光っているランプと同じ色』の形で指示していない: %s", procedure)
+	}
+	// 色名をこちらから言わない方針が明記されていること
+	if !strings.Contains(procedure, "色名はこちらから言わない") {
+		t.Errorf("procedure に色名禁止の指示がない: %s", procedure)
+	}
+
+	// 正解の色名が procedure に**展開されていない**こと。
+	// ここに色名が入ると、ナビゲーターがそれを読み上げてしまう。
+	if name, ok := colorNameJA[stage.Cut]; ok && strings.Contains(procedure, name) {
+		t.Errorf("procedure に正解の色名 %q が展開されている: %s", name, procedure)
 	}
 
 	// hint_l3 は色名を言わない方針であること

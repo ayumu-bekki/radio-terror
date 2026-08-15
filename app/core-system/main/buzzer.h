@@ -7,6 +7,7 @@
 
 // Include ----------------------
 #include <driver/gpio.h>
+#include <sdkconfig.h>
 
 #include <cstdint>
 
@@ -18,7 +19,9 @@ class Buzzer final {
       : gpio_no_(gpio_no), remaining_ticks_(0), beep_count_(0), is_on_(false),
         continuous_(false) {}
 
-  /// GPIOを出力に設定して消音状態にする
+  /// GPIOを出力に設定して消音状態にする。
+  /// CONFIG_CORE_SYSTEM_BUZZER=n でも出力(LOW)には設定する
+  /// (入力のまま浮かせると外部回路によっては鳴りうるため)
   void Setup() {
     gpio_config_t io_conf = {
         .pin_bit_mask = 1ULL << gpio_no_,
@@ -81,9 +84,18 @@ class Buzzer final {
   }
 
  private:
+  /// 実際に音を出す唯一の箇所。無効時はここだけを止める。
+  ///
+  /// 呼び出し側 (GameTask) は11箇所あり、各所を #if で囲むと足し忘れが起きる。
+  /// is_on_ は更新したままにして、パターン進行 (Tick) の挙動を
+  /// 有効時と完全に同じに保つ (無効化で状態機械の振る舞いを変えない)。
   void SetLevel(bool on) {
     is_on_ = on;
+#if CONFIG_CORE_SYSTEM_BUZZER
     gpio_set_level(gpio_no_, on ? 1 : 0);
+#else
+    gpio_set_level(gpio_no_, 0);
+#endif
   }
 
  private:

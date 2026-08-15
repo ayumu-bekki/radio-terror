@@ -187,6 +187,11 @@ void System::StartTasks() {
 #else
   ESP_LOGW(TAG, "battery monitor disabled (CONFIG_CORE_SYSTEM_BATTERY_MONITOR=n)");
 #endif
+
+#if !CONFIG_CORE_SYSTEM_BUZZER
+  // 無音で動く設定は現場で気づきにくいため起動時に明示する
+  ESP_LOGW(TAG, "buzzer disabled (CONFIG_CORE_SYSTEM_BUZZER=n)");
+#endif
 }
 
 /// 起動時の kLine A-E の状態を GameTask へ通知する。

@@ -44,4 +44,19 @@ menu "Core System Configuration"
             無効にすると測定・報告・Deep Sleep のすべてを行わない
             (マネージャー画面の電池欄は「—」になる)。
 
+    config CORE_SYSTEM_BUZZER
+        bool "Enable buzzer"
+        default y
+        help
+            ブザーの鳴動を有効にする。
+
+            ペナルティ通知・解除成功の短音と、Detonating 中の連続警告音を鳴らす
+            (docs/game_session_design.md §4.1)。
+
+            **開発中や深夜の動作確認では無効にすると静かに検証できる。**
+
+            無効にすると GPIO を出力(LOW)に設定したまま一切駆動しない。
+            鳴動パターンの進行はゲーム状態と独立しているため、
+            有効・無効でゲーム進行やサーバーへの通知は変わらない。
+
 endmenu

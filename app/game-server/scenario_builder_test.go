@@ -647,7 +647,7 @@ func TestTutorialStageHasNoForbiddenRotary(t *testing.T) {
 }
 
 // TestTutorialProcedureUsesDrawnPath は 101 の procedure が
-// 抽選された経路 (via1/via2/final_rotary) で書かれていることを確かめる。
+// 抽選された経路 (via1/final_rotary) で書かれていることを確かめる。
 //
 // かつて procedure に中間経路を固定値で書いていたところ、その値が
 // 危険位置の抽選と衝突し「そこへ回せ」と「そこは危険」を同時に言う
@@ -740,6 +740,66 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 				t.Fatalf("%s seed=%d: leds が %d エントリ (want %d) — "+
 					"役割の違う色が同色に抽選され、表示が潰れている",
 					id, seed, len(leds), want[id])
+			}
+		}
+	}
+}
+
+// TestUnobservableInfoRevealedAtL1 は「**装置を見ても分からない情報**」を持つ
+// ステージが、L1 の時点でそれを伝えるようになっていることを確かめる。
+//
+// ボタンを押す順番 (102/201/305) や危険なダイヤル位置 (209) は装置に一切現れず、
+// ナビゲーターしか知らない。これを伏せるとプレイヤーは観察でも推理でも
+// たどり着けず、無線が「順番を教えて」の往復で浪費されるだけになる
+// (102 の実プレイで発生。開始から約1分間、色が一切伝わらなかった)。
+// 209 に至っては、知らずに踏むと即爆発するので罰としても理不尽。
+//
+// 伏せてよいのは**推理できる情報**だけ。ヒント段階で調整するのは
+// 「一度に何色まで言うか」であって、言うか言わないかではない。
+func TestUnobservableInfoRevealedAtL1(t *testing.T) {
+	lib := loadTestLibrary(t)
+
+	// ステージID → hint_l1 に必ず現れるべき抽選変数
+	want := map[string][]string{
+		"102": {"p1"},                         // 1色目は必ず伝える
+		"201": {"p1", "p2", "p3", "p4", "p5"}, // 列は最初から読み上げる
+		"305": {"p1", "p2", "p3", "p4", "p5"}, // 1周目は読み上げる (2周目は伏せてよい)
+		"209": {"forbidden"},                  // 危険位置は先に警告する
+	}
+
+	ids := make([]string, 0, len(want))
+	for id := range want {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		stageTmpl, err := lib.Stage(id)
+		if err != nil {
+			t.Fatalf("Stage(%s): %v", id, err)
+		}
+		// テンプレート段階で ${変数} が hint_l1 に書かれているかを見る
+		// (展開後の値は他の語と紛れるため、定義そのものを検証する)
+		hintL1 := stageTmpl.Navigator["hint_l1"]
+		for _, v := range want[id] {
+			ref := "${" + v + "}"
+			if !strings.Contains(hintL1, ref) {
+				t.Errorf("%s: hint_l1 が %s を伝えていない — "+
+					"装置を見ても分からない情報を伏せるとプレイヤーが手詰まりになる:\n  %s",
+					id, ref, hintL1)
+			}
+		}
+
+		// 展開しても未解決の変数が残らないこと
+		for seed := int64(0); seed < 20; seed++ {
+			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+			built, err := builder.buildStage(stageTmpl, map[string]bool{})
+			if err != nil {
+				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
+			}
+			if varPattern.MatchString(built.Navigator["hint_l1"]) {
+				t.Fatalf("%s seed=%d: hint_l1 に未解決の変数: %s",
+					id, seed, built.Navigator["hint_l1"])
 			}
 		}
 	}

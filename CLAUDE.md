@@ -35,7 +35,7 @@ go test -run TestKeepaliveAcceptsBridgePings -keepalive -timeout 420s -v
 cd app/core-system
 source /opt/esp-idf/export.sh   # または get_idf
 idf.py build                    # ESP-IDF v6.0
-idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)・バッテリー監視の設定
+idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)・バッテリー監視・ブザーの設定
 ```
 
 - **必ずプロジェクトルート (`app/core-system`) で実行する**。`main/` で実行すると
@@ -201,6 +201,13 @@ Core向けJSONとナビゲーター知識は**同一の抽選結果から機械�
 (危険位置自体はその後チュートリアルから廃止したが、原則は変わらない)。
 手順に出る値は `[random]` の変数にして、衝突しうる値を `exclude` で外す。
 回帰は `TestTutorialProcedureUsesDrawnPath` が押さえている。
+
+**装置に現れない情報はヒントレベルで出し惜しみしない**。ボタンを押す順番
+(102/201/305)・危険なダイヤル位置 (209) はナビゲーターしか知らず、伏せると
+プレイヤーが手詰まりになる(102 の実プレイで、開始から1分間色が伝わらなかった)。
+段階的に明かすのは**推理できる情報**だけ。`hint_l1` に抽選変数を書いて必ず伝える。
+`HintPolicyText` の共通文にも「指針が優先」と明記してある — 一般則だけだと
+生成AIがそちらを選び、色を伏せてしまう。
 
 **正解は「今は言うな」とセットで渡す**。プロンプトには常に正解が入るので、
 禁止指示が離れた位置にあると生成AIが引きずられる(L3 で正解の色名を
