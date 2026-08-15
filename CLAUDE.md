@@ -93,6 +93,22 @@ cp game-server/config.sample.toml game-server/config.toml  # project/location �
 docker compose up
 ```
 
+起動ログの先頭3行で、バイナリと設定を切り分けられる:
+
+```
+[boot] commit: 1fcd431ca78a-dirty / go1.25.13
+[boot] config: config.toml
+[boot] manager secret words: 2 word(s): で…(3), 電…(2)
+```
+
+**設定を直したのに反映されない**ときは、まずこの3行を見る。commit が想定と
+違えばコンテナが古い。秘密ワードの語数が想定と違えば設定かバイナリが古い
+(`"でんぱ,電波"` を1語と数えるのは、カンマ区切り対応前のバイナリ)。
+
+commit id は `go build` が `.git` から自動で埋め込む。そのため
+**compose の build context はリポジトリルート**にしてある(`app/` だと
+`.git` が見えず commit が空になる)。重い成果物は `/.dockerignore` で除外済み。
+
 Management Console: <http://localhost:8080/manager>
 
 ## アーキテクチャ

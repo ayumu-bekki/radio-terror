@@ -28,6 +28,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("LoadConfig: %v", err)
 	}
+	logStartupBanner(configPath, cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

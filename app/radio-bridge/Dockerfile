@@ -8,8 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY proto/ proto/
-COPY radio-bridge/ radio-bridge/
+# context はリポジトリルート (compose.yaml 参照)
+COPY app/proto/ proto/
+COPY app/radio-bridge/ radio-bridge/
 
 WORKDIR /build/radio-bridge
 RUN cargo build --release
