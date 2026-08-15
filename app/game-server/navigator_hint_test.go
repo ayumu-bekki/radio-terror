@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -146,5 +147,61 @@ func TestStageProgressReset(t *testing.T) {
 	if progress.Questions != 0 || progress.WrongActions != 0 {
 		t.Errorf("after Reset: questions=%d wrongActions=%d, want 0 0",
 			progress.Questions, progress.WrongActions)
+	}
+}
+
+// TestL4RespectsStageLevelRestriction は L4 (直言) のプロンプトが
+// **ステージ側の「これは言うな」という但し書きを優先する**よう
+// 指示していることを確かめる (docs/navigator_design.md §5 決定19・決定20)。
+//
+// 205 ブループリントは色名を言うとシートを読む工程が消えてしまうため、
+// L4 でも端子番号しか言えない。L4 のブロックは「正解をそのまま伝えてよい」と
+// 書くため、但し書きの優先を明示しないと **そのまま読み上げて色が漏れる**。
+func TestL4RespectsStageLevelRestriction(t *testing.T) {
+	stage := &BuiltStage{
+		TemplateID: "205",
+		Navigator: map[string]string{
+			"answer": "正解は端子T5の線 = 白色。プレイヤーに伝えてよいのは端子番号だけ。",
+		},
+	}
+
+	text := HintPolicyText(HintL4, stage)
+
+	// 正解文そのものは渡っていること (照合に必要)
+	if !strings.Contains(text, stage.Navigator["answer"]) {
+		t.Fatalf("L4 に answer が含まれていない:\n%s", text)
+	}
+	// 但し書きが優先される旨が書かれていること
+	if !strings.Contains(text, "但し書きが優先") {
+		t.Errorf("L4 が「但し書きの優先」を指示していない — "+
+			"ステージ側の『言うな』が無視されて漏れる:\n%s", text)
+	}
+}
+
+// TestHintPolicyBelowL4NeverEmbedsAnswer は L1-L3 のプロンプトブロックに
+// **正解文そのものが埋め込まれない**ことを確かめる。
+//
+// 正解は [D] セッション状態側で「⚠ 口に出すな」と併記して渡す設計
+// (navigator_prompt.go)。ヒントポリシー側にも正解文が入ると、禁止と併記されない
+// 2つ目の正解がプロンプト内に生まれ、決定19 で塞いだ漏洩経路が復活する。
+func TestHintPolicyBelowL4NeverEmbedsAnswer(t *testing.T) {
+	const answer = "正解は白色の線を切ること"
+
+	stage := &BuiltStage{
+		TemplateID: "208",
+		Navigator: map[string]string{
+			"answer":  answer,
+			"hint_l1": "よく観察するよう促す",
+			"hint_l2": "判断基準を示す",
+			"hint_l3": "手順を示す",
+		},
+	}
+
+	for _, level := range []int{HintL1, HintL2, HintL3} {
+		text := HintPolicyText(level, stage)
+		if strings.Contains(text, answer) {
+			t.Errorf("L%d のヒントポリシーに正解文が埋め込まれている "+
+				"(禁止の併記なしに正解が2箇所へ入る):\n%s", level, text)
+		}
 	}
 }
