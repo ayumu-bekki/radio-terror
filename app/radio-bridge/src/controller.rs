@@ -1,7 +1,7 @@
 use crate::audio::player::{AudioPlayer, decode_ogg_opus, write_pcm_to_alsa};
 use crate::audio::recorder::AudioRecorder;
 use crate::config::Config;
-use crate::queue::{AudioQueue, StreamStatus};
+use crate::queue::AudioQueue;
 use rppal::gpio::{Gpio, OutputPin};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -84,7 +84,7 @@ impl Controller {
         loop {
             let has_queue = {
                 let q = self.queue.lock().unwrap();
-                q.has_stream()
+                q.has_audio()
             };
 
             if has_queue {
@@ -120,96 +120,37 @@ impl Controller {
         State::Playing
     }
 
-    /// ストリームのチャンクを全て収集してからPCMを結合し、1回のALSA書き込みで再生する。
+    /// キュー先頭の音声を1つ取り出し、1回のALSA書き込みで再生する。
     ///
-    /// チャンクごとに ALSA を open/close すると先頭クリック音と無音ギャップが生じる。
+    /// **1 エントリ = 1 再生サイクル**。サーバーは発話を分割せず 1 パケットで
+    /// 送るため、ここで後続を待ち合わせる必要はない。
     /// decode は async コンテキストで高速に行い、ALSA 書き込みだけを spawn_blocking に渡す。
     async fn handle_playing(&self, player: &AudioPlayer) -> State {
-        // 連続再生中に現ストリームのチャンクが尽きたとき、後続をこの時間だけ待つ。
-        //
-        // TTS は通常2〜3秒かかるため、2秒では**わずかな遅れでも音声が千切れる**。
-        // 実測でナビゲーターの発話が途中で切れたため 5秒 へ伸ばした。
-        // 長くしすぎると遅延中ずっと PTT を握って無線を塞ぐので、
-        // 「大半のケースを救えて、塞ぎすぎない」範囲に留める。
-        const STREAM_TIMEOUT_MS: u64 = 5000;
-        const POLL_INTERVAL_MS: u64 = 100;
-
-        let stream_id = {
-            let q = self.queue.lock().unwrap();
-            match q.current_stream() {
-                Some(id) => id.to_string(),
+        let entry = {
+            let mut q = self.queue.lock().unwrap();
+            match q.pop() {
+                Some(entry) => entry,
                 None => {
-                    warn!("PLAYING state but no stream queued, going to PTT_OFF");
+                    warn!("PLAYING state but no audio queued, going to PTT_OFF");
                     return State::PttOff;
                 }
             }
         };
-        info!(%stream_id, "stream playback started");
 
-        // ストリーム全体の 24kHz PCM を積み上げる。terminal chunk が来たら一括再生。
-        let mut all_pcm: Vec<i16> = Vec::new();
-
-        loop {
-            let entry = {
-                let mut q = self.queue.lock().unwrap();
-                q.pop_current()
-            };
-
-            if let Some(entry) = entry {
-                let is_terminal = matches!(
-                    entry.status,
-                    StreamStatus::End | StreamStatus::Oneshot
+        // デコードは軽量な同期処理なので async コンテキストで直接実行する。
+        match decode_ogg_opus(&entry.ogg_opus_data) {
+            Ok(pcm) => {
+                info!(
+                    samples = pcm.len(),
+                    duration_secs = pcm.len() as f32 / 24000.0,
+                    "decoded audio, playing"
                 );
-
-                // デコードは軽量な同期処理なので async コンテキストで直接実行する。
-                match decode_ogg_opus(&entry.ogg_opus_data) {
-                    Ok(pcm) => {
-                        info!(
-                            chunk_samples = pcm.len(),
-                            duration_secs = pcm.len() as f32 / 24000.0,
-                            status = ?entry.status,
-                            "decoded audio chunk"
-                        );
-                        all_pcm.extend(pcm);
-                    }
-                    Err(e) => error!("decode error: {e}"),
-                }
-
-                if is_terminal {
-                    info!(%stream_id, total_samples = all_pcm.len(), "stream complete, playing");
-                    self.play_pcm(player, all_pcm).await;
-                    self.queue.lock().unwrap().finish_current();
-                    return State::PttOff;
-                }
-                continue;
+                self.play_pcm(player, pcm).await;
             }
-
-            // 現ストリームのチャンクが一時的に尽きた。STREAM_TIMEOUT_MS だけ後続を待つ。
-            let mut waited = 0;
-            let mut resumed = false;
-            while waited < STREAM_TIMEOUT_MS {
-                sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
-                waited += POLL_INTERVAL_MS;
-                let has_chunk = {
-                    let q = self.queue.lock().unwrap();
-                    q.current_has_chunk()
-                };
-                if has_chunk {
-                    resumed = true;
-                    break;
-                }
-            }
-
-            if resumed {
-                continue;
-            }
-
-            // タイムアウト: 収集済み PCM をそのまま再生して終了。
-            info!(%stream_id, total_samples = all_pcm.len(), "stream timeout, playing accumulated");
-            self.play_pcm(player, all_pcm).await;
-            self.queue.lock().unwrap().finish_current();
-            return State::PttOff;
+            Err(e) => error!("decode error: {e}"),
         }
+
+        State::PttOff
     }
 
     /// 24kHz mono PCM を1回のALSA open/write/drain/close で再生する。
@@ -248,7 +189,7 @@ impl Controller {
 
         let has_queue = {
             let q = self.queue.lock().unwrap();
-            q.has_stream()
+            q.has_audio()
         };
 
         if has_queue {
@@ -269,7 +210,7 @@ impl Controller {
                 info!("mic recording finished");
                 let has_queue = {
                     let q = self.queue.lock().unwrap();
-                    q.has_stream()
+                    q.has_audio()
                 };
                 if has_queue {
                     info!("state: LISTENING -> PTT_ON");

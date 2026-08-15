@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -31,9 +30,6 @@ type bridgeClient struct {
 
 	recorder *recorder
 	player   *player
-
-	// oneshotCounter は ONESHOT チャンクに振る内部 stream_id の連番
-	oneshotCounter atomic.Uint64
 }
 
 func newBridgeClient(cfg ServerConfig, rec *recorder, pl *player) *bridgeClient {
@@ -107,10 +103,8 @@ func (c *bridgeClient) connectOnce(ctx context.Context) error {
 					return
 				}
 				log.Printf("[grpc] sending audio to server: %d bytes", len(data))
-				// マイク受信音声は単発再生扱い
 				if err := stream.Send(&pb.AudioChunk{
 					OggOpusData: data,
-					Status:      pb.StreamStatus_ONESHOT,
 				}); err != nil {
 					log.Printf("[grpc] send error: %v", err)
 					cancel()
@@ -134,27 +128,8 @@ func (c *bridgeClient) connectOnce(ctx context.Context) error {
 			return fmt.Errorf("stream.Recv: %w", err)
 		}
 
-		log.Printf("[grpc] received audio from server: %d bytes (status=%s stream_id=%s)",
-			len(chunk.OggOpusData), chunk.Status, chunk.StreamId)
+		log.Printf("[grpc] received audio from server: %d bytes", len(chunk.OggOpusData))
 
-		// ONESHOT は stream_id を内部生成する (空文字列をキーにしない)。
-		// stream 系 (START/CONTINUE/END) で stream_id が空なら破棄する。
-		var streamID string
-		switch chunk.Status {
-		case pb.StreamStatus_ONESHOT:
-			streamID = fmt.Sprintf("__oneshot_%d", c.oneshotCounter.Add(1))
-		case pb.StreamStatus_START, pb.StreamStatus_CONTINUE, pb.StreamStatus_END:
-			if chunk.StreamId == "" {
-				log.Printf("[grpc] audio discarded: stream_id is empty for stream chunk (status=%s)", chunk.Status)
-				continue
-			}
-			streamID = chunk.StreamId
-		default:
-			// UNKNOWN(0) / 未知値は player.push 内でも破棄されるが、ここで先に弾く。
-			log.Printf("[grpc] audio discarded: invalid status (raw=%d)", int32(chunk.Status))
-			continue
-		}
-
-		c.player.push(chunk.OggOpusData, chunk.Status, streamID)
+		c.player.push(chunk.OggOpusData)
 	}
 }

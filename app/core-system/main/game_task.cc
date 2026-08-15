@@ -258,6 +258,22 @@ void GameTask::HandleLineChanged(ColorId color, bool connected) {
   if (line_connected_[color] == connected) {
     return;
   }
+
+  // プレイ中に切れた線が結線へ戻ることは物理的に起こらない。
+  // ニッパーの切断面が数十ms単位で接触し直すため、切断→結線→切断が
+  // 連続して届く。これを受け付けると2度目の切断が OnLineCut に流れ、
+  // ステージ遷移後なら「誤った線の切断」として即爆発する
+  // (実機で 40ms/20ms 間隔のバウンスにより発生)。
+  //
+  // GpioInputWatchTask のデバウンス (5ms x 3回) より長い間隔で届くので
+  // フィルタ時間の延長では防げない。切断済みの線への結線通知を
+  // 破棄することで、OnLineCut を1本につき1回だけに保つ。
+  // Setup 中の復帰は復旧ガイドに必要なため対象外 (§4.1)。
+  if (state_ == STATE_PLAYING && connected) {
+    ESP_LOGI(TAG, "line %c reconnect ignored (bounce)", ColorToChar(color));
+    return;
+  }
+
   line_connected_[color] = connected;
 
   ESP_LOGI(TAG, "line %c %s", ColorToChar(color), connected ? "connected" : "cut");

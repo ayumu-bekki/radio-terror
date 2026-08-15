@@ -84,11 +84,10 @@ type GeminiConfig struct {
 
 	// 各API呼び出しのタイムアウト (秒)。0 なら既定値を使う。
 	//
-	// 実運用で TTS が 58 秒かかり、その間ずっと後続チャンクの送出が
-	// 止まる事象が出た。呼び出し側の ctx はプロセス終了まで生きるため、
-	// ここで上限を切らないと無制限に待つ。
-	// 無線は「無音のまま待たされる」のが最悪なので、待ち続けるより
-	// 打ち切ってそのチャンクを捨てるほうがよい (欠けても後続は流れる)。
+	// 実運用で TTS が 58 秒かかり、その間ずっと発話が止まる事象が出た。
+	// 呼び出し側の ctx はプロセス終了まで生きるため、ここで上限を切らないと
+	// 無制限に待つ。無線は「無音のまま待たされる」のが最悪なので、
+	// 待ち続けるより打ち切ってその発話を捨てるほうがよい。
 	TranscribeTimeoutSec int `toml:"transcribe_timeout_sec"`
 	ReplyTimeoutSec      int `toml:"reply_timeout_sec"`
 	TTSTimeoutSec        int `toml:"tts_timeout_sec"`

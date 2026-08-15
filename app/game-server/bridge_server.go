@@ -66,14 +66,11 @@ func (s *BridgeServer) Connect(stream pb.TransceiverService_ConnectServer) error
 				}
 				if err := stream.Send(&pb.AudioChunk{
 					OggOpusData: out.Data,
-					Status:      out.Status,
-					StreamId:    out.StreamID,
 				}); err != nil {
 					sendErrCh <- fmt.Errorf("stream.Send: %w", err)
 					return
 				}
-				log.Printf("[bridge %s] sent audio: %d bytes (status=%s stream_id=%s)",
-					bridgeID, len(out.Data), out.Status, out.StreamID)
+				log.Printf("[bridge %s] sent audio: %d bytes", bridgeID, len(out.Data))
 			case <-ctx.Done():
 				sendErrCh <- nil
 				return

@@ -1,9 +1,6 @@
 use crate::audio::recorder::AudioRecorder;
-use crate::queue::{AudioQueue, QueueError, StreamStatus};
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc, Mutex,
-};
+use crate::queue::{AudioQueue, QueueError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -12,8 +9,7 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use tracing::{error, info, warn};
 
-use super::proto_types::proto;
-use super::proto_types::map_status;
+use super::proto;
 use proto::transceiver_service_client::TransceiverServiceClient;
 use proto::AudioChunk;
 
@@ -36,9 +32,6 @@ pub struct BridgeClient {
 
     queue: Arc<Mutex<AudioQueue>>,
     recorder: Arc<AudioRecorder>,
-
-    /// ONESHOT チャンクに振る接続スコープの連番
-    oneshot_counter: Arc<AtomicU64>,
 }
 
 impl BridgeClient {
@@ -55,7 +48,6 @@ impl BridgeClient {
             reconnect_interval,
             queue,
             recorder,
-            oneshot_counter: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -103,12 +95,7 @@ impl BridgeClient {
             loop {
                 match recorder_rx.recv().await {
                     Ok(ogg_data) => {
-                        let chunk = AudioChunk {
-                            ogg_opus_data: ogg_data,
-                            // マイク受信音声は単発再生扱い
-                            status: proto::StreamStatus::Oneshot as i32,
-                            stream_id: String::new(),
-                        };
+                        let chunk = AudioChunk { ogg_opus_data: ogg_data };
                         if tx.send(chunk).await.is_err() {
                             info!(bridge_id = %bridge_id_send, "send stream closed");
                             break;
@@ -153,45 +140,14 @@ impl BridgeClient {
             };
 
             let bytes = chunk.ogg_opus_data.len();
-            let status = match map_status(chunk.status) {
-                Some(s) => s,
-                None => {
-                    warn!(
-                        bridge_id = %self.bridge_id,
-                        raw_status = chunk.status,
-                        "audio discarded: invalid status (UNKNOWN)"
-                    );
-                    continue;
-                }
-            };
-
-            // ONESHOT は stream_id を内部生成する (空文字列をキーにしない)。
-            // stream 系 (START/CONTINUE/END) で stream_id が空なら破棄する。
-            let stream_id = match status {
-                StreamStatus::Oneshot => {
-                    let n = self.oneshot_counter.fetch_add(1, Ordering::Relaxed);
-                    format!("__oneshot_{}_{n}", self.bridge_id)
-                }
-                _ => {
-                    if chunk.stream_id.is_empty() {
-                        warn!(
-                            bridge_id = %self.bridge_id,
-                            ?status,
-                            "audio discarded: stream_id is empty for stream chunk"
-                        );
-                        continue;
-                    }
-                    chunk.stream_id
-                }
-            };
 
             let result = {
                 let mut q = self.queue.lock().unwrap();
-                q.push(chunk.ogg_opus_data, status, stream_id)
+                q.push(chunk.ogg_opus_data)
             };
             match result {
                 Ok(pos) => {
-                    info!(bridge_id = %self.bridge_id, bytes, position = pos, ?status, "audio queued");
+                    info!(bridge_id = %self.bridge_id, bytes, position = pos, "audio queued");
                 }
                 Err(QueueError::TooLong(d)) => {
                     warn!(
@@ -205,9 +161,6 @@ impl BridgeClient {
                 }
                 Err(QueueError::ParseError(msg)) => {
                     warn!(bridge_id = %self.bridge_id, %msg, "audio rejected: parse error");
-                }
-                Err(QueueError::StreamClosed(id)) => {
-                    warn!(bridge_id = %self.bridge_id, stream_id = %id, "audio discarded: stream closed");
                 }
             }
         }

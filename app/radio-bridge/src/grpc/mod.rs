@@ -1,2 +1,5 @@
 pub mod client;
-pub mod proto_types;
+
+pub mod proto {
+    tonic::include_proto!("transceiver");
+}

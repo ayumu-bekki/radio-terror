@@ -246,7 +246,6 @@ func recordAndSend(ctx context.Context, cancel context.CancelFunc, stream grpc.B
 				printLine(fmt.Sprintf("[send] sending %d bytes...", len(ogg)))
 				if err := stream.Send(&pb.AudioChunk{
 					OggOpusData: ogg,
-					Status:      pb.StreamStatus_ONESHOT,
 				}); err != nil {
 					return fmt.Errorf("[send] stream send error: %w", err)
 				}

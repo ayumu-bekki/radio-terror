@@ -1,22 +1,22 @@
 package main
 
-import pb "game-server/gen"
-
 // outgoingAudio は radio-bridge へ送出する 1 つの音声パケットを表す。
 // BridgeServer の送信ループがこの型を AudioChunk へ変換して送信する。
 //
-//   - 単発再生: Status=ONESHOT, StreamID="" で 1 パケット送出。
-//   - 連続再生 (分割送信): 同一 StreamID に START → CONTINUE... → END を付けて
-//     チャンクごとに送出。radio-bridge は同一 StreamID を 1 区間で連続再生する。
+// **1 パケット = 1 再生サイクル (ワンショット)**。radio-bridge は受け取った
+// 音声をそのまま 1 回の PTT 区間で再生する。
+//
+// かつては同一 StreamID に START → CONTINUE... → END を付けて複数チャンクを
+// 1 区間へ束ねる分割送信を持っていたが、TTS をストリーミング受信して
+// 分割せず生成する方式へ移行したため廃止した
+// (docs/bridge_connection_design.md §2 決定14)。
 type outgoingAudio struct {
-	Data     []byte
-	Status   pb.StreamStatus
-	StreamID string
+	Data []byte
 }
 
-// oneshot は単発再生用の outgoingAudio を組み立てるヘルパー。
+// oneshot は送出用の outgoingAudio を組み立てるヘルパー。
 func oneshot(data []byte) outgoingAudio {
-	return outgoingAudio{Data: data, Status: pb.StreamStatus_ONESHOT}
+	return outgoingAudio{Data: data}
 }
 
 // AudioSender は送出先の bridge が確定した状態の送信口。
