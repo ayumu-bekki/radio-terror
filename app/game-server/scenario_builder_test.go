@@ -271,11 +271,14 @@ func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 // モールスは短点=1単位・長点=3単位の非対称なリズムなので、妨害を対称に
 // しておけば「これはモールスではない」と見分けられる。非対称になると
 // 妨害がモールスに見えてしまい、意図した難度から外れる。
+//
+// 304 は現在無効化中 (.toml.disabled)。noise_leds の実装自体は残っているため、
+// 復活させたときに壊れていないよう検証も残し、未ロード時はスキップする。
 func TestNoiseLedsAreSymmetric(t *testing.T) {
 	lib := loadTestLibrary(t)
 	stageTmpl, err := lib.Stage("304")
 	if err != nil {
-		t.Fatalf("Stage(304): %v", err)
+		t.Skip("304 は無効化中 (.toml.disabled): noise_leds の検証をスキップ")
 	}
 
 	kinds := map[string]bool{}
@@ -342,11 +345,16 @@ func TestNoiseLedsAreSymmetric(t *testing.T) {
 }
 
 // TestSpeedRankingConsistency は 208 速さくらべで、
-// **ナビゲーター知識の「速い順」の並びが実際のLED速度と一致する**ことを確かめる。
+// **ナビゲーター知識の「速い順」の並びが実際のLED速度と一致する**ことと、
+// **正解が必ず最速である**ことを確かめる。
 //
 // 並びが実機とずれるとナビゲーターが誤った順位を伝え、プレイヤーが
 // 理不尽に失敗する。この整合はテンプレートの書き方だけで保っているため、
 // 変数の並び順を崩す編集を検出できるようにしておく。
+//
+// 正解が最速から外れると answer が「○番目に速い色」を指す形になり、
+// ナビゲーターが色名を言えなくなる (213 光の長さを無効化したのと同じ問題。
+// docs/puzzle_stage_ideas.md §5)。ここが回帰の要。
 func TestSpeedRankingConsistency(t *testing.T) {
 	lib := loadTestLibrary(t)
 	stageTmpl, err := lib.Stage("208")
@@ -354,11 +362,13 @@ func TestSpeedRankingConsistency(t *testing.T) {
 		t.Fatalf("Stage(208): %v", err)
 	}
 
-	// answer の「速い順に X(最速) → Y → Z → W → V(最遅)」から並びを取る。
+	// answer の「速い順は X(最速) → Y → Z → W(最遅)」から点滅4色の並びを取る。
 	// ナビゲーター知識は無線で読み上げるため**日本語色名**で展開される
 	// (Core向けJSON は A-E のまま)。
 	orderRe := regexp.MustCompile(
-		`速い順に (.)\(最速\) → (.) → (.) → (.) → (.)\(最遅\)`)
+		`速い順は (.)\(最速\) → (.) → (.) → (.)\(最遅\)`)
+	// 点灯しっぱなしの基準色 (数に入れない色)
+	steadyRe := regexp.MustCompile(`点灯しっぱなしなのは(.)色`)
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
@@ -372,8 +382,8 @@ func TestSpeedRankingConsistency(t *testing.T) {
 			t.Fatalf("seed=%d: answer から速い順を読み取れない: %s", seed, built.Navigator["answer"])
 		}
 		// 日本語色名を色コードへ戻して、leds (A-E キー) と突き合わせる
-		order := make([]string, 0, 5)
-		for _, name := range m[1:6] {
+		order := make([]string, 0, 4)
+		for _, name := range m[1:5] {
 			code, ok := colorCodeFromJA(name)
 			if !ok {
 				t.Fatalf("seed=%d: 未知の色名 %q (answer=%s)", seed, name, built.Navigator["answer"])
@@ -384,6 +394,20 @@ func TestSpeedRankingConsistency(t *testing.T) {
 		leds, ok := built.Core["leds"].(map[string]any)
 		if !ok || len(leds) != len(allColors) {
 			t.Fatalf("seed=%d: leds が5色分ない", seed)
+		}
+
+		// 基準色は点灯しっぱなし ("on") であること。
+		// 点滅させてしまうと「数に入れない色」が見分けられなくなる。
+		sm := steadyRe.FindStringSubmatch(built.Navigator["answer"])
+		if sm == nil {
+			t.Fatalf("seed=%d: answer から基準色を読み取れない: %s", seed, built.Navigator["answer"])
+		}
+		steady, ok := colorCodeFromJA(sm[1])
+		if !ok {
+			t.Fatalf("seed=%d: 未知の基準色名 %q", seed, sm[1])
+		}
+		if leds[steady] != "on" {
+			t.Errorf("seed=%d: 基準色 %s が点灯しっぱなしでない: %v", seed, steady, leds[steady])
 		}
 
 		// answer の並びどおりに速度が単調増加していること (速い→遅い)
@@ -408,15 +432,14 @@ func TestSpeedRankingConsistency(t *testing.T) {
 			prev = onMS
 		}
 
-		// cut がこの5色のいずれかであること
-		found := false
-		for _, color := range order {
-			if color == built.Cut {
-				found = true
-			}
+		// **正解は必ず最速**であること (中間順位に置くと色名で救済できなくなる)
+		if built.Cut != order[0] {
+			t.Fatalf("seed=%d: cut %q が最速 %q でない — ナビゲーターが色名を言えなくなる",
+				seed, built.Cut, order[0])
 		}
-		if !found {
-			t.Errorf("seed=%d: cut %q が並びに含まれない", seed, built.Cut)
+		// 基準色を正解にしない (点灯 = 正解 とプレイヤーが誤学習する)
+		if built.Cut == steady {
+			t.Errorf("seed=%d: 基準色 %q が正解になった", seed, built.Cut)
 		}
 	}
 }
@@ -438,9 +461,13 @@ func toInt(v any) (int, error) {
 // TestAsLineExcludesUsedLines は 208 速さくらべで、
 // **既に切られた線が正解に選ばれない**ことを確かめる。
 //
-// 5色すべてを点滅させるステージでは `pick = "color"` の重複制約が効かないため、
-// `choice` の `as_line` で明示的に除外している。表示(5色)は狭まらず、
-// 正解だけが未使用の線に限られる。
+// 208 は5色すべてを表示に使う (基準1色 + 点滅4色) ため、正解だけは
+// 未使用の線に限る必要がある。cut を `pick = "line"` で**先に**引き、
+// 残りの表示色をそこから除外して埋めることで成立させている。
+//
+// かつては表示色を先に決めて `choice` の `as_line` で cut を選んでいたが、
+// 候補が両端2色しかないため、その2色が両方とも使用済みだと組み立てが
+// 失敗した (セッション後半で実際に再現)。cut を先に引く形はこの失敗が起きない。
 func TestAsLineExcludesUsedLines(t *testing.T) {
 	lib := loadTestLibrary(t)
 	stageTmpl, err := lib.Stage("208")
