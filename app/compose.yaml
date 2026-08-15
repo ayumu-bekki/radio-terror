@@ -99,7 +99,7 @@ services:
 
   valkey:
     image: valkey/valkey:8-alpine
-    command: valkey-server --save 60 1
+    command: valkey-server --save 60 1 --loglevel warning
     volumes:
       - valkey-data:/data
     networks:
