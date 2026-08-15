@@ -93,7 +93,7 @@ cp game-server/config.sample.toml game-server/config.toml  # project/location �
 docker compose up
 ```
 
-マネージャー画面: <http://localhost:8080/manager>
+Management Console: <http://localhost:8080/manager>
 
 ## アーキテクチャ
 
@@ -127,7 +127,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | バインド・イベント処理の中心 | `game_coordinator.go` |
 | ナビゲーター発話生成 | `navigator_speaker.go` → `navigator_prompt.go` |
 | デバイスとのWS | `ws_session.go` + `device_registry.go` |
-| マネージャー画面 | `manager_web.go`(ハンドラ) + `manager_view.go`(表示整形) + `manager_*.gohtml` |
+| Management Console | `manager_web.go`(ハンドラ) + `manager_view.go`(表示整形) + `manager_*.gohtml` |
 
 **`/ws` は1エンドポイントにトランシーバーとデバイスが相乗り**する。
 接続種別は最初のメッセージで判定する(`login` → トランシーバー、
@@ -252,7 +252,7 @@ LEDの出力ピンはこの5本がすべてなので、順序を問わない初�
 駆動は単一関数に集約し、**Detonating 状態からのみ**呼べる。二重駆動はフラグで防ぐ。
 この安全ガードを緩めないこと。
 
-### マネージャー画面は表示判断をテンプレートに書かない
+### Management Console は表示判断をテンプレートに書かない
 
 画面は `html/template` のサーバー側描画。色分け・時刻書式・進行表示といった
 **表示の判断は `manager_view.go` のビューモデルに寄せ**、テンプレートは

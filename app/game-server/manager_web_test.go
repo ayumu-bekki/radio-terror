@@ -84,7 +84,7 @@ func TestManagerPagesServed(t *testing.T) {
 		contentType string
 		contains    string
 	}{
-		{"/manager", "text/html; charset=utf-8", "マネージャー画面"},
+		{"/manager", "text/html; charset=utf-8", "Management Console"},
 		{"/manager/history", "text/html; charset=utf-8", "過去のセッション"},
 		{"/manager/history/s-1", "text/html; charset=utf-8", "ステージ構成と正解"},
 		{"/manager/manager.css", "text/css; charset=utf-8", ".summary"},

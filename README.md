@@ -30,7 +30,7 @@ RADIO TERROR
 | コンポーネント | 言語 | 役割 |
 |---|---|---|
 | `app/core-system` | C++ (ESP-IDF) | Core本体。セッションJSONを受け取り単体でゲームを完遂する |
-| `app/game-server` | Go | セッション組み立て・ナビゲーター・混線・永続化・マネージャー画面 |
+| `app/game-server` | Go | セッション組み立て・ナビゲーター・混線・永続化・Management Console |
 
 **編集して再起動すれば反映される設定**(再ビルド不要):
 

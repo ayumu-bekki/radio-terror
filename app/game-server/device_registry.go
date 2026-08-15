@@ -53,9 +53,35 @@ func (r *DeviceRegistry) Unregister(deviceID string, conn DeviceConn) {
 }
 
 // UpdateStatus はデバイスからの device_status を保存する (§7.3 の再同期)。
+//
+// **device_status 以外のメッセージで全体を置き換えてはいけない**。
+// 進行イベント (stage_cleared / push_progress など) は state・battery・lines・
+// rotary を含まないため、丸ごと差し替えると**マネージャー画面の表示が
+// 一斉に「—」へ落ちる**(実際にダイヤル表示が消える不具合として現れた)。
+// 進行イベントからは進行に関わる項目だけを反映し、残りは直前の値を保つ。
 func (r *DeviceRegistry) UpdateStatus(msg *deviceMessage) *DeviceStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	now := time.Now().Unix()
+
+	// 進行イベント: 既知の状態を土台に、含まれる項目だけを更新する
+	if msg.Type != msgDeviceStatus {
+		status := r.status[msg.DeviceID]
+		if status == nil {
+			// device_status より先に進行イベントが届いた場合。
+			// 分かる範囲だけで作る (rotary 等は未報告のまま)
+			status = &DeviceStatus{DeviceID: msg.DeviceID}
+			r.status[msg.DeviceID] = status
+		}
+		if msg.SessionID != "" {
+			status.SessionID = msg.SessionID
+		}
+		status.StageIndex = msg.StageIndex
+		status.RemainingMS = msg.RemainingMS
+		status.UpdatedAt = now
+		return status
+	}
 
 	status := &DeviceStatus{
 		DeviceID:    msg.DeviceID,
@@ -66,7 +92,7 @@ func (r *DeviceRegistry) UpdateStatus(msg *deviceMessage) *DeviceStatus {
 		Battery:     msg.Battery,
 		LowBattery:  msg.LowBattery,
 		Lines:       msg.Lines,
-		UpdatedAt:   time.Now().Unix(),
+		UpdatedAt:   now,
 	}
 	// ポインタを共有せず値をコピーする (msg は呼び出し後も生きうる)
 	if msg.Rotary != nil {
