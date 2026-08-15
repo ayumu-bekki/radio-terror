@@ -149,14 +149,17 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		})
 	}
 
-	// 成功・失敗は効果音を先に鳴らしてからメッセージを再生する (§6)。
-	// 効果音の再生時間も無線を塞ぐので、発話の分と合算する。
-	sfxDuration := time.Duration(0)
+	// 成功・失敗は効果音を**メッセージと1つの音声に連結して**送る (§6)。
+	//
+	// 効果音を別パケットで先に送ると、効果音が鳴り終わってから TTS の生成を
+	// 待つ数秒の無音が無線に乗る。連結すれば「効果音 → メッセージ」が
+	// 途切れずに流れ、生成にかかる時間がそのまま演出の「間」になる。
+	var sfxPCM []int16
 	switch trigger {
 	case "defused":
-		sfxDuration = n.playSFX(sender, sfxSuccessFile)
+		sfxPCM = n.loadSFX(sfxSuccessFile)
 	case "exploded":
-		sfxDuration = n.playSFX(sender, sfxFailureFile)
+		sfxPCM = n.loadSFX(sfxFailureFile)
 	}
 
 	// 表情は場面説明 (ディレクターズノート) と本文中の表情タグの
@@ -166,35 +169,40 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	buildPrompt := func(body string) string {
 		return buildTTSPrompt(session.Character.TTSStyle, note, body)
 	}
+	// duration は効果音を連結した後の全長 (speakTTS が連結してから測る)。
 	duration, err := speakTTS(ctx, n.ttsClient, sender, text, buildPrompt,
-		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]")
+		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]", sfxPCM)
 	if err != nil {
 		return err
 	}
 
 	// 実際の再生時間で押さえ直す。ここから鳴り終わるまでが「無線が塞がっている」
-	// 時間で、その間は混線を流さない。効果音を先に鳴らした場合はその分も足す。
-	if total := sfxDuration + duration; total > 0 && n.crosstalk != nil {
+	// 時間で、その間は混線を流さない。
+	if duration > 0 && n.crosstalk != nil {
 		spoke = true
-		n.crosstalk.SetBusy(session.DeviceID, total)
+		n.crosstalk.SetBusy(session.DeviceID, duration)
 	}
 	return nil
 }
 
-// playSFX は効果音アセットを再生する。未制作の場合は黙ってスキップする。
-// 戻り値は送出した効果音の再生時間 (送出しなかった場合は 0)。
-func (n *GeminiNavigator) playSFX(sender *AudioSender, name string) time.Duration {
+// loadSFX は効果音アセットを読み込み、連結できる PCM へデコードする。
+// 未制作・デコード不能の場合は nil を返し、発話だけを送る
+// (効果音が無くてもゲームは続行できるため、ここで失敗させない)。
+func (n *GeminiNavigator) loadSFX(name string) []int16 {
 	if n.sfxDir == "" {
-		return 0
+		return nil
 	}
 	path := filepath.Join(n.sfxDir, name)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("[navigator] sfx not available (%s): %v", path, err)
-		return 0
+		return nil
 	}
-	if !sender.Send(oneshot(data)) {
-		return 0
+	pcm, err := decodeOggOpusToPCM(data)
+	if err != nil {
+		// レート違い等で連結できない。アセットを 24kHz mono で作り直す必要がある。
+		log.Printf("[navigator] WARN sfx decode failed (%s): %v", path, err)
+		return nil
 	}
-	return oggOpusDuration(data)
+	return pcm
 }

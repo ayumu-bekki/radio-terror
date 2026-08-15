@@ -146,7 +146,7 @@ func (r *TestResponder) Respond(ctx context.Context, sender *AudioSender, result
 	}
 	// 疎通確認用なので混線とは無関係。再生時間は使わない
 	_, err = speakTTS(ctx, r.ttsClient, sender, text, buildPrompt,
-		testResponderTTSVoice, "[test-responder "+bridgeID+"]")
+		testResponderTTSVoice, "[test-responder "+bridgeID+"]", nil)
 	return err
 }
 

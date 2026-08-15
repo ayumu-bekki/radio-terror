@@ -303,3 +303,42 @@ func TestTutorialStageNeverNamesCutColor(t *testing.T) {
 		t.Errorf("hint_l3 に色名禁止の指示がない: %s", hintL3)
 	}
 }
+
+// TestTutorialGivesConcreteDialPositions は 101 の指示が
+// **ダイヤルの位置を数字で伝える**形になっていることを確かめる。
+//
+// 発話は「2文・60文字以内」に制限されているため、ゴールの説明
+// (「光っているランプと同じ色の線を切る」) を前に置くと、生成AIが
+// **具体的な数字を押し出して**「まずダイヤルを回し、光っているランプと
+// 同じ色の線を切れ」のような、どこへ合わせるか分からない発話になる
+// (実プレイで発生)。数字の指示が最優先であることを指針に明記しておく。
+func TestTutorialGivesConcreteDialPositions(t *testing.T) {
+	lib := loadTestLibrary(t)
+	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+
+	built, err := builder.Build("s-test", difficultyEasy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := built.Stages[0]
+	if stage.TemplateID != "101" {
+		t.Fatalf("先頭ステージ = %s, want 101", stage.TemplateID)
+	}
+
+	// hint_l1 が「数字で指示する」ことを求めていること
+	hintL1 := stage.Navigator["hint_l1"]
+	for _, want := range []string{"数字", "0に戻せ"} {
+		if !strings.Contains(hintL1, want) {
+			t.Errorf("hint_l1 に %q がない — 位置を数字で言う指示が抜けている: %s", want, hintL1)
+		}
+	}
+
+	// procedure に3つの位置が全て展開されていること
+	procedure := stage.Navigator["procedure"]
+	if !strings.Contains(procedure, "数字で言うこと") {
+		t.Errorf("procedure に数字指示の強調がない: %s", procedure)
+	}
+	if strings.Contains(procedure, "${") {
+		t.Errorf("procedure に未解決の変数が残っている: %s", procedure)
+	}
+}
