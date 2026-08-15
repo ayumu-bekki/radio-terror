@@ -6,7 +6,7 @@ import "testing"
 // 判定は message 内の「4桁ID + 難易度 + 開始の意図」だけを見ており、
 // 「マネージャー」という名乗りは元から条件に含まれていない。
 func TestManagerCommandWithoutCallsign(t *testing.T) {
-	h := &ManagerCommandHandler{secretWord: "でんぱ"}
+	h := NewManagerCommandHandler(nil, "でんぱ")
 	cases := []struct {
 		name string
 		msg  string

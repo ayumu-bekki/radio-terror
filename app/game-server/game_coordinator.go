@@ -401,8 +401,10 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 			fmt.Sprintf("✗✗ 爆発 (%s) — 解体失敗", describeExplodeReason(msg)),
 			msg.StageIndex, msg.RemainingMS)
 		c.finishSession(ctx, session, 0)
-		c.speakAsync(ctx, sender, session, "exploded",
-			"解体は失敗し、装置が起動してしまった。失敗を受け止めるメッセージを返す。")
+		// 最終メッセージを流し終えてからバインドを解放し、以後はカラスに引き継ぐ
+		c.speakAsyncThen(ctx, sender, session, "exploded",
+			"解体は失敗し、装置が起動してしまった。失敗を受け止めるメッセージを返す。",
+			func() { c.releaseAfterFinish(session) })
 
 		// 他チームのCoreの爆発を契機に「別現場の通信」を流す (§5.1 イベント駆動)
 		if c.crosstalk != nil {
@@ -415,8 +417,10 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 			fmt.Sprintf("★ 解除成功 — スコア(残り時間) %.1f秒", float64(msg.RemainingMS)/1000),
 			msg.StageIndex, msg.RemainingMS)
 		c.finishSession(ctx, session, msg.RemainingMS)
-		c.speakAsync(ctx, sender, session, "defused",
-			fmt.Sprintf("解除に成功した!残り時間%d秒でクリア。祝福する。", msg.RemainingMS/1000))
+		// 最終メッセージを流し終えてからバインドを解放し、以後はカラスに引き継ぐ
+		c.speakAsyncThen(ctx, sender, session, "defused",
+			fmt.Sprintf("解除に成功した!残り時間%d秒でクリア。祝福する。", msg.RemainingMS/1000),
+			func() { c.releaseAfterFinish(session) })
 	}
 
 	c.persist(ctx, session)
@@ -479,7 +483,18 @@ func (c *GameCoordinator) speak(ctx context.Context, sender *AudioSender, sessio
 // speakAsync は発話生成をバックグラウンドで行う。
 // デバイスイベントの処理 (WS 読み取りループ) を TTS 生成でブロックしないため。
 func (c *GameCoordinator) speakAsync(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) {
+	c.speakAsyncThen(ctx, sender, session, trigger, event, nil)
+}
+
+// speakAsyncThen は発話の**送出が終わってから** done を呼ぶ。
+//
+// 成功・失敗の最終メッセージのあとにバインドを解放する用途で使う。
+// 先に解放すると、その最終メッセージ自体がナビゲーター不在で流れなくなる。
+func (c *GameCoordinator) speakAsyncThen(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string, done func()) {
 	if c.speaker == nil {
+		if done != nil {
+			done()
+		}
 		return
 	}
 	go func() {
@@ -487,11 +502,26 @@ func (c *GameCoordinator) speakAsync(ctx context.Context, sender *AudioSender, s
 			if rec := recover(); rec != nil {
 				log.Printf("[game] speak panic: %v", rec)
 			}
+			if done != nil {
+				done()
+			}
 		}()
 		if err := c.speak(context.WithoutCancel(ctx), sender, session, trigger, event); err != nil {
 			log.Printf("[game] speak error (%s): %v", trigger, err)
 		}
 	}()
+}
+
+// releaseAfterFinish はゲーム終了後にバインドを解放し、以後の発話を
+// カラス (疎通確認の相手) に引き継ぐ。
+//
+// 解放しないと**終了後もナビゲーターが応答し続ける**。実運用では爆発後に
+// 「もう一度ランプの状態を教えてくれ」と促し続け、マネージャーのリセット申告にも
+// ナビゲーターが反応していた (docs/operation_flow.md §6)。
+// ゲームはもう進行しないので、ここから先は開始前と同じ状態に戻すのが正しい。
+func (c *GameCoordinator) releaseAfterFinish(session *GameSession) {
+	c.binder.Release(session.DeviceID)
+	log.Printf("[game] session finished, navigator released: device=%s", session.DeviceID)
 }
 
 // replyStartRejected は開始申告を拒否した旨を無線で返す。

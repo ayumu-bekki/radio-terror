@@ -52,13 +52,46 @@ var difficultyKeywords = map[string]string{
 type ManagerCommandHandler struct {
 	game *GameCoordinator
 
-	// secretWord は強制リセット(キルスイッチ)の秘密ワード。
+	// secretWords は強制リセット(キルスイッチ)の秘密ワードの表記ゆれ一覧。
 	// プレイヤーがマネージャーを騙ってリセットするのを防ぐため運営内でのみ共有する。
-	secretWord string
+	//
+	// **複数の表記を持つ**のは、音声認識が同じ音を別の表記で返すため。
+	// 「でんぱ」と設定しても STT は「電波」と書き起こすことがあり、
+	// かな正規化では漢字をかなへ戻せないので一致しない
+	// (実運用でキルスイッチが効かなかった原因。§7)。
+	// 設定はカンマ区切りで複数書ける ("でんぱ,電波")。
+	secretWords []string
 }
 
 func NewManagerCommandHandler(game *GameCoordinator, secretWord string) *ManagerCommandHandler {
-	return &ManagerCommandHandler{game: game, secretWord: secretWord}
+	return &ManagerCommandHandler{game: game, secretWords: parseSecretWords(secretWord)}
+}
+
+// parseSecretWords は設定値をカンマ区切りで分解し、正規化した候補一覧にする。
+// 空要素は捨てる。全て空なら nil (= 秘密ワード未設定) を返す。
+func parseSecretWords(raw string) []string {
+	words := make([]string, 0, 2)
+	for _, part := range strings.Split(raw, ",") {
+		normalized := normalizeForMatch(strings.TrimSpace(part))
+		if normalized != "" {
+			words = append(words, normalized)
+		}
+	}
+	if len(words) == 0 {
+		return nil
+	}
+	return words
+}
+
+// matchesSecretWord は文字列に秘密ワードのいずれかが含まれるかを返す。
+// 秘密ワード未設定の場合は常に false (秘密ワード必須のコマンドを通さない)。
+func (h *ManagerCommandHandler) matchesSecretWord(normalized string) bool {
+	for _, word := range h.secretWords {
+		if strings.Contains(normalized, word) {
+			return true
+		}
+	}
+	return false
 }
 
 // Handle は文字起こし結果からマネージャーコマンドを判定し、該当すれば実行する。
@@ -108,7 +141,7 @@ func (h *ManagerCommandHandler) Parse(message string) ManagerCommand {
 	//
 	// 一致判定はかな正規化のゆるい一致とする (認識ゆれでキルスイッチが
 	// 効かない事態を防ぐ。ワード自体が運営外秘のため緩くても安全)。
-	if h.secretWord != "" && strings.Contains(normalized, normalizeForMatch(h.secretWord)) {
+	if h.matchesSecretWord(normalized) {
 		// 強制破裂: **風船が実際に割れる**ため、リセットより先に判定する
 		if containsAny(message, normalized, []string{"強制爆破", "強制破裂"},
 			[]string{"きようせいばくは", "きようせいはれつ", "ばくは"}) {

@@ -162,7 +162,7 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		sfxPCM = n.loadSFX(sfxFailureFile)
 	}
 
-	// 表情は場面説明 (ディレクターズノート) と本文中の表情タグの
+	// 表情は読み方の指定 (ディレクターズノート) と本文中の表情タグの
 	// 両方で伝える (tts_prompt.go 参照)。
 	note := directorNote(trigger)
 

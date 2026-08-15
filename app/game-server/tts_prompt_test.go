@@ -44,7 +44,7 @@ func TestBuildTTSPromptDropsUnknownTags(t *testing.T) {
 	}
 }
 
-// 声質指定・場面説明・本文が入ること。
+// 声質指定・読み方の指定・本文が入ること。
 func TestBuildTTSPromptContainsParts(t *testing.T) {
 	const (
 		style = "低音で落ち着いた男性の声。"
@@ -60,11 +60,11 @@ func TestBuildTTSPromptContainsParts(t *testing.T) {
 	}
 }
 
-// 場面説明が空なら省略すること (余計な改行を残さない)。
+// 読み方の指定が空なら省略すること (余計な改行を残さない)。
 func TestBuildTTSPromptOmitsEmptyNote(t *testing.T) {
 	p := buildTTSPrompt("style", "", "本文。")
 	if strings.Contains(p, "\n\n\n") {
-		t.Errorf("空の場面説明で余分な改行が入っている:\n%q", p)
+		t.Errorf("読み方の指定が空のとき余分な改行が入っている:\n%q", p)
 	}
 	if !strings.Contains(p, "本文。") {
 		t.Error("本文が入っていない")
@@ -93,7 +93,7 @@ func TestPromptTomlLimitsTagVocabulary(t *testing.T) {
 	}
 }
 
-// トリガーに対応する場面説明があること。
+// トリガーに対応する読み方の指定があること。
 //
 // 表情はここでしか伝わらないため、主要なトリガーで欠けていると
 // 全て同じ調子の棒読みになる。
@@ -104,7 +104,7 @@ func TestDirectorNoteCoversTriggers(t *testing.T) {
 		"defused", "exploded", "hint",
 	} {
 		if directorNote(trigger) == "" {
-			t.Errorf("トリガー %q の場面説明が無い", trigger)
+			t.Errorf("トリガー %q の読み方の指定が無い", trigger)
 		}
 	}
 
@@ -173,6 +173,28 @@ func TestAllowedTagsMatchPrompt(t *testing.T) {
 		want := "`[" + tag + "]`"
 		if !strings.Contains(cfg.Prompt.Output, want) {
 			t.Errorf("prompt.toml に %s の説明がない (allowedTTSTags と揃えること)", want)
+		}
+	}
+}
+
+// TestDirectorNotesDescribeDeliveryOnly はディレクターズノートが
+// **読み方だけを書き、場面や登場人物を説明していない**ことを確かめる。
+//
+// TTS は音声専用エンジンではなく生成モデルなので、「プレイヤーの報告に
+// 応じる場面」のように会話の状況を書くと、**その場面全体を演じようとして
+// 相手の発話まで自分で作り、本文の前に読み上げる**ことがある
+// (実運用で発生: ログに無い「プレイヤーの応答」らしき音声が先頭に混入した)。
+func TestDirectorNotesDescribeDeliveryOnly(t *testing.T) {
+	// 場面・登場人物を示す語。これらが入ると台本と誤読される。
+	forbidden := []string{"場面", "プレイヤー", "相手", "直後", "瞬間"}
+
+	for trigger, note := range directorNotes {
+		for _, word := range forbidden {
+			if strings.Contains(note, word) {
+				t.Errorf("%s のノートに状況説明の語 %q が入っている — "+
+					"TTS が場面を演じて余計な音声を足す原因になる: %q",
+					trigger, word, note)
+			}
 		}
 	}
 }

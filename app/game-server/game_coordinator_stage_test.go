@@ -113,3 +113,81 @@ func TestStageClearedOnFinalStageDoesNotPanic(t *testing.T) {
 		t.Errorf("最終ステージクリア後に stage=%s が返った (nil のはず)", stage.TemplateID)
 	}
 }
+
+// fakeSpeaker は発話せずに呼び出しを記録するだけの NavigatorSpeaker。
+type fakeSpeaker struct {
+	triggers []string
+}
+
+func (f *fakeSpeaker) Speak(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) error {
+	f.triggers = append(f.triggers, trigger)
+	return nil
+}
+
+// TestNavigatorReleasedAfterGameEnd は爆発・解除のあとに
+// **ナビゲーターのバインドが解放される**ことを確かめる。
+//
+// 解放しないと終了後もナビゲーターが応答し続け、マネージャーのリセット申告にまで
+// 「リセットだな、了解。ランプの状態を教えてくれ」と反応する
+// (実運用で発生)。ゲームはもう進行しないので、開始前と同じくカラスが
+// 引き継ぐのが正しい (docs/operation_flow.md §6)。
+//
+// **最終メッセージを流し終えてから**解放すること。先に解放すると、
+// その最終メッセージ自体が流れなくなる。
+func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		msgType string
+		trigger string
+	}{
+		{"爆発", msgExploded, "exploded"},
+		{"解除成功", msgDefused, "defused"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMemoryStore()
+			devices := NewDeviceRegistry()
+			game := NewGameCoordinator(devices, NewBridgeRegistry(), nil, store,
+				rand.New(rand.NewSource(1)))
+			game.SetSessionLogStore(NewSessionLogStore(store))
+
+			speaker := &fakeSpeaker{}
+			game.SetNavigatorSpeaker(speaker)
+
+			conn := &fakeDeviceConn{}
+			devices.Register("0001", conn)
+
+			session := &GameSession{
+				SessionID: "s-1", DeviceID: "0001", BridgeID: "bridge-1",
+				State: deviceStatePlaying, StageIndex: 0, RemainingMS: 10000,
+				StartedAt: time.Now(),
+			}
+			session.progress.Reset(time.Now())
+			game.binder.Bind("bridge-1", "0001", session)
+
+			if game.SessionForBridge("bridge-1") == nil {
+				t.Fatal("前提: バインドされているはず")
+			}
+
+			game.HandleDeviceMessage(context.Background(), &deviceMessage{
+				Type: tc.msgType, DeviceID: "0001", RemainingMS: 10000,
+			})
+
+			// 発話は非同期なので、解放されるまで待つ
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				if game.SessionForBridge("bridge-1") == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+
+			if game.SessionForBridge("bridge-1") != nil {
+				t.Fatal("終了後もバインドが残っている — ナビゲーターが応答し続ける")
+			}
+			// 最終メッセージは解放前に流れていること
+			if len(speaker.triggers) == 0 || speaker.triggers[0] != tc.trigger {
+				t.Errorf("最終メッセージ %q が流れていない: %v", tc.trigger, speaker.triggers)
+			}
+		})
+	}
+}
