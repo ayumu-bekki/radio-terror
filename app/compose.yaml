@@ -1,8 +1,12 @@
 services:
   game-server:
     build:
-      context: .
-      dockerfile: game-server/Dockerfile
+      # context を**リポジトリルート**にしているのは、`go build` が commit id を
+      # 自動で埋め込む (vcs.revision) のに `.git` が要るため。
+      # 起動ログの `[boot] commit:` で「どのソースのバイナリか」が分かる。
+      # 重い成果物は /.dockerignore で除外している。
+      context: ..
+      dockerfile: app/game-server/Dockerfile
     ports:
       - 8080:8080   # 通信用WebSocket (/ws) + マネージャー向け Web 画面 (/manager)
       - 50051:50051 # gRPC (radio-bridge からのダイヤルイン)
@@ -58,8 +62,8 @@ services:
 
   radio-bridge-br01:
     build:
-      context: .
-      dockerfile: radio-bridge/Dockerfile
+      context: ..
+      dockerfile: app/radio-bridge/Dockerfile
     environment:
       RADIO_BRIDGE_ID: BR01
       # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。

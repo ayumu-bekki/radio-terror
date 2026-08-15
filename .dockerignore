@@ -1,0 +1,22 @@
+# Docker のビルドコンテキストから除外する。
+#
+# compose の build context はリポジトリルート。Go の `go build` が
+# commit id を自動で埋め込む (vcs.revision) には `.git` が必要なため
+# ルートを context にしており、そのぶん重い成果物をここで落とす。
+
+# ビルド成果物 (数百MB。コンテナ内で作り直す)
+app/radio-bridge/target/
+app/core-system/build/
+app/core-system/managed_components/
+
+# 生成物・ログ
+app/game-server/dump_audio/
+app/radio-bridge/dump_audio/
+
+# 開発環境
+.vscode/
+.idea/
+.DS_Store
+
+# 秘密情報 (イメージへ入れない)
+app/secrets/

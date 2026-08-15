@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"math/rand"
+	"strings"
+	"testing"
+	"time"
+)
 
 // 強制破裂の判定。**風船が実際に割れる**ため、成立条件を厳密に固定する。
 //
@@ -127,5 +132,89 @@ func TestSecretWordUnsetRejectsEverything(t *testing.T) {
 		if got := h.Parse(msg).Kind; got != "" {
 			t.Errorf("秘密ワード未設定で %q が成立した (kind=%q)", msg, got)
 		}
+	}
+}
+
+// TestResetTargetFallsBackToBoundDevice は、CoreID を**聞き間違えても
+// その無線が担当しているデバイスがリセットされる**ことを確かめる。
+//
+// 音声認識は数字を取り違える。実運用で CoreID 3701 が「3710」と書き起こされ、
+// 存在しないデバイスへリセットを送って**何も起きなかった**
+// (無線側にもフィードバックが無く、マネージャーは失敗に気づけない)。
+//
+// 無線 ⇔ デバイスの対応は開始申告で確立済みなので、
+// 聞き取れた数字よりバインドの方が確かな情報になる。
+func TestResetTargetFallsBackToBoundDevice(t *testing.T) {
+	store := NewMemoryStore()
+	game := NewGameCoordinator(NewDeviceRegistry(), NewBridgeRegistry(), nil, store,
+		rand.New(rand.NewSource(1)))
+
+	session := &GameSession{
+		SessionID: "s-1", DeviceID: "3701", BridgeID: "BR01",
+		State: deviceStatePlaying, StartedAt: time.Now(),
+	}
+	game.binder.Bind("BR01", "3701", session)
+
+	cases := []struct {
+		name   string
+		bridge string
+		spoken string
+		want   string
+	}{
+		{"桁の入れ替わり (実例)", "BR01", "3710", "3701"},
+		{"正しく聞き取れた場合はそのまま", "BR01", "3701", "3701"},
+		{"別の数字でもバインド優先", "BR01", "9999", "3701"},
+		{"未バインドの無線は申告どおり", "BR99", "3710", "3710"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := game.ResolveResetTarget(c.bridge, c.spoken); got != c.want {
+				t.Errorf("ResolveResetTarget(%q, %q) = %q, want %q",
+					c.bridge, c.spoken, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRejectReasonExplainsFailure は、マネージャーの操作が成立しなかったとき
+// **理由がログに出せる**ことを確かめる。
+//
+// 成立しない発話はそのままナビゲーター/カラスへ流れるため、ログに
+// 「なぜ通らなかったか」が無いと切り分けられない。実運用で秘密ワードの
+// 表記ゆれによりキルスイッチが効かず、原因特定に時間を要した。
+func TestRejectReasonExplainsFailure(t *testing.T) {
+	h := NewManagerCommandHandler(nil, "でんぱ")
+
+	cases := []struct {
+		name string
+		msg  string
+		want string // 部分一致
+	}{
+		{"秘密ワードの表記ゆれ", "こちらマネージャー 3701 リセット 電波", "秘密ワードが一致しない"},
+		{"CoreIDが取れない", "こちらマネージャー リセット でんぱ", "CoreID"},
+		{"操作と無関係な発話は黙る", "ダイヤルを3に合わせました", ""},
+		{"報告も黙る", "赤が光っています", ""},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := h.rejectReason(c.msg)
+			if c.want == "" {
+				if got != "" {
+					t.Errorf("無関係な発話で理由が出た: %q → %q", c.msg, got)
+				}
+				return
+			}
+			if !strings.Contains(got, c.want) {
+				t.Errorf("rejectReason(%q) = %q, want contains %q", c.msg, got, c.want)
+			}
+		})
+	}
+
+	// 未設定はその旨が分かること
+	h2 := NewManagerCommandHandler(nil, "")
+	if got := h2.rejectReason("3701 リセット でんぱ"); !strings.Contains(got, "未設定") {
+		t.Errorf("秘密ワード未設定の理由が出ない: %q", got)
 	}
 }

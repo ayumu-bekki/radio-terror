@@ -11,11 +11,17 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 \
     && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
 
 WORKDIR /build
-COPY proto/ proto/
-COPY game-server/ game-server/
+# context はリポジトリルート (compose.yaml 参照)。
+# `.git` は commit id の埋め込み (vcs.revision) に使うので必ず入れる。
+COPY .git/ .git/
+COPY app/proto/ proto/
+COPY app/game-server/ game-server/
 
 WORKDIR /build/game-server/
 RUN go generate ./...
+# commit id は `go build` が `.git` から自動で埋め込む (vcs.revision)。
+# 起動ログの `[boot] commit:` に出て、「どのソースから作られたバイナリが
+# 動いているか」が分かる (設定を直したのに反映されない、の切り分けに使う)。
 RUN CGO_ENABLED=1 go build -o game-server .
 
 FROM debian:bookworm-slim

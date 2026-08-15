@@ -110,15 +110,54 @@ func (h *ManagerCommandHandler) Handle(ctx context.Context, sender *AudioSender,
 			return true, h.game.StartSession(ctx, sender, cmd.DeviceID, cmd.Difficulty)
 
 		case managerCommandReset:
-			log.Printf("[manager] reset: bridge=%s device=%s", sender.BridgeID(), cmd.DeviceID)
-			return true, h.game.AbortSession(ctx, sender, cmd.DeviceID)
+			// 音声認識は数字を取り違える (3701 → 3710 の実例あり)。
+			// その無線が担当しているデバイスを優先して対象にする。
+			target := h.game.ResolveResetTarget(sender.BridgeID(), cmd.DeviceID)
+			log.Printf("[manager] reset: bridge=%s device=%s (spoken=%s)",
+				sender.BridgeID(), target, cmd.DeviceID)
+			return true, h.game.AbortSession(ctx, sender, target)
 
 		case managerCommandDetonate:
 			log.Printf("[manager] force detonate: bridge=%s device=%s", sender.BridgeID(), cmd.DeviceID)
 			return true, h.game.ForceDetonate(ctx, cmd.DeviceID)
+
+		default:
+			// コマンドとして成立しなかった理由をログに残す。
+			//
+			// 成立しないと発話はそのままナビゲーター/カラスへ流れるため、
+			// **なぜ通らなかったのか**がログから読めないと切り分けられない
+			// (秘密ワードの表記ゆれでキルスイッチが効かず、原因の特定に
+			// 時間を要した)。マネージャーの定型文らしき発話に限って出す。
+			if reason := h.rejectReason(item.Message); reason != "" {
+				log.Printf("[manager] not a command (%s): %q", reason, item.Message)
+			}
 		}
 	}
 	return false, nil
+}
+
+// rejectReason は「マネージャーの操作らしいが成立しなかった」理由を返す。
+// 操作と無関係な発話では空文字を返し、ログを汚さない。
+func (h *ManagerCommandHandler) rejectReason(message string) string {
+	normalized := normalizeForMatch(message)
+
+	isOperation := containsAny(message, normalized,
+		[]string{"リセット", "強制爆破", "強制破裂"},
+		[]string{"りせつと", "りせっと", "reset", "ばくは", "はれつ"})
+	if !isOperation {
+		return ""
+	}
+
+	if deviceIDPattern.FindString(normalized) == "" {
+		return "CoreID(4桁の数字)が聞き取れていない"
+	}
+	if len(h.secretWords) == 0 {
+		return "秘密ワードが未設定"
+	}
+	if !h.matchesSecretWord(normalized) {
+		return "秘密ワードが一致しない (表記ゆれの可能性: config の secret_word にカンマ区切りで追加する)"
+	}
+	return "条件不足"
 }
 
 // Parse は発話からマネージャーコマンドを抽出する。

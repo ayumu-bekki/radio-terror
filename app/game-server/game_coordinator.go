@@ -458,6 +458,31 @@ func (c *GameCoordinator) NoteQuestion(deviceID string) {
 	session.mu.Unlock()
 }
 
+// ResolveResetTarget はリセット対象の device_id を決める。
+//
+// 音声認識は**数字を取り違える**。実運用で CoreID 3701 が「3710」と
+// 書き起こされ、存在しないデバイスへリセットを送って**何も起きなかった**
+// (無線側にも何のフィードバックも無い)。
+//
+// 申告された ID がバインド済みの device と一致しない場合、
+// **その無線 (bridge) が担当している device** を対象にする。
+// 無線とデバイスの対応はマネージャーの開始申告で確立済みで、
+// リセットは「今つないでいる装置を Setup に戻す」操作なので、
+// 聞き取れた数字より**バインドの方が確かな情報**になる。
+//
+// バインドが無い場合は申告された ID をそのまま返す
+// (開始前・別の無線からの操作を妨げない)。
+func (c *GameCoordinator) ResolveResetTarget(bridgeID, spokenID string) string {
+	if session := c.binder.SessionForBridge(bridgeID); session != nil {
+		if session.DeviceID != spokenID {
+			log.Printf("[manager] reset target corrected: spoken=%s -> bound=%s (bridge=%s)",
+				spokenID, session.DeviceID, bridgeID)
+		}
+		return session.DeviceID
+	}
+	return spokenID
+}
+
 // SessionForBridge は bridge にバインドされた**進行中の**セッションを返す。
 //
 // 終了済み (爆発・解除) のセッションは nil を返す。プレイヤーの発話を
