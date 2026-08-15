@@ -619,3 +619,55 @@ func TestLineChipColorsDefined(t *testing.T) {
 		t.Error("CSS に .line.cut の定義がない")
 	}
 }
+
+// TestFinishedSessionKeepsResetButton は**終了したセッションでも
+// Management Console からリセットできる**ことを確かめる。
+//
+// リセットボタンは進行表の行から描画されるため、終了時にバインドごと
+// セッションを消すと**行が消えてリセットできなくなる**
+// (実運用で発生: 解除後にセッションが消え、次のゲームを始められなかった)。
+// 終了しても表には残し、マネージャーが Setup へ戻せる状態を保つ
+// (docs/operation_flow.md §6 / §9 決定17)。
+func TestFinishedSessionKeepsResetButton(t *testing.T) {
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	bridges := NewBridgeRegistry()
+	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
+	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), nil, &APIHealth{}, store)
+	mux := http.NewServeMux()
+	web.Register(mux)
+
+	devices.Register("3701", &fakeDeviceConn{})
+
+	// 解除して終了したセッション
+	session := &GameSession{
+		SessionID: "s-1", DeviceID: "3701", BridgeID: "BR01",
+		State: deviceStateDefused, Finished: true, Score: 54700,
+		StartedAt: time.Now(),
+	}
+	game.binder.Bind("BR01", "3701", session)
+
+	code, body := get(t, mux, "/manager")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+
+	if strings.Contains(body, "進行中のセッションはありません") {
+		t.Fatal("終了セッションが進行表から消えている — リセットできない")
+	}
+	if !strings.Contains(body, "abort('3701')") {
+		t.Error("リセットボタンが描画されていない")
+	}
+	// 結果が読み取れること
+	if !strings.Contains(body, "defused") {
+		t.Error("解除済みの状態が表示されていない")
+	}
+
+	// 実際にリセットが通ること (バインドが残っていること)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost,
+		"/manager/api/abort?device_id=3701", nil))
+	if rec.Code != http.StatusNoContent && rec.Code != http.StatusAccepted {
+		t.Errorf("リセット API の status = %d", rec.Code)
+	}
+}

@@ -191,3 +191,137 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 		})
 	}
 }
+
+// TestFinalStageClearedDoesNotSpeak は**最終ステージのクリアで発話しない**ことを
+// 確かめる。
+//
+// デバイスは最後の1本を切ると stage_cleared に続けて defused を送る。
+// stage_cleared で「次の課題へ進む」と促すと、次のステージが無いため
+// プロンプトにステージ知識が入らず、**生成AIが課題を捏造する**。
+// 実運用では解除成功の直後に
+// 「あと60秒!もう一本、赤の線を切ってください!」と、
+// 既に解除済みの装置へ存在しない指示を出した (docs/navigator_design.md §6 決定26)。
+func TestFinalStageClearedDoesNotSpeak(t *testing.T) {
+	lib := loadTestLibrary(t)
+	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+	built, err := builder.Build("s-1", difficultyEasy)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	last := len(built.Stages) - 1
+
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	game := NewGameCoordinator(devices, NewBridgeRegistry(), nil, store,
+		rand.New(rand.NewSource(1)))
+	game.SetSessionLogStore(NewSessionLogStore(store))
+
+	speaker := &fakeSpeaker{}
+	game.SetNavigatorSpeaker(speaker)
+
+	conn := &fakeDeviceConn{}
+	devices.Register("0001", conn)
+
+	session := &GameSession{
+		SessionID: "s-1", DeviceID: "0001", BridgeID: "bridge-1",
+		State: deviceStatePlaying, StageIndex: last, RemainingMS: 54700,
+		Built: built, StartedAt: time.Now(),
+	}
+	session.progress.Reset(time.Now())
+	game.binder.Bind("bridge-1", "0001", session)
+
+	// 最終ステージのクリア
+	game.HandleDeviceMessage(context.Background(), &deviceMessage{
+		Type: msgStageCleared, DeviceID: "0001",
+		StageIndex: last, RemainingMS: 54700,
+	})
+
+	// 非同期発話が走らないことを確かめるため少し待つ
+	time.Sleep(200 * time.Millisecond)
+
+	for _, trigger := range speaker.triggers {
+		if trigger == "stage_cleared" {
+			t.Fatal("最終ステージのクリアで発話した — 存在しない課題を促す危険がある")
+		}
+	}
+
+	// 中間ステージのクリアでは従来どおり発話すること (抑制しすぎていない)
+	if last > 0 {
+		speaker.triggers = nil
+		session.StageIndex = 0
+		game.HandleDeviceMessage(context.Background(), &deviceMessage{
+			Type: msgStageCleared, DeviceID: "0001",
+			StageIndex: 0, RemainingMS: 100000,
+		})
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) && len(speaker.triggers) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if len(speaker.triggers) == 0 || speaker.triggers[0] != "stage_cleared" {
+			t.Errorf("中間ステージのクリアで発話していない: %v", speaker.triggers)
+		}
+	}
+}
+
+// TestFinishedSessionStaysVisibleButHandsOverRadio は終了後のセッションが
+// **Management Console には残り、無線の応答だけカラスへ移る**ことを確かめる。
+//
+// 当初はバインドごと解放していたが、それだと終了直後に進行表からセッションが
+// 消えて**結果を確認できなくなる**(実運用で発生)。表示用の保持と
+// 「誰が無線に応答するか」は別の関心事なので、印 (Finished) で分ける。
+func TestFinishedSessionStaysVisibleButHandsOverRadio(t *testing.T) {
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	game := NewGameCoordinator(devices, NewBridgeRegistry(), nil, store,
+		rand.New(rand.NewSource(1)))
+	game.SetSessionLogStore(NewSessionLogStore(store))
+	game.SetNavigatorSpeaker(&fakeSpeaker{})
+
+	conn := &fakeDeviceConn{}
+	devices.Register("0001", conn)
+
+	session := &GameSession{
+		SessionID: "s-1", DeviceID: "0001", BridgeID: "bridge-1",
+		State: deviceStatePlaying, RemainingMS: 54700, StartedAt: time.Now(),
+	}
+	session.progress.Reset(time.Now())
+	game.binder.Bind("bridge-1", "0001", session)
+
+	game.HandleDeviceMessage(context.Background(), &deviceMessage{
+		Type: msgDefused, DeviceID: "0001", RemainingMS: 54700,
+	})
+
+	// 無線の応答相手がカラスへ移るまで待つ
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if game.SessionForBridge("bridge-1") == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// ナビゲーターは応答しない (カラスへ引き継ぐ)
+	if game.SessionForBridge("bridge-1") != nil {
+		t.Error("終了後もナビゲーターが応答する状態になっている")
+	}
+
+	// Management Console からは見える
+	found := false
+	for _, s := range game.Sessions() {
+		if s.SessionID == "s-1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("終了したセッションが Management Console から消えている — 結果を確認できない")
+	}
+
+	// 進行表に出す情報が壊れていないこと
+	views := buildSessionViews(game.Sessions())
+	if len(views) != 1 {
+		t.Fatalf("進行表の件数 = %d, want 1", len(views))
+	}
+	if views[0].DeviceID != "0001" {
+		t.Errorf("進行表の DeviceID = %q, want 0001", views[0].DeviceID)
+	}
+}

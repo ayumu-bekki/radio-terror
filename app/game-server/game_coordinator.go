@@ -31,6 +31,14 @@ type GameSession struct {
 	// Score は defused 時の残り時間 (§9)
 	Score int `json:"score"`
 
+	// Finished はゲームが終了した (爆発・解除) ことを示す。
+	//
+	// **セッション自体は残す** — Management Console の進行表に結果を
+	// 表示し続けるため。バインドを外して消してしまうと、終了直後に
+	// 画面からセッションが消えて結果が確認できない (実運用で発生)。
+	// 無線の応答相手だけをカラスへ戻すのに使う (docs/operation_flow.md §6)。
+	Finished bool `json:"finished"`
+
 	StartedAt time.Time `json:"started_at"`
 
 	// progress はヒントレベル判定用のステージ内進捗 (永続化しない)
@@ -349,11 +357,24 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		c.logEvent(session, EventStageCleared,
 			fmt.Sprintf("✓ ステージ%d クリア: %s", msg.StageIndex+1, c.stageName(session, msg.StageIndex)),
 			msg.StageIndex, msg.RemainingMS)
-		if name := c.stageName(session, msg.StageIndex+1); name != "" {
-			c.logEvent(session, EventStageStart,
-				fmt.Sprintf("ステージ%d開始: %s", msg.StageIndex+2, name),
-				msg.StageIndex+1, msg.RemainingMS)
+
+		// **最終ステージのクリアでは何も喋らない。**
+		//
+		// デバイスは最後の1本を切ると stage_cleared に続けて defused を送る。
+		// ここで「次の課題へ進む」と促すと、次のステージが無いためプロンプトに
+		// ステージ知識が入らず、**生成AIが課題を捏造する**
+		// (実運用で「あと60秒!もう一本、赤の線を切ってください!」と、
+		// 解除済みの装置に対して存在しない指示を出した)。
+		// 完了の演出は直後に届く defused が担当する。
+		nextName := c.stageName(session, msg.StageIndex+1)
+		if nextName == "" {
+			log.Printf("[game] final stage cleared: device=%s (defused を待つ)", msg.DeviceID)
+			break
 		}
+
+		c.logEvent(session, EventStageStart,
+			fmt.Sprintf("ステージ%d開始: %s", msg.StageIndex+2, nextName),
+			msg.StageIndex+1, msg.RemainingMS)
 
 		c.speakAsync(ctx, sender, session, "stage_cleared",
 			fmt.Sprintf("プレイヤーが%d番目の課題を突破した。次の課題へ進む。", msg.StageIndex+1))
@@ -437,9 +458,23 @@ func (c *GameCoordinator) NoteQuestion(deviceID string) {
 	session.mu.Unlock()
 }
 
-// SessionForBridge は bridge にバインドされたセッションを返す。
+// SessionForBridge は bridge にバインドされた**進行中の**セッションを返す。
+//
+// 終了済み (爆発・解除) のセッションは nil を返す。プレイヤーの発話を
+// ナビゲーターへ流すかの判定に使うため、終了後はカラスへ引き継ぐ
+// (セッション自体は Management Console 用に binder へ残っている)。
 func (c *GameCoordinator) SessionForBridge(bridgeID string) *GameSession {
-	return c.binder.SessionForBridge(bridgeID)
+	session := c.binder.SessionForBridge(bridgeID)
+	if session == nil {
+		return nil
+	}
+	session.mu.Lock()
+	finished := session.Finished
+	session.mu.Unlock()
+	if finished {
+		return nil
+	}
+	return session
 }
 
 // Sessions は進行中の全セッションを返す (マネージャー向け Web 画面用)。
@@ -512,16 +547,21 @@ func (c *GameCoordinator) speakAsyncThen(ctx context.Context, sender *AudioSende
 	}()
 }
 
-// releaseAfterFinish はゲーム終了後にバインドを解放し、以後の発話を
-// カラス (疎通確認の相手) に引き継ぐ。
+// releaseAfterFinish はゲーム終了後、無線の応答相手をカラスへ戻す。
 //
-// 解放しないと**終了後もナビゲーターが応答し続ける**。実運用では爆発後に
+// 印を付けるだけで**セッションは binder に残す**。消してしまうと
+// Management Console の進行表から消えて結果を確認できなくなり、
+// マネージャーが状況を把握できない (実運用で発生)。
+//
+// 印を付けないと**終了後もナビゲーターが応答し続ける**。実運用では爆発後に
 // 「もう一度ランプの状態を教えてくれ」と促し続け、マネージャーのリセット申告にも
 // ナビゲーターが反応していた (docs/operation_flow.md §6)。
-// ゲームはもう進行しないので、ここから先は開始前と同じ状態に戻すのが正しい。
 func (c *GameCoordinator) releaseAfterFinish(session *GameSession) {
-	c.binder.Release(session.DeviceID)
-	log.Printf("[game] session finished, navigator released: device=%s", session.DeviceID)
+	session.mu.Lock()
+	session.Finished = true
+	session.mu.Unlock()
+	log.Printf("[game] session finished, navigator handed over to crow: device=%s",
+		session.DeviceID)
 }
 
 // replyStartRejected は開始申告を拒否した旨を無線で返す。

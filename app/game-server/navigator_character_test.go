@@ -342,3 +342,43 @@ func TestTutorialGivesConcreteDialPositions(t *testing.T) {
 		t.Errorf("procedure に未解決の変数が残っている: %s", procedure)
 	}
 }
+
+// TestPromptWithoutStageForbidsOperations は**ステージ知識が無いとき**の
+// プロンプトが「装置の操作を促すな」と明示することを確かめる。
+//
+// 全ステージ完了後など、参照するステージが無い状態で発話させると、
+// 生成AIは「次の課題へ進む」等の指示だけを頼りに**存在しない課題を捏造する**。
+// 実運用では解除成功の直後に「もう一本、赤の線を切ってください」と、
+// 既に解除済みの装置へ指示を出した。
+func TestPromptWithoutStageForbidsOperations(t *testing.T) {
+	lib := loadTestLibrary(t)
+	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+	built, err := builder.Build("s-1", difficultyEasy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 全ステージ完了後 (StageIndex が末尾を越えている)
+	prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+		Prompt:      &NavigatorPromptConfig{},
+		Session:     built,
+		StageIndex:  len(built.Stages),
+		RemainingMS: 54700,
+		HintLevel:   HintL1,
+		RecentEvent: "解除に成功した!祝福する。",
+	})
+
+	if !strings.Contains(prompt, "今は指示する課題がありません") {
+		t.Errorf("課題が無い旨の明示がない:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "促してはいけません") {
+		t.Errorf("操作を促さない指示がない:\n%s", prompt)
+	}
+	// 「3 / 2 番目の課題」のような、存在しない課題を示唆する表示をしない
+	if strings.Contains(prompt, "3 / 2 番目") {
+		t.Errorf("範囲外の進行表示が残っている:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "全2課題を完了") {
+		t.Errorf("完了の表示になっていない:\n%s", prompt)
+	}
+}

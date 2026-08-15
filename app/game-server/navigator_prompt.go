@@ -69,9 +69,16 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 	// [D] セッション状態 (動的)
 	b.WriteString("# 現在の状況\n")
 	if in.Session != nil {
+		total := len(in.Session.Stages)
 		b.WriteString(fmt.Sprintf("- 難易度: %s\n", in.Session.Difficulty))
-		b.WriteString(fmt.Sprintf("- 進行: %d / %d 番目の課題\n",
-			in.StageIndex+1, len(in.Session.Stages)))
+		// 全ステージ完了後は StageIndex が末尾を越える。「3 / 2 番目の課題」と
+		// 書くと生成AIが存在しない課題があると解釈するため、完了と明示する。
+		if in.StageIndex >= total {
+			b.WriteString(fmt.Sprintf("- 進行: 全%d課題を完了\n", total))
+		} else {
+			b.WriteString(fmt.Sprintf("- 進行: %d / %d 番目の課題\n",
+				in.StageIndex+1, total))
+		}
 	}
 	b.WriteString(fmt.Sprintf("- 残り時間: 約%d秒\n", in.RemainingMS/1000))
 
@@ -99,6 +106,18 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		if procedure := stage.Navigator["procedure"]; procedure != "" {
 			b.WriteString("- 進め方: " + procedure + "\n")
 		}
+	} else {
+		// ステージ知識が無い状態 (全ステージ完了後など)。
+		//
+		// 何も書かないと、生成AIは「次の課題へ進む」といった指示だけを頼りに
+		// **存在しない課題を捏造する** (実運用で、解除済みの装置に対して
+		// 「もう一本、赤の線を切ってください」と指示した)。
+		// 操作を促してはいけないことを明示する。
+		b.WriteString("\n## 今の課題\n")
+		b.WriteString("- **今は指示する課題がありません。**装置の操作 (線を切る・" +
+			"ボタンを押す・ダイヤルを回す) を促してはいけません。" +
+			"色や番号を挙げて何かを切らせる発言は禁止です。" +
+			"直近の出来事への短い受け答えだけにとどめてください。\n")
 	}
 
 	if in.RecentEvent != "" {
