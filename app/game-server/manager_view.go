@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -19,7 +20,11 @@ type lineView struct {
 	// Color は日本語の色名 (赤/黄/緑/青/白)。
 	// 現場は色で配線を扱うため、色コード (A-E) では読み替えが要る。
 	Color string
-	Cut   bool
+	// Code は色コードの小文字 (a-e)。CSS クラス (line-a 等) で
+	// **実際の配線色をチップとして描く**ために使う。
+	// 色名の文字だけだと現場の配線と目で照合しにくい。
+	Code string
+	Cut  bool
 }
 
 // deviceView はデバイス表の1行。
@@ -285,6 +290,7 @@ func buildDeviceViews(devices []*DeviceStatus, connected func(string) bool) []de
 		for _, color := range colors {
 			lines = append(lines, lineView{
 				Color: colorLabel(color),
+				Code:  strings.ToLower(color),
 				Cut:   !d.Lines[color],
 			})
 		}

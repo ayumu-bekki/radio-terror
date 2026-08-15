@@ -391,3 +391,44 @@ func TestUpdateStatusCopiesRotary(t *testing.T) {
 		t.Errorf("送信元の変更が保存済み状態に波及した: %d", *status.Rotary)
 	}
 }
+
+// TestLineViewHasColorCode は配線ビューが色コードを持つことを確かめる。
+//
+// CSS で実際の配線色をチップとして描くのに使う。色名の文字だけだと
+// 現場の配線と目で照合しにくい。
+func TestLineViewHasColorCode(t *testing.T) {
+	views := buildDeviceViews([]*DeviceStatus{
+		{DeviceID: "0001", State: deviceStatePlaying,
+			Lines: map[string]bool{"A": false, "B": true, "C": true, "D": true, "E": true}},
+	}, func(string) bool { return true })
+
+	if len(views) != 1 {
+		t.Fatalf("views = %d, want 1", len(views))
+	}
+	lines := views[0].Lines
+	if len(lines) != 5 {
+		t.Fatalf("lines = %d, want 5", len(lines))
+	}
+
+	// 色コード順 (A-E) に並び、コードは CSS クラス用に小文字
+	wantCodes := []string{"a", "b", "c", "d", "e"}
+	wantNames := []string{"赤", "黄", "緑", "青", "白"}
+	for i, line := range lines {
+		if line.Code != wantCodes[i] {
+			t.Errorf("lines[%d].Code = %q, want %q", i, line.Code, wantCodes[i])
+		}
+		if line.Color != wantNames[i] {
+			t.Errorf("lines[%d].Color = %q, want %q", i, line.Color, wantNames[i])
+		}
+	}
+
+	// A だけ切断済み (lines["A"]=false は「結線されていない」)
+	if !lines[0].Cut {
+		t.Error("A が切断済みになっていない")
+	}
+	for i := 1; i < len(lines); i++ {
+		if lines[i].Cut {
+			t.Errorf("lines[%d] (%s) が切断済みになっている", i, lines[i].Color)
+		}
+	}
+}

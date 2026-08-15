@@ -75,6 +75,28 @@ tbody tr:hover td { background: #f0f4f9; }
 .answer { font-family: ui-monospace, monospace; font-size: .78rem; color: #7a4e00;
           background: #fdf5e3; padding: .05rem .3rem; border-radius: 3px; }
 
+/* --- 配線 ---
+   実際の配線色をチップで示す。色名の文字だけだと現場の配線と
+   目で照合しにくいため。色体系は A=赤 B=黄 C=緑 D=青 E=白
+   (core-system の hardware_config.h と対応)。 */
+.lines { white-space: nowrap; }
+.line { display: inline-flex; align-items: center; gap: .22rem;
+        font-size: .76rem; margin-right: .45rem; }
+.line:last-child { margin-right: 0; }
+.chip { display: inline-block; width: .62rem; height: .62rem; border-radius: 2px;
+        border: 1px solid rgba(0, 0, 0, .25); flex: none; }
+.line-a { background: #d93a3a; }
+.line-b { background: #e8b52c; }
+.line-c { background: #34a457; }
+.line-d { background: #2f74c8; }
+.line-e { background: #ffffff; }
+
+/* 切断済みは淡く+取消線。色を残したまま「もう無い」ことを示す。
+   残っている線がひと目で拾えるよう、切断済みは思い切って引っ込める */
+.line.cut { color: #b9bec6; text-decoration: line-through;
+            text-decoration-color: #cfd3d9; text-decoration-thickness: 1px; }
+.line.cut .chip { opacity: .16; border-color: rgba(0, 0, 0, .08); }
+
 /* --- 交信ログ ---
    等幅の時刻+発話。長時間追うのでコントラストは控えめにする。 */
 .log { font-size: .78rem; line-height: 1.55; max-height: 22rem; overflow-y: auto;

@@ -596,3 +596,26 @@ func TestManagerPageBridgeTable(t *testing.T) {
 		t.Error("旧形式の1行テキストが残っている")
 	}
 }
+
+// TestLineChipColorsDefined は配線色のCSSクラスが全色分あることを確かめる。
+//
+// 1色でも欠けるとチップが透明になり、その配線だけ見えなくなる。
+// 色体系は core-system の hardware_config.h と対応 (A=赤 B=黄 C=緑 D=青 E=白)。
+func TestLineChipColorsDefined(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+
+	code, css := get(t, mux, "/manager/manager.css")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+
+	for _, class := range []string{".line-a", ".line-b", ".line-c", ".line-d", ".line-e"} {
+		if !strings.Contains(css, class) {
+			t.Errorf("CSS に %s の定義がない", class)
+		}
+	}
+	// 切断済みの表現 (薄く+取消線)
+	if !strings.Contains(css, ".line.cut") {
+		t.Error("CSS に .line.cut の定義がない")
+	}
+}

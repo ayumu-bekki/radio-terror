@@ -87,7 +87,13 @@ setInterval(refresh, 2000);
     <td>{{.Remaining}}</td>
     <td><span class="{{.BatteryClass}}">{{.Battery}}</span></td>
     <td>{{.Rotary}}</td>
-    <td>{{range .Lines}}<span class="{{if .Cut}}err{{end}}">{{.Color}}</span> {{end}}</td>
+    {{/* 配線は色チップ+色名。切断済みは薄くして取消線を引く */}}
+    <td class="lines">
+      {{- range .Lines}}
+      <span class="line{{if .Cut}} cut{{end}}" title="{{.Color}}{{if .Cut}} (切断済){{end}}">
+        <i class="chip line-{{.Code}}"></i>{{.Color}}</span>
+      {{- end}}
+    </td>
     <td class="muted">{{.UpdatedAt}}</td>
   </tr>
 {{else}}
