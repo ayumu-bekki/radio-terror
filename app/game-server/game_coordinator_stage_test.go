@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"testing"
 	"time"
@@ -324,4 +325,57 @@ func TestFinishedSessionStaysVisibleButHandsOverRadio(t *testing.T) {
 	if views[0].DeviceID != "0001" {
 		t.Errorf("進行表の DeviceID = %q, want 0001", views[0].DeviceID)
 	}
+}
+
+// TestAnnounceReadyWaitsBeforeCountdown は、カウントダウン開始前に
+// ナビゲーターが名乗り、**発話が終わってから猶予を置く**ことを確かめる。
+//
+// 以前は session_start を先に送っており、**返答が無いままいきなり
+// カウントダウンが始まって**いた。プレイヤーは誰と交信するのかも、
+// 始まったことも分からないまま時間だけが減る
+// (docs/navigator_design.md 決定36)。
+func TestAnnounceReadyWaitsBeforeCountdown(t *testing.T) {
+	speaker := &fakeSpeaker{}
+	game := &GameCoordinator{speaker: speaker}
+	session := &GameSession{DeviceID: "3701"}
+
+	// countdownStartDelay の実測を避けるため、待ちを打ち切れる ctx を使う。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	game.announceReady(ctx, nil, session)
+
+	if len(speaker.triggers) != 1 || speaker.triggers[0] != "session_ready" {
+		t.Fatalf("session_ready が発話されていない: %v", speaker.triggers)
+	}
+}
+
+// TestAnnounceReadySurvivesSpeakFailure は、発話に失敗しても
+// **セッション開始を止めない**ことを確かめる。
+//
+// 無線が無言になるのは痛いが、装置の前にプレイヤーが立っている以上、
+// 開始できない方が困る (§9 はマネージャー介入で運用する方針)。
+func TestAnnounceReadySurvivesSpeakFailure(t *testing.T) {
+	game := &GameCoordinator{speaker: &failingSpeaker{}}
+	session := &GameSession{DeviceID: "3701"}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		game.announceReady(context.Background(), nil, session)
+	}()
+
+	select {
+	case <-done:
+		// 失敗時は待たずに戻る (countdownStartDelay を消費しない)
+	case <-time.After(countdownStartDelay):
+		t.Fatal("発話失敗時に猶予を待ってしまっている — 開始が無用に遅れる")
+	}
+}
+
+// failingSpeaker は必ず失敗する NavigatorSpeaker。
+type failingSpeaker struct{}
+
+func (f *failingSpeaker) Speak(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) error {
+	return errors.New("TTS unavailable")
 }

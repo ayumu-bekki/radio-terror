@@ -94,13 +94,22 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		// (answer の文をほぼそのままなぞっていた)。禁止指示はヒントポリシー側に
 		// あるが、正解文と離れた位置にあると引きずられる。
 		// **正解と同じ行に、今それを言ってよいかを併記する**。
+		//
+		// **L4 未満では色名そのものをプロンプトから伏せる** (決定40)。
+		// 「書いてあるが言うな」は守られないことがある — 目の前にある語は
+		// なぞられる。無い語は言いようがないので、これが最も確実。
+		// 併記の警告も残す (伏せ字から色を推測して言うのを防ぐ)。
 		if answer := stage.Navigator["answer"]; answer != "" {
-			b.WriteString("- 正解(あなただけが知っている): " + answer + "\n")
 			if in.HintLevel < HintL4 {
-				fmt.Fprintf(&b, "  ⚠ **この正解をそのまま口に出してはいけません。**"+
-					"色名・番号を直言できるのは L4 のみです。現在は L%d なので、"+
+				b.WriteString("- 正解(あなただけが知っている): " +
+					redactCutColor(answer, stage.Cut) + "\n")
+				fmt.Fprintf(&b, "  ⚠ **正解の色名は伏せてあります**(上の「%s」)。"+
+					"現在は L%d なので、色名・番号を直言してはいけません。"+
+					"伏せ字が何色かを推測して口に出すことも禁止です。"+
 					"上の「進め方」と下の「ヒントポリシー」に従って導いてください。\n",
-					in.HintLevel)
+					redactedColorMark, in.HintLevel)
+			} else {
+				b.WriteString("- 正解(あなただけが知っている): " + answer + "\n")
 			}
 		}
 		if procedure := stage.Navigator["procedure"]; procedure != "" {
@@ -137,6 +146,31 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 	b.WriteString(strings.TrimSpace(in.Prompt.Output))
 
 	return b.String()
+}
+
+// redactedColorMark は伏せた正解色の代わりに入れる印。
+//
+// 「◯◯色」のように**色名の形**を残す。単に消すと文が壊れて
+// 「何を切るのか」が読み取れなくなり、進め方の指示まで曖昧になる。
+const redactedColorMark = "◯◯"
+
+// redactCutColor は answer から正解の色名を伏せる (決定40)。
+//
+// **目の前に無い語は言えない。** 「書いてあるが言うな」という指示は
+// 守られないことがあり (決定19・27)、実測でも 616発話中1件残っていた。
+// L4 未満では色名そのものをプロンプトへ入れないのが最も確実。
+//
+// 押すボタン・押さえるボタンの色は伏せない — それらは伝えてよい情報で、
+// 伏せると手順が成立しなくなる。伏せるのは**切る線の色**だけ。
+func redactCutColor(answer, cut string) string {
+	name, ok := colorNameJA[cut]
+	if !ok {
+		return answer
+	}
+	// 「赤色」→「◯◯色」、単独の「赤」→「◯◯」の順で置き換える。
+	// 先に「赤色」を処理しないと「◯◯色色」になる。
+	redacted := strings.ReplaceAll(answer, name+"色", redactedColorMark+"色")
+	return strings.ReplaceAll(redacted, name, redactedColorMark)
 }
 
 // currentStage は現在のステージ知識を返す。範囲外なら nil。

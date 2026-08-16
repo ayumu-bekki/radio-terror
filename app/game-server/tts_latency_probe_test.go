@@ -61,7 +61,7 @@ func TestTTSLatencyProbe(t *testing.T) {
 	// 実際に詰まった本文と、同じ場面で正常だった本文を軸に組む。
 	// 実運用のログ (2026-08-14 18:08) より:
 	//   遅い: 「さあ、光の色を告げよ。どうぞ」        → 19.01秒
-	//   速い: 「ワタシハ、ヨタカ。……私は見ている。」 → 3.89秒
+	//   速い: 「ワタシハ、ツグミ。……私は見ている。」 → 3.89秒
 	const style = "中性的な声。ピッチと速度を一定に保った機械的な読み方で。エフェクトはかけず、素の声で。"
 	const note = "任務の開始を告げる場面。落ち着いて、頼りになる調子で。"
 	const voice = "Iapetus"
@@ -72,13 +72,13 @@ func TestTTSLatencyProbe(t *testing.T) {
 	}{
 		// --- 実運用で観測された2つをそのまま ---
 		{"実測:遅かった本文", buildTTSPrompt(style, note, "さあ、光の色を告げよ。どうぞ")},
-		{"実測:速かった本文", buildTTSPrompt(style, note, "ワタシハ、ヨタカ。……私は見ている。")},
+		{"実測:速かった本文", buildTTSPrompt(style, note, "ワタシハ、ツグミ。……私は見ている。")},
 
 		// --- 「どうぞ」の有無だけを変える ---
 		{"どうぞ あり", buildTTSPrompt(style, note, "さあ、光の色を告げよ。どうぞ")},
 		{"どうぞ なし", buildTTSPrompt(style, note, "さあ、光の色を告げよ。")},
 
-		// --- 三点リーダの有無 (ヨタカの口調に含まれる) ---
+		// --- 三点リーダの有無 (ツグミの口調に含まれる) ---
 		{"三点リーダ あり", buildTTSPrompt(style, note, "……私は見ている。どうぞ")},
 		{"三点リーダ なし", buildTTSPrompt(style, note, "私は見ている。どうぞ")},
 
@@ -185,7 +185,7 @@ func TestTTSConcurrencyProbe(t *testing.T) {
 
 	// 実運用と同じ形: 1発話を句点で割った複数チャンク
 	texts := []string{
-		"ワタシハ、ヨタカ。……私は見ている。",
+		"ワタシハ、ツグミ。……私は見ている。",
 		"さあ、光の色を告げよ。どうぞ",
 		"了解だ。次は4に合わせろ。どうぞ",
 	}
@@ -709,7 +709,7 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 	attempts := 0
 	unknown := map[string]int{}
 
-	for _, id := range []string{"owl", "heron", "lark", "nightjar"} {
+	for _, id := range []string{"owl", "heron", "lark", "thrush"} {
 		character, ok := navCfg.ByID(id)
 		if !ok {
 			t.Fatalf("キャラクター %q が無い", id)

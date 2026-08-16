@@ -804,3 +804,84 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 		}
 	}
 }
+
+// TestStagesAskForLampReportFirst は、全ステージの hint_l1 が
+// 「まずランプの状態を報告させる」形で始まっていることを確かめる。
+//
+// 実プレイのログで、ナビゲーターが装置を見ないうちから手順
+// (ボタンの順番・ダイヤルの位置・点滅の速さ) を話し始めていた。
+// 原因は hint_l1 の多くが「〜に気づかせる」「〜を確認させる」と
+// **観察の結果だけ**を書いており、生成AIがそれを「自分で言う」と
+// 解釈していたこと。「報告させる」と**動作**で書く必要がある
+// (docs/navigator_design.md 決定32)。
+//
+// 装置を見ても分からない情報を先出しするステージ (102/201/209/305) も、
+// ランプの確認自体は省かない。
+func TestStagesAskForLampReportFirst(t *testing.T) {
+	lib := loadTestLibrary(t)
+
+	// 「報告させる」ことを求める語。いずれかが hint_l1 にあればよい。
+	askForms := []string{"報告させ", "尋ね", "確認を兼ねる"}
+
+	for id := range lib.stages {
+		stageTmpl, err := lib.Stage(id)
+		if err != nil {
+			t.Fatalf("Stage(%q): %v", id, err)
+		}
+		hintL1 := stageTmpl.Navigator["hint_l1"]
+		if hintL1 == "" {
+			t.Errorf("%s: hint_l1 が空", id)
+			continue
+		}
+
+		found := false
+		for _, form := range askForms {
+			if strings.Contains(hintL1, form) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%s: hint_l1 がプレイヤーに報告させる形になっていない — "+
+				"装置を見る前に手順を話し始める原因になる。%v のいずれかを含めること:\n  %s",
+				id, askForms, hintL1)
+		}
+	}
+}
+
+// TestSheetSectionResolves は 202 の区画見出しが両分岐で解決することを確かめる。
+//
+// シートには「区画A」(記号) /「区画B」(数字) を印刷してあり、ナビゲーターは
+// 「区画Aを見ろ」と一言で指示する (docs/printed_materials.md §3.2.1)。
+// 配線色の記号 (A-E) とは別物なので、必ず「区画」を伴う。
+func TestSheetSectionResolves(t *testing.T) {
+	lib := loadTestLibrary(t)
+	stageTmpl, err := lib.Stage("202")
+	if err != nil {
+		t.Fatalf("Stage(202): %v", err)
+	}
+
+	seen := map[string]bool{}
+	for seed := int64(0); seed < 60; seed++ {
+		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		built, err := builder.buildStage(stageTmpl, map[string]bool{})
+		if err != nil {
+			t.Fatalf("seed=%d: buildStage: %v", seed, err)
+		}
+		procedure := built.Navigator["procedure"]
+		if varPattern.MatchString(procedure) {
+			t.Fatalf("seed=%d: procedure に未解決の変数: %s", seed, procedure)
+		}
+		for _, label := range []string{"区画A", "区画B"} {
+			if strings.Contains(procedure, label) {
+				seen[label] = true
+			}
+		}
+	}
+
+	for _, label := range []string{"区画A", "区画B"} {
+		if !seen[label] {
+			t.Errorf("%s が一度も出ていない (60シード) — 分岐が偏っている可能性", label)
+		}
+	}
+}

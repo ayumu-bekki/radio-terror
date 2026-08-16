@@ -26,7 +26,7 @@ func TestNavigatorConfigLoads(t *testing.T) {
 	}
 
 	wantIDs := map[string]string{
-		"owl": "フクロウ", "lark": "ヒバリ", "heron": "アオサギ", "nightjar": "ヨタカ",
+		"owl": "フクロウ", "lark": "ヒバリ", "heron": "アオサギ", "thrush": "ツグミ",
 	}
 	for id, name := range wantIDs {
 		c, ok := cfg.ByID(id)
@@ -238,7 +238,9 @@ func TestPromptWarnsAgainstLeakingAnswer(t *testing.T) {
 		})
 	}
 
-	const warning = "この正解をそのまま口に出してはいけません"
+	// 文面ではなく**意図**で照合する。L4 未満は色名を伏せたうえで
+	// 「直言するな」と警告する (決定40)。
+	const warning = "正解の色名は伏せてあります"
 
 	for _, level := range []int{HintL1, HintL2, HintL3} {
 		p := build(level)
@@ -325,9 +327,14 @@ func TestTutorialGivesConcreteDialPositions(t *testing.T) {
 		t.Fatalf("先頭ステージ = %s, want 101", stage.TemplateID)
 	}
 
-	// hint_l1 が「数字で指示する」ことを求めていること
+	// hint_l1 が「数字で指示する」ことを求めていること。
+	//
+	// **語尾は問わない**。ステージ知識は4キャラ共通で使われるため、
+	// 命令形の例文を書くと命令形を使わないキャラクター (ツグミ) が
+	// それを写して口調が崩れる (決定31)。ここで確かめたいのは
+	// 「具体的な位置を数字で言わせているか」であって命令形かどうかではない。
 	hintL1 := stage.Navigator["hint_l1"]
-	for _, want := range []string{"数字", "0に戻せ"} {
+	for _, want := range []string{"数字", "ダイヤルを0"} {
 		if !strings.Contains(hintL1, want) {
 			t.Errorf("hint_l1 に %q がない — 位置を数字で言う指示が抜けている: %s", want, hintL1)
 		}
@@ -380,5 +387,87 @@ func TestPromptWithoutStageForbidsOperations(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "全2課題を完了") {
 		t.Errorf("完了の表示になっていない:\n%s", prompt)
+	}
+}
+
+// TestPromptRedactsCutColorBelowL4 は、L4 未満のプロンプトに
+// **正解の色名そのものが入らない**ことを確かめる (決定40)。
+//
+// 「書いてあるが言うな」は守られないことがある — 目の前にある語はなぞられる
+// (決定19・27)。実測でも 616発話中1件残っていた。無い語は言いようがないので、
+// L4 未満では色名を伏せ字に置き換える。
+func TestPromptRedactsCutColorBelowL4(t *testing.T) {
+	cfg := loadTestNavigator(t)
+	lib := loadTestLibrary(t)
+
+	// 抽選を変えて複数の正解色で確かめる
+	for seed := int64(0); seed < 20; seed++ {
+		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		built, err := builder.Build("s-test", difficultyEasy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stage := built.Stages[0]
+		cutJA := colorNameJA[stage.Cut]
+		character, _ := cfg.ByID("owl")
+
+		build := func(level int) string {
+			return BuildNavigatorPrompt(NavigatorPromptInput{
+				Prompt: &cfg.Prompt, Character: character, Session: built,
+				StageIndex: 0, RemainingMS: 120000, HintLevel: level,
+			})
+		}
+
+		// L4 未満: 正解行に色名が出ないこと
+		for _, level := range []int{HintL1, HintL2, HintL3} {
+			answerLine := extractAnswerLine(build(level))
+			if answerLine == "" {
+				t.Fatalf("seed=%d L%d: 正解行が見つからない", seed, level)
+			}
+			if strings.Contains(answerLine, cutJA) {
+				t.Errorf("seed=%d L%d: 正解行に色名 %q が残っている:\n  %s",
+					seed, level, cutJA, answerLine)
+			}
+			if !strings.Contains(answerLine, redactedColorMark) {
+				t.Errorf("seed=%d L%d: 伏せ字が入っていない:\n  %s", seed, level, answerLine)
+			}
+		}
+
+		// L4 は直言してよい段階なので、色名がそのまま入ること
+		if line := extractAnswerLine(build(HintL4)); !strings.Contains(line, cutJA) {
+			t.Errorf("seed=%d L4: 正解行に色名 %q が無い:\n  %s", seed, cutJA, line)
+		}
+	}
+}
+
+// extractAnswerLine はプロンプトから「正解(...)」の行を取り出す。
+func extractAnswerLine(prompt string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		if strings.HasPrefix(line, "- 正解(") {
+			return line
+		}
+	}
+	return ""
+}
+
+// TestRedactCutColorKeepsOtherColors は、伏せるのが**切る線の色だけ**で、
+// 押すボタンなど伝えてよい色は残ることを確かめる。
+//
+// すべての色を伏せると手順が成立しなくなる (102 のボタン列など)。
+func TestRedactCutColorKeepsOtherColors(t *testing.T) {
+	answer := "正解はボタンを緑→青の順に押してから、赤色の線を切ること。"
+	got := redactCutColor(answer, "A") // A = 赤
+
+	if strings.Contains(got, "赤") {
+		t.Errorf("切る線の色が残っている: %s", got)
+	}
+	for _, keep := range []string{"緑", "青"} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("伝えてよい色 %q まで消えている: %s", keep, got)
+		}
+	}
+	// 「赤色」→「◯◯色」であって「◯◯色色」にならないこと
+	if strings.Contains(got, "色色") {
+		t.Errorf("置換が二重になっている: %s", got)
 	}
 }

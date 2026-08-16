@@ -236,9 +236,37 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		}
 		return "lt", nil
 
+	case "sheet_section":
+		// 202 運命の二択: 分岐に対応するシートの区画見出し。
+		//
+		// シートには「区画A」(記号) / 「区画B」(数字) を大きく印刷してあり、
+		// ナビゲーターは「区画Aを見ろ」と**一言で**指示できる
+		// (docs/printed_materials.md §3.2.1)。「記号のほうを数えてください」と
+		// 説明的に言うと発話が伸び、どこを見るのかも曖昧になる。
+		branch, err := expandAny(def["branch"], vars)
+		if err != nil {
+			return "", err
+		}
+		return sheetSectionLabel(branch)
+
 	default:
 		return "", fmt.Errorf("unknown derive kind: %q", kind)
 	}
+}
+
+// sheetSectionLabel は分岐種別に対応するシートの区画見出しを返す。
+//
+// **配線色の記号 (A-E) とは別物**。色記号は紙に印刷しないため紙面上で
+// 衝突しないが、混同を避けるため必ず「区画」を付けて呼ぶ
+// (docs/printed_materials.md §1.1・§3.2.1)。
+func sheetSectionLabel(branch string) (string, error) {
+	if branch == "symbol" {
+		return "区画A", nil
+	}
+	if branch == "number" {
+		return "区画B", nil
+	}
+	return "", fmt.Errorf("unknown sheet branch: %q", branch)
 }
 
 // sheetValue は分岐種別に対応するミッションシートの実測値を返す。

@@ -184,7 +184,17 @@ func (c *GameCoordinator) StartSession(ctx context.Context, sender *AudioSender,
 	// バインドを確立する (後勝ち。明示的な解除は設けない)
 	c.binder.Bind(bridgeID, deviceID, session)
 
-	// session_start を送信する
+	// **カウントダウンを始める前に、マネージャーへ応答する。**
+	//
+	// 以前は session_start を先に送っていたため、**返答が無いままいきなり
+	// カウントダウンが始まって**いた。マネージャーは申告が届いたのか分からず、
+	// プレイヤーは始まったことも分からないまま時間だけが減る。
+	//
+	// 発話 → 鳴り終わり → countdownStartDelay → カウントダウン開始 の順にする。
+	// 猶予はプレイヤーが装置に向き直る間で、無線が空くのを待つ意味もある。
+	c.announceReady(ctx, sender, session)
+
+	// session_start を送信する (ここでデバイスのカウントダウンが始まる)
 	payload := built.SessionStartPayload(deviceID)
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -219,8 +229,12 @@ func (c *GameCoordinator) StartSession(ctx context.Context, sender *AudioSender,
 		c.crosstalk.Start(ctx, session, sender)
 	}
 
-	// 5. 開始直後、ナビゲーターから初回の声掛けを TTS でプッシュする
-	// (プレイヤーの発話待ちにせず行動を促す)
+	// 5. カウントダウン開始後、ナビゲーターから最初の指示を出す
+	// (プレイヤーの発話待ちにせず行動を促す)。
+	//
+	// **ここが「プレイヤーへの第一声」**。直前の session_ready は
+	// マネージャー向けなので相手が変わる — 改めて名乗ってから
+	// ランプの状態を尋ねる (決定32・36)。
 	return c.speak(ctx, sender, session, "session_start", "")
 }
 
@@ -538,6 +552,52 @@ func (c *GameCoordinator) speak(ctx context.Context, sender *AudioSender, sessio
 		return nil
 	}
 	return c.speaker.Speak(ctx, sender, session, trigger, event)
+}
+
+// countdownStartDelay は準備完了の発話が鳴り終わってから
+// カウントダウンを始めるまでの猶予 (docs/operation_flow.md §4)。
+//
+// プレイヤーが装置に向き直る間であり、「始まる」と分かってから
+// 実際に始まるまでの心構えの時間でもある。
+const countdownStartDelay = 5 * time.Second
+
+// announceReady はカウントダウン開始前に、マネージャーの開始申告へ応答する。
+// 発話が鳴り終わるのを待ってから戻る。
+//
+// **同期で待つ**のが要点。ここを非同期にすると発話とカウントダウン開始が
+// 競合し、「待機完了」と言っている最中に時間が減り始める。
+//
+// 発話に失敗しても**セッションは開始する**。無線が無言になるのは痛いが、
+// 装置の前にプレイヤーが立っている以上、開始できない方が困る。
+func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender, session *GameSession) {
+	if c.speaker == nil {
+		return
+	}
+
+	// 応答は**名乗りと待機完了だけ**。CoreID や難易度は渡さない —
+	// マネージャーは自分が申告した内容を知っており、聞きたいのは
+	// 「伝わって準備ができたか」だけ。無線は短いほどよい。
+	start := time.Now()
+	if err := c.speak(ctx, sender, session, "session_ready", ""); err != nil {
+		// 生成AI・TTS の障害。マネージャー介入で運用する (§9) ため、
+		// ここでは開始を止めずログに残すだけにする。
+		log.Printf("[game] session_ready speak error (開始は継続): %v", err)
+		return
+	}
+
+	// 発話は送出済みだが、bridge はこれから再生する。
+	// 鳴り終わるまで待ってから猶予を数える (混線と同じ busy 情報を使う)。
+	wait := countdownStartDelay
+	if c.crosstalk != nil {
+		wait += c.crosstalk.BusyFor(session.DeviceID)
+	}
+	log.Printf("[game] countdown starts in %v (generate %v): device=%s",
+		wait, time.Since(start).Round(time.Millisecond), session.DeviceID)
+
+	select {
+	case <-time.After(wait):
+	case <-ctx.Done():
+	}
 }
 
 // speakAsync は発話生成をバックグラウンドで行う。

@@ -157,7 +157,7 @@ name    = "golf"
 role    = "ゴルフ場スタッフ"
 context = "50代の男性。のんびりして間延びしている"
 text    = "[unhurried] 12番のセカンドクリアになりました。後ろの組、打って大丈夫です"
-# ヨタカ(Iapetus)と重複させない
+# ツグミ(Iapetus)と重複させない
 voice   = "Schedar"
 
 [[ambient]]
