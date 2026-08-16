@@ -47,7 +47,16 @@ services:
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/geap-sa.json
     read_only: true
     depends_on:
-      - valkey
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      # /manager はマネージャー画面のトップページ。WSサーバー(8080)が
+      # リクエストを処理できる状態になっているかで起動完了を判定する。
+      test: ["CMD", "curl", "-f", "http://localhost:8080/manager"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - radio-terror-network
 
@@ -63,7 +72,8 @@ services:
       # PTT制御用GPIOピン(BCM番号)。PCB配線はbridgeごとに異なる。
       RADIO_BRIDGE_PTT_PIN: "26"
     depends_on:
-      - game-server
+      game-server:
+        condition: service_healthy
     volumes:
       - type: bind
         source: ./radio-bridge/config.toml
@@ -88,7 +98,8 @@ services:
   #    # PTT制御用GPIOピン(BCM番号)。PCB配線はbridgeごとに異なる。
   #    RADIO_BRIDGE_PTT_PIN: "16"
   #  depends_on:
-  #    - game-server
+  #    game-server:
+  #      condition: service_healthy
   #  volumes:
   #    - type: bind
   #      source: ./radio-bridge/config.toml
@@ -106,6 +117,12 @@ services:
     command: valkey-server --save 60 1 --loglevel warning
     volumes:
       - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - radio-terror-network
 
