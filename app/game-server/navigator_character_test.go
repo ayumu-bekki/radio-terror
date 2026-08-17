@@ -572,3 +572,43 @@ func TestAllCharactersHaveClosingLines(t *testing.T) {
 		}
 	}
 }
+
+// TestExplodedIsTreatedAsDeath は、爆発が**プレイヤーの死**として
+// 演じられる指示になっていることを確かめる (決定47)。
+//
+// 決定46 の時点では「次は間に合います」「お疲れさまでした」と
+// **生存を前提にした講評**になっていた。爆発は解体失敗であり、
+// 無線の向こうで返事が返ってこなくなった場面として演じる。
+func TestExplodedIsTreatedAsDeath(t *testing.T) {
+	cfg := loadTestNavigator(t)
+	inst := cfg.Prompt.TriggerInstruction("exploded")
+
+	// 安否確認を求めていること
+	for _, want := range []string{"安否", "応答"} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("exploded に %q が無い — 安否確認で締める演出にならない", want)
+		}
+	}
+
+	// **締め方は統一しないこと** (決定47b)。
+	// 「現地へ向かう」を全員に求めると、新人で手配できないヒバリや
+	// 温度を上げないツグミがキャラクターに反する対応をする。
+	if !strings.Contains(inst, "キャラクターによって違います") {
+		t.Error("exploded が締め方を統一している — " +
+			"全キャラが同じ対応をしてキャラクターが潰れる")
+	}
+
+	// 生存前提の言葉を禁じていること
+	for _, want := range []string{"次がある前提", "無事に終わった前提"} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("exploded に %q の禁止が無い", want)
+		}
+	}
+
+	// 全キャラクターが爆発時の台詞例を持つこと (例文が出力を決める)
+	for _, c := range cfg.Characters {
+		if !strings.Contains(c.Sheet, "**爆発**") {
+			t.Errorf("%s: 爆発時の台詞例が無い — 汎用の失敗メッセージになる", c.Name)
+		}
+	}
+}

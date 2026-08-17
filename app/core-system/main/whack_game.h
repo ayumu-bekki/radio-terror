@@ -19,6 +19,18 @@
 namespace CoreSystem {
 
 /// モグラ叩きの進行状態。GameTask が所有し、100ms tick から進める。
+/// モグラ叩きの1操作の結果。
+///
+/// **ミスを呼び出し側へ返す**のが要点。以前は bool (完了したか) だけを返しており、
+/// **ミスに何の反応も無かった** — 叩き直しになるだけで、失敗したことに
+/// 気づけなかった (§5.1)。
+enum WhackResult : uint8_t {
+  WHACK_NONE,       ///< 何も起きていない
+  WHACK_HIT,        ///< 正しく叩いた (まだ完了していない)
+  WHACK_MISSED,     ///< ミス (誤ったボタン / 時間内に押せなかった)
+  WHACK_COMPLETED,  ///< 規定数を叩き終えた
+};
+
 class WhackGame final {
  public:
   /// ステージ開始時に発動する。最初のモグラは gap 経過後に出現する
@@ -49,16 +61,18 @@ class WhackGame final {
   bool IsCompleted() const { return completed_; }
 
   /// 100ms tick で出現・消灯を進める。
-  /// モグラの出現・ミスによる出し直しを扱う (ミスにペナルティはない。§5.1)
-  void Tick(const StageConfig& stage, LedController* leds) {
+  ///
+  /// モグラの出現と、**押せなかったミス**を扱う。ミスは呼び出し側へ返し、
+  /// ブザー・ペナルティで気づけるようにする (§5.1)。
+  WhackResult Tick(const StageConfig& stage, LedController* leds) {
     if (!IsRunning()) {
-      return;
+      return WHACK_NONE;
     }
     const WhackSpec& spec = stage.precondition.whack;
 
     timer_ms_ -= kTickMs;
     if (0 < timer_ms_) {
-      return;
+      return WHACK_NONE;
     }
 
     if (in_gap_ || current_mole_ == COLOR_NONE) {
@@ -68,7 +82,7 @@ class WhackGame final {
       timer_ms_ = spec.mole_on_ms;
       leds->ClearOverride();
       leds->SetOverride(current_mole_, true);
-      return;
+      return WHACK_NONE;
     }
 
     // 点灯時間内に押せなかったミス。進捗を進めずに同じ枠を出し直す
@@ -76,13 +90,16 @@ class WhackGame final {
     in_gap_ = true;
     timer_ms_ = spec.gap_ms;
     leds->ClearOverride();
+    return WHACK_MISSED;
   }
 
-  /// ボタン押下を処理する。完了した場合のみ true を返す
-  /// (呼び出し側は完了通知 whack_completed を送る)
-  bool HandlePush(ColorId color, const StageConfig& stage, LedController* leds) {
+  /// ボタン押下を処理する。
+  ///
+  /// **ミスも呼び出し側へ返す** — ブザー・ペナルティで
+  /// 「失敗した」ことを伝えないと、叩き直しになるだけで気づけない (§5)。
+  WhackResult HandlePush(ColorId color, const StageConfig& stage, LedController* leds) {
     if (!IsRunning()) {
-      return false;
+      return WHACK_NONE;
     }
     const WhackSpec& spec = stage.precondition.whack;
 
@@ -92,7 +109,7 @@ class WhackGame final {
       in_gap_ = true;
       timer_ms_ = spec.gap_ms;
       leds->ClearOverride();
-      return false;
+      return WHACK_MISSED;
     }
 
     // ヒット: 即消灯して gap 後に次のモグラを出す
@@ -103,14 +120,14 @@ class WhackGame final {
     leds->SetOverride(color, false);
 
     if (hits_ < spec.count) {
-      return false;
+      return WHACK_HIT;
     }
 
     // 完了。kLED の専有を解除してヒント表示へ切り替える (§5.1)
     completed_ = true;
     active_ = false;
     leds->ClearOverride();
-    return true;
+    return WHACK_COMPLETED;
   }
 
   /// 現在出現中のモグラの色 (出ていなければ COLOR_NONE)

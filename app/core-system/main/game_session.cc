@@ -182,6 +182,11 @@ bool ParsePrecondition(const cJSON* obj, Precondition* out, std::string* error_d
     }
     whack.last_mole_matches_cut =
         cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(whack_item, "last_mole_matches_cut"));
+    whack.penalty_ms = GetInt(whack_item, "penalty_ms", whack.penalty_ms);
+    if (whack.penalty_ms < 0) {
+      *error_detail = "whack penalty_ms must be non-negative";
+      return false;
+    }
     out->has_whack = true;
     out->whack = whack;
   }

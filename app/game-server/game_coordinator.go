@@ -427,11 +427,12 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		c.logEvent(session, EventPushProgress,
 			fmt.Sprintf("ボタン入力 %d個目まで正解", msg.SeqIndex), msg.StageIndex, msg.RemainingMS)
 
-		// 発話は毎回でなく間引く (§3.5)
-		if msg.SeqIndex%2 == 1 {
-			c.speakAsync(ctx, sender, session, "push_progress",
-				fmt.Sprintf("プレイヤーがボタン入力を%d個目まで正しく進めた。短く反応する。", msg.SeqIndex))
-		}
+		// **発話しない** (決定48)。
+		//
+		// ナビゲーターは無線の向こうにいて装置を見ていない。ボタンを押した
+		// だけで「今ので合ってる」と反応するのは**手元が見えている**ことに
+		// なり、無線で状況を伝え合う前提が崩れる。
+		// プレイヤーが報告してきたときに `player_message` で応じればよい。
 
 	case msgWrongAction:
 		session.mu.Lock()
@@ -451,6 +452,15 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		c.logEvent(session, EventWrongAction,
 			fmt.Sprintf("✗ %s%s", describeWrongAction(msg), describePenalty(msg.PenaltyMS)),
 			msg.StageIndex, msg.RemainingMS)
+
+		// **モグラ叩きのミスでは発話しない** (決定48)。
+		//
+		// 反射で叩いている最中に無線が入ると、そちらに気を取られて
+		// さらにミスを誘う。ミスはブザーと残り時間の減りで既に伝わっている。
+		// ログには残すので、後から何が起きたかは追える。
+		if msg.Detail == "whack" {
+			break
+		}
 
 		c.speakAsync(ctx, sender, session, "wrong_action", event+"叱咤しつつ励まし、注意を促す。")
 

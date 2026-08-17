@@ -326,8 +326,11 @@ void GameTask::HandlePushChanged(ColorId color, bool pressed) {
   const StageConfig& stage = session_.stages[stage_index_];
 
   if (whack_.IsRunning()) {
-    if (whack_.HandlePush(color, stage, &leds_)) {
+    const WhackResult result = whack_.HandlePush(color, stage, &leds_);
+    if (result == WHACK_COMPLETED) {
       sender_.SendWhackCompleted(stage_index_, remaining_ms_);
+    } else if (result == WHACK_MISSED) {
+      HandleWhackMiss(stage);
     }
     ApplyLedOutputs();
     return;
@@ -522,7 +525,9 @@ void GameTask::TickLeds() {
 }
 
 void GameTask::TickWhack() {
-  whack_.Tick(session_.stages[stage_index_], &leds_);
+  if (whack_.Tick(session_.stages[stage_index_], &leds_) == WHACK_MISSED) {
+    HandleWhackMiss(session_.stages[stage_index_]);
+  }
   ApplyLedOutputs();
 }
 
@@ -662,6 +667,22 @@ void GameTask::ApplyPenalty(int32_t penalty_ms) {
     remaining_ms_ = 0;
     EnterDetonating("timeout", nullptr, COLOR_NONE);
   }
+}
+
+// モグラ叩きのミス。ブザーと軽いペナルティで「失敗した」ことを伝える (§5.1)。
+//
+// 以前は叩き直しになるだけで**何の反応も無く**、ミスに気づけなかった。
+// 無線越しでは画面が見えないので、**音**が唯一のフィードバックになる。
+void GameTask::HandleWhackMiss(const StageConfig& stage) {
+  const int32_t penalty = stage.precondition.whack.penalty_ms;
+  if (0 < penalty) {
+    // ApplyPenalty がブザーと残り時間の減算を行う (0到達なら Detonating)
+    ApplyPenalty(penalty);
+  } else {
+    // ペナルティ無し設定でも、ミスしたことは音で伝える
+    buzzer_.Beep(1);
+  }
+  sender_.SendWrongAction("whack", COLOR_NONE, penalty, remaining_ms_);
 }
 
 void GameTask::AdvanceStage() {

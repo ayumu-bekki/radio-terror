@@ -139,6 +139,8 @@ class GameTask final : public Task {
   /// timer_digit の猶予タイマーを進める (§5)
   void UpdateTimerDigitGrace();
   void ApplyPenalty(int32_t penalty_ms);
+  /// モグラ叩きのミス。ブザーと軽いペナルティで伝える (§5.1)
+  void HandleWhackMiss(const StageConfig& stage);
   void AdvanceStage();
   void ResetStageProgress();
 

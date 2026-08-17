@@ -40,7 +40,7 @@ precondition = { push_seq = { entries = [
   { push = "${p3}" },
   { push = "${p4}" },
   { push = "${p5}" },
-], on_wrong_press = { action = "retry" } } }
+], on_wrong_press = { action = "penalty", penalty_ms = 5000 } } }
 on_wrong_cut = { action = "explode" }
 
 [navigator]
