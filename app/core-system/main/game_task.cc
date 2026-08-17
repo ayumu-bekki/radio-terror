@@ -524,10 +524,10 @@ void GameTask::TickLeds() {
   ApplyLedOutputs();
 }
 
+// tick はモグラの出現・消灯を進めるだけで、ミスは返さない。
+// ミスの通知は「誤ったボタンを押した」HandlePush 側だけが行う (§5.1)。
 void GameTask::TickWhack() {
-  if (whack_.Tick(session_.stages[stage_index_], &leds_) == WHACK_MISSED) {
-    HandleWhackMiss(session_.stages[stage_index_]);
-  }
+  whack_.Tick(session_.stages[stage_index_], &leds_);
   ApplyLedOutputs();
 }
 

@@ -24,10 +24,13 @@ namespace CoreSystem {
 /// **ミスを呼び出し側へ返す**のが要点。以前は bool (完了したか) だけを返しており、
 /// **ミスに何の反応も無かった** — 叩き直しになるだけで、失敗したことに
 /// 気づけなかった (§5.1)。
+///
+/// ミスは**誤ったボタンを押したときだけ**。押せずに消灯した場合は
+/// 静かに出し直す — 無操作でブザーが鳴り続けるのを避けるため。
 enum WhackResult : uint8_t {
   WHACK_NONE,       ///< 何も起きていない
   WHACK_HIT,        ///< 正しく叩いた (まだ完了していない)
-  WHACK_MISSED,     ///< ミス (誤ったボタン / 時間内に押せなかった)
+  WHACK_MISSED,     ///< ミス (誤ったボタンを押した。時間切れは含まない)
   WHACK_COMPLETED,  ///< 規定数を叩き終えた
 };
 
@@ -62,8 +65,8 @@ class WhackGame final {
 
   /// 100ms tick で出現・消灯を進める。
   ///
-  /// モグラの出現と、**押せなかったミス**を扱う。ミスは呼び出し側へ返し、
-  /// ブザー・ペナルティで気づけるようにする (§5.1)。
+  /// **常に WHACK_NONE を返す** — 時間切れはミス扱いにしない。
+  /// ミスは「誤ったボタンを押した」ときだけで、HandlePush が返す (§5.1)。
   WhackResult Tick(const StageConfig& stage, LedController* leds) {
     if (!IsRunning()) {
       return WHACK_NONE;
@@ -85,12 +88,19 @@ class WhackGame final {
       return WHACK_NONE;
     }
 
-    // 点灯時間内に押せなかったミス。進捗を進めずに同じ枠を出し直す
+    // 点灯時間内に押せなかった。進捗を進めずに同じ枠を出し直すだけで、
+    // **ミスとしては扱わない** (§5.1)。
+    //
+    // ここでミスを返すと**無操作でもブザーとペナルティが鳴り続ける**。
+    // 押下が無ければ必ずこの枠に落ちるため、放置しているだけで
+    // (mole_on_ms + gap_ms) ごとに減点され、勝手に時間が溶けて爆発する。
+    // ペナルティで伝えたいのは「**間違えた**」ことなので、
+    // 対象は誤ったボタンを押した場合だけでよい。
     current_mole_ = COLOR_NONE;
     in_gap_ = true;
     timer_ms_ = spec.gap_ms;
     leds->ClearOverride();
-    return WHACK_MISSED;
+    return WHACK_NONE;
   }
 
   /// ボタン押下を処理する。
