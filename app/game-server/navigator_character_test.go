@@ -525,3 +525,50 @@ func extractOpeningExample(sheet string) string {
 	}
 	return ""
 }
+
+// TestClosingMessagesHaveNoDouzo は、交信を終える場面 (解除成功・失敗) で
+// **「どうぞ」を付けない**指示があることを確かめる (決定46)。
+//
+// 「どうぞ」は相手に応答を促す無線の作法。もう返事を求めない場面で付くと
+// 不自然で、締めくくりにならない。
+func TestClosingMessagesHaveNoDouzo(t *testing.T) {
+	cfg := loadTestNavigator(t)
+
+	// 出力ルールに例外が書かれていること
+	if !strings.Contains(cfg.Prompt.Output, "交信が終わる場面") {
+		t.Error("output に「どうぞ」の例外が書かれていない — " +
+			"全発話に付けるルールだけだと締めくくりにも付く")
+	}
+
+	// 終了トリガーが明示的に禁じていること
+	for _, trigger := range []string{"defused", "exploded"} {
+		inst := cfg.Prompt.TriggerInstruction(trigger)
+		if !strings.Contains(inst, "「どうぞ」は付けない") {
+			t.Errorf("%s に「どうぞ」を付けない指示が無い", trigger)
+		}
+	}
+}
+
+// TestAllCharactersHaveClosingLines は、全キャラクターが
+// **解除成功の台詞例**を持っていることを確かめる (決定46)。
+//
+// 以前はヒバリだけが持っており、しかも黒幕セクションの中にあった。
+// 他3人は「クリア」(ステージ突破) しかなく、ゲーム最後の見せ場が
+// 用意されていなかった。例文が無いと生成AIは短い汎用の祝福を返す (決定14)。
+func TestAllCharactersHaveClosingLines(t *testing.T) {
+	cfg := loadTestNavigator(t)
+
+	for _, c := range cfg.Characters {
+		if !strings.Contains(c.Sheet, "**解除成功**") {
+			t.Errorf("%s: 解除成功の台詞例が無い — "+
+				"ゲーム最後の見せ場が汎用文になる", c.Name)
+		}
+		// 締めくくりに「どうぞ」を含む例を置かないこと
+		for _, line := range strings.Split(c.Sheet, "\n") {
+			if strings.Contains(line, "解除成功") && strings.Contains(line, "どうぞ") &&
+				!strings.Contains(line, "付けない") {
+				t.Errorf("%s: 解除成功の例に「どうぞ」が入っている:\n  %s", c.Name, line)
+			}
+		}
+	}
+}
