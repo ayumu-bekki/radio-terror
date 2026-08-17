@@ -121,8 +121,11 @@ var simScripts = map[string]simScript{
 			{Trigger: "session_start", HintLevel: HintL1},
 			{Trigger: "player_message", HintLevel: HintL1,
 				Player: "ランプが2つ光っています。片方は点滅しています。どうぞ"},
+			// **プレイヤーからダイヤルを聞かせない**。ここで尋ねさせると
+			// 「ダイヤルを先に伝えたか」の検査にならない (実運用ではプレイヤーは
+			// ダイヤルの存在を知らず、押して切るだけだと思い込んでいた)。
 			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "点滅しているほうのボタンを押さえればいいんですね。ダイヤルはどこですか。どうぞ"},
+				Player: "えっ? 1回押せばいいんですか? どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL3,
 				Player: "ダイヤルを合わせて、ボタンを押さえました。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL4,
