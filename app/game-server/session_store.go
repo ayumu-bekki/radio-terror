@@ -22,6 +22,12 @@ import (
 type SessionStore interface {
 	SaveSession(ctx context.Context, session *GameSession) error
 	LoadSessions(ctx context.Context) ([]*GameSession, error)
+	// DeleteSession はセッション本体とバインドを消す。**ログは残す**。
+	//
+	// **中断 (リセット) のときだけ呼ぶ** — 終了 (爆発・解除) したセッションは
+	// Management Console の履歴に残すため消さない (§9)。
+	// ログを残すのは「なぜ終わったか」を後から追えるようにするため。
+	DeleteSession(ctx context.Context, session *GameSession) error
 	AppendLog(sessionID string, entry ConversationEntry) error
 	LoadLog(ctx context.Context, sessionID string) ([]ConversationEntry, error)
 }
@@ -64,6 +70,35 @@ func (s *ValkeyStore) SaveSession(ctx context.Context, session *GameSession) err
 		if err := s.client.Set(ctx, bindingKey(bridgeID), deviceID, 0).Err(); err != nil {
 			return fmt.Errorf("set binding: %w", err)
 		}
+	}
+	return nil
+}
+
+// DeleteSession はセッション本体・ログ・バインドを Valkey から消す。
+//
+// これが無いと、**リセットしたセッションが再起動で復活する**。
+// AbortSession はメモリ上の binder を外すだけなので、Valkey に残った
+// セッションを LoadSessions が読み戻してしまう (実運用で発生)。
+func (s *ValkeyStore) DeleteSession(ctx context.Context, session *GameSession) error {
+	session.mu.Lock()
+	sessionID, bridgeID := session.SessionID, session.BridgeID
+	session.mu.Unlock()
+
+	// **ログは消さない。** 「なぜ終わったか」を後から追えるようにするため
+	// (中断イベントもここに記録されている)。復活するのはセッション本体なので、
+	// それとバインドだけ消せば足りる。
+	keys := []string{sessionKey(sessionID)}
+	// バインドのキーも消しておく (掃除)。
+	//
+	// 復元はセッション本体から行うので `binding:` は現状**読まれていない**が、
+	// 消したセッションを指したまま残るのは紛らわしい。
+	// なお**メモリ上の bridge → device の紐付けは残す** — 再接続で継続できる
+	// ようにする設計 (SessionBinder.Release のコメント参照)。
+	if bridgeID != "" {
+		keys = append(keys, bindingKey(bridgeID))
+	}
+	if err := s.client.Del(ctx, keys...).Err(); err != nil {
+		return fmt.Errorf("del session: %w", err)
 	}
 	return nil
 }
@@ -143,6 +178,14 @@ func (s *MemoryStore) SaveSession(ctx context.Context, session *GameSession) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions[session.SessionID] = session
+	return nil
+}
+
+func (s *MemoryStore) DeleteSession(ctx context.Context, session *GameSession) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, session.SessionID)
+	// ログは残す (ValkeyStore と同じ理由)
 	return nil
 }
 

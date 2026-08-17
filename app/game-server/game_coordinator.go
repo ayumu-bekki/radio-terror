@@ -306,7 +306,19 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 			message += " ※デバイス未接続のため通知は届いていない"
 		}
 		c.logEvent(session, EventAborted, message, stageIndex, remaining)
-		c.persist(ctx, session)
+
+		// **Valkey からも消す。** binder を外すだけだと、サーバーを
+		// 再起動したときに LoadSessions が読み戻し、
+		// **リセットしたはずのセッションが復活する** (実運用で発生)。
+		//
+		// 終了 (爆発・解除) したセッションは履歴のため残すが (§9)、
+		// 中断は「無かったことにする」操作なので消してよい。
+		// ログは残す — 「なぜ終わったか」を後から追うため。
+		if c.store != nil {
+			if err := c.store.DeleteSession(ctx, session); err != nil {
+				log.Printf("[store] delete session %s: %v", session.SessionID, err)
+			}
+		}
 	}
 
 	c.binder.Release(deviceID)

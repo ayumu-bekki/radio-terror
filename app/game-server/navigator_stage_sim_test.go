@@ -519,6 +519,21 @@ func simCheckTurn(
 		})
 	}
 
+	// 5.5 指針をそのまま書き出していないか
+	//
+	// 「切る線の色名は言わない」「出力例:」のように、**従うべき指示を
+	// 読み上げてしまう**ことがある (306 で136字の実例)。無線に流れると
+	// ナビゲーターが内部の指示を音読することになる。
+	for _, form := range metaOutputForms {
+		if strings.Contains(body, form) {
+			findings = append(findings, simFinding{
+				StageID: id, Level: turn.HintLevel, Kind: "meta_output",
+				Detail: fmt.Sprintf("指針をそのまま出力している (%q)", form), Reply: reply,
+			})
+			break
+		}
+	}
+
 	// 6. 課題突破を「解除完了」と取り違えていないか
 	//
 	// stage_cleared は課題を1つ抜けただけで、装置はまだ生きている。
@@ -585,6 +600,14 @@ func isStageOpening(turn simTurn) bool {
 // lampQuestionForms はランプの状態を尋ねていると見なす語。
 // キャラクターごとに語尾が違うため、語幹で照合する。
 var lampQuestionForms = []string{"ランプ", "光って", "点いて", "点灯", "点滅"}
+
+// metaOutputForms は「発話ではなく指示の書き出し」を示す語。
+//
+// ナビゲーターは指針に**従う**のであって、読み上げるのではない。
+var metaOutputForms = []string{
+	"出力例", "言わないこと", "伝える必要がある", "してはいけません",
+	"という指示", "指針:", "ヒントレベル",
+}
 
 // prematureCompletionWords は「装置を解除しきった」ことを意味する語。
 // 課題を1つ突破しただけの場面 (stage_cleared) で使うと、

@@ -208,3 +208,85 @@ func TestRenderIncludesEvents(t *testing.T) {
 		t.Errorf("発話の形式が崩れている:\n%s", rendered)
 	}
 }
+
+// TestAbortedSessionDoesNotSurviveRestart は、リセットしたセッションが
+// **サーバー再起動で復活しない**ことを確かめる。
+//
+// `docker compose down` → `up` でリセット済みのセッションが戻ってくる
+// 不具合があった。AbortSession は binder (メモリ) を外すだけで
+// **Valkey のセッションを消していなかった**ため、起動時の LoadSessions が
+// 読み戻していた。
+func TestAbortedSessionDoesNotSurviveRestart(t *testing.T) {
+	game, _, store := newTestCoordinator(t)
+	session := newTestSession(t, game)
+	ctx := context.Background()
+
+	// 保存されている状態を作る (通常は開始時・進行時に persist される)
+	if err := store.SaveSession(ctx, session); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	_ = game.AbortSession(ctx, nil, session.DeviceID)
+
+	// **再起動を模す** — 新しい Coordinator へ保存済みセッションを復元する
+	restored, err := store.LoadSessions(ctx)
+	if err != nil {
+		t.Fatalf("LoadSessions: %v", err)
+	}
+	for _, s := range restored {
+		if s.SessionID == session.SessionID {
+			t.Fatalf("リセットしたセッションが復元された: %s", s.SessionID)
+		}
+	}
+
+	// **ログは残っていること** — 「なぜ終わったか」を追えなくなるため
+	entries, err := store.LoadLog(ctx, session.SessionID)
+	if err != nil {
+		t.Fatalf("LoadLog: %v", err)
+	}
+	var foundAbort bool
+	for _, e := range entries {
+		if e.Event == EventAborted {
+			foundAbort = true
+		}
+	}
+	if !foundAbort {
+		t.Error("中断イベントのログまで消えている — 終了理由が追えなくなる")
+	}
+}
+
+// TestFinishedSessionSurvivesRestart は、終了 (爆発・解除) したセッションは
+// **消さない**ことを確かめる。
+//
+// Management Console の進行表・履歴で結果を確認するため残す必要がある
+// (docs/game_session_design.md §9)。中断との違いを取り違えないよう固定する。
+func TestFinishedSessionSurvivesRestart(t *testing.T) {
+	game, _, store := newTestCoordinator(t)
+	session := newTestSession(t, game)
+	ctx := context.Background()
+
+	if err := store.SaveSession(ctx, session); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	// 解除成功として終了させる (AbortSession は通さない)
+	game.finishSession(ctx, session, 12345)
+	game.releaseAfterFinish(session)
+	if err := store.SaveSession(ctx, session); err != nil {
+		t.Fatalf("SaveSession: %v", err)
+	}
+
+	restored, err := store.LoadSessions(ctx)
+	if err != nil {
+		t.Fatalf("LoadSessions: %v", err)
+	}
+	var found bool
+	for _, s := range restored {
+		if s.SessionID == session.SessionID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("終了したセッションが消えている — 履歴で結果を確認できなくなる")
+	}
+}

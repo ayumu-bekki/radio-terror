@@ -564,6 +564,24 @@ Pending は Ready と同じ安全動作を引き継ぐ — WS切断・線が外�
 
 > 出典: OP 決定16・決定17
 
+### P-4b. リセットは Valkey からも消す — 終了は残す
+
+`AbortSession` (リセット) は `store.DeleteSession` まで呼ぶ。
+binder を外すだけだと、サーバー再起動時に `LoadSessions` が読み戻し、
+**リセットしたはずのセッションが復活する**
+(`docker compose down` → `up` で実際に発生した)。
+
+**消すのは中断だけ。** 終了 (爆発・解除) したセッションは P-4 のとおり残す。
+
+**ログは中断でも消さない。** 中断イベントもログに記録されており、
+消すと「なぜ終わったか」が追えなくなる。
+消すのはセッション本体と `binding:` キーだけ。
+
+メモリ上の bridge → device の紐付けは残す(再接続で継続できるようにする設計)。
+
+> 出典: GS 決定60 / 回帰 `TestAbortedSessionDoesNotSurviveRestart`・
+> `TestFinishedSessionSurvivesRestart`
+
 ### P-5. リセット対象はバインド優先で決める
 
 CoreID の聞き取りは誤認識しうるため、リセット対象は**バインド情報を優先**して決める。
