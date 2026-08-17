@@ -39,15 +39,15 @@ type deviceMessage struct {
 
 // デバイス → サーバー のメッセージ type (§7.2)
 const (
-	msgDeviceStatus    = "device_status"
-	msgSessionAccepted = "session_accepted"
-	msgSessionRejected = "session_rejected"
-	msgStageCleared    = "stage_cleared"
-	msgWhackCompleted  = "whack_completed"
-	msgPushProgress    = "push_progress"
-	msgWrongAction     = "wrong_action"
-	msgExploded        = "exploded"
-	msgDefused         = "defused"
+	msgDeviceStatus        = "device_status"
+	msgSessionAccepted     = "session_accepted"
+	msgSessionRejected     = "session_rejected"
+	msgStageCleared        = "stage_cleared"
+	msgColorMatchCompleted = "color_match_completed"
+	msgPushProgress        = "push_progress"
+	msgWrongAction         = "wrong_action"
+	msgExploded            = "exploded"
+	msgDefused             = "defused"
 )
 
 // --- サーバー → デバイス (§7.1) ---

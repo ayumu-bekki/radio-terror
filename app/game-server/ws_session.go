@@ -101,7 +101,7 @@ func (s *wsSession) run(ctx context.Context) {
 
 		switch cmd.Type {
 		case msgDeviceStatus, msgSessionAccepted, msgSessionRejected, msgStageCleared,
-			msgWhackCompleted, msgPushProgress, msgWrongAction, msgExploded, msgDefused:
+			msgColorMatchCompleted, msgPushProgress, msgWrongAction, msgExploded, msgDefused:
 			s.handleDeviceMessage(ctx, msg)
 		default:
 			s.sendError("unknown command type: " + cmd.Type)

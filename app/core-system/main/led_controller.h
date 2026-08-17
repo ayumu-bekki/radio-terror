@@ -5,7 +5,7 @@
 // kLED A-E の表示制御 (docs/game_session_design.md §4.1・§6.1)
 //
 // 表示は3層で決まり、上の層が優先される:
-//   1. 上書き表示  … whack のモグラ・push_seq のフィードバック
+//   1. 上書き表示  … 色合わせの点灯・push_seq のフィードバック
 //   2. パターン再生 … ステージ定義の blink / morse
 //   3. 消灯
 // Setup中だけは例外で、切断中の線を点灯して復旧ガイドにする。
@@ -61,7 +61,7 @@ class LedController final {
     }
   }
 
-  /// 指定色だけを上書き点灯する (whack のモグラ出現・push_seq の入力反応)
+  /// 指定色だけを上書き点灯する (色合わせの点灯・push_seq の入力反応)
   void SetOverride(ColorId color, bool on) {
     if (color < COLOR_A || kColorNum <= color) {
       return;

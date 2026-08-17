@@ -18,16 +18,16 @@ const (
 
 // イベントの細分 (EntryKindEvent のときの Event フィールド)。
 const (
-	EventSessionStart = "session_start" // セッション開始
-	EventStageStart   = "stage_start"   // ステージ開始
-	EventStageCleared = "stage_cleared" // ステージクリア
-	EventWhackDone    = "whack_done"    // モグラ叩き完了
-	EventPushProgress = "push_progress" // ボタン列の進捗
-	EventWrongAction  = "wrong_action"  // 誤操作
-	EventDefused      = "defused"       // 解除成功
-	EventExploded     = "exploded"      // 爆発 (失敗)
-	EventAborted      = "aborted"       // マネージャーによる強制リセット
-	EventForced       = "forced"        // マネージャーによる強制破裂の指示
+	EventSessionStart   = "session_start"    // セッション開始
+	EventStageStart     = "stage_start"      // ステージ開始
+	EventStageCleared   = "stage_cleared"    // ステージクリア
+	EventColorMatchDone = "color_match_done" // 色合わせ完了
+	EventPushProgress   = "push_progress"    // ボタン列の進捗
+	EventWrongAction    = "wrong_action"     // 誤操作
+	EventDefused        = "defused"          // 解除成功
+	EventExploded       = "exploded"         // 爆発 (失敗)
+	EventAborted        = "aborted"          // マネージャーによる強制リセット
+	EventForced         = "forced"           // マネージャーによる強制破裂の指示
 )
 
 // senderPlayer はプレイヤー発話の Sender 名。

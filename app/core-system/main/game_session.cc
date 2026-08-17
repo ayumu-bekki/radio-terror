@@ -166,29 +166,23 @@ bool ParsePrecondition(const cJSON* obj, Precondition* out, std::string* error_d
     }
   }
 
-  const cJSON* whack_item = cJSON_GetObjectItemCaseSensitive(obj, "whack");
-  if (cJSON_IsObject(whack_item)) {
-    WhackSpec whack;
-    whack.count = GetInt(whack_item, "count", 0);
-    if (whack.count < 1) {
-      *error_detail = "whack.count must be >= 1";
+  const cJSON* color_match_item = cJSON_GetObjectItemCaseSensitive(obj, "color_match");
+  if (cJSON_IsObject(color_match_item)) {
+    ColorMatchSpec color_match;
+    color_match.count = GetInt(color_match_item, "count", 0);
+    if (color_match.count < 1) {
+      *error_detail = "color_match.count must be >= 1";
       return false;
     }
-    whack.mole_on_ms = GetInt(whack_item, "mole_on_ms", whack.mole_on_ms);
-    whack.gap_ms = GetInt(whack_item, "gap_ms", whack.gap_ms);
-    if (whack.mole_on_ms <= 0 || whack.gap_ms < 0) {
-      *error_detail = "whack requires positive mole_on_ms and non-negative gap_ms";
+    color_match.last_matches_cut =
+        cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(color_match_item, "last_matches_cut"));
+    color_match.penalty_ms = GetInt(color_match_item, "penalty_ms", color_match.penalty_ms);
+    if (color_match.penalty_ms < 0) {
+      *error_detail = "color_match penalty_ms must be non-negative";
       return false;
     }
-    whack.last_mole_matches_cut =
-        cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(whack_item, "last_mole_matches_cut"));
-    whack.penalty_ms = GetInt(whack_item, "penalty_ms", whack.penalty_ms);
-    if (whack.penalty_ms < 0) {
-      *error_detail = "whack penalty_ms must be non-negative";
-      return false;
-    }
-    out->has_whack = true;
-    out->whack = whack;
+    out->has_color_match = true;
+    out->color_match = color_match;
   }
 
   const cJSON* push_seq_item = cJSON_GetObjectItemCaseSensitive(obj, "push_seq");
@@ -305,9 +299,9 @@ bool ParsePrecondition(const cJSON* obj, Precondition* out, std::string* error_d
 
   out->leds_all_off = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(obj, "leds_all_off"));
 
-  // whack と push_seq はどちらもkLED表示を専有するため併用不可 (§6.2)
-  if (out->has_whack && out->has_push_seq) {
-    *error_detail = "whack and push_seq cannot be combined";
+  // color_match と push_seq はどちらもkLED表示を専有するため併用不可 (§6.2)
+  if (out->has_color_match && out->has_push_seq) {
+    *error_detail = "color_match and push_seq cannot be combined";
     return false;
   }
 

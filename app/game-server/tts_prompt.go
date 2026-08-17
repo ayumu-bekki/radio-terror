@@ -93,15 +93,15 @@ func sanitizeTTSTags(s string) string {
 //
 // キーは navigator/prompt.toml の [triggers] と同じトリガー名。
 var directorNotes = map[string]string{
-	"session_start":  "落ち着いた、頼りになる調子で。",
-	"stage_cleared":  "安堵と称賛をにじませて、短く。",
-	"whack_done":     "ねぎらう調子で、穏やかに。",
-	"wrong_action":   "慌てさせず、立て直しを促す落ち着いた調子で。",
-	"defused":        "喜びと安堵をはっきり出して。",
-	"exploded":       "落胆を抑えた、気遣うような調子で。",
-	"hint":           "急かさず、導くような調子で。",
-	"time_running":   "緊迫感を出し、短く畳みかけるように。",
-	"player_message": "事務的すぎない、自然な受け答えの調子で。",
+	"session_start":    "落ち着いた、頼りになる調子で。",
+	"stage_cleared":    "安堵と称賛をにじませて、短く。",
+	"color_match_done": "ねぎらう調子で、穏やかに。",
+	"wrong_action":     "慌てさせず、立て直しを促す落ち着いた調子で。",
+	"defused":          "喜びと安堵をはっきり出して。",
+	"exploded":         "落胆を抑えた、気遣うような調子で。",
+	"hint":             "急かさず、導くような調子で。",
+	"time_running":     "緊迫感を出し、短く畳みかけるように。",
+	"player_message":   "事務的すぎない、自然な受け答えの調子で。",
 }
 
 // directorNote はトリガーに対応する読み方の指定を返す。

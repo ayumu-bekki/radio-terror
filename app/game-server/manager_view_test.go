@@ -50,14 +50,14 @@ func TestBatteryClass(t *testing.T) {
 
 func TestEventClass(t *testing.T) {
 	cases := map[string]string{
-		EventStageCleared: "ev-ok",
-		EventWhackDone:    "ev-ok",
-		EventWrongAction:  "ev-ng",
-		EventExploded:     "ev-ng",
-		EventDefused:      "ev-end",
-		EventAborted:      "ev-end",
-		EventSessionStart: "ev-end",
-		EventPushProgress: "ev",
+		EventStageCleared:   "ev-ok",
+		EventColorMatchDone: "ev-ok",
+		EventWrongAction:    "ev-ng",
+		EventExploded:       "ev-ng",
+		EventDefused:        "ev-end",
+		EventAborted:        "ev-end",
+		EventSessionStart:   "ev-end",
+		EventPushProgress:   "ev",
 	}
 	for event, want := range cases {
 		if got := eventClass(event); got != want {

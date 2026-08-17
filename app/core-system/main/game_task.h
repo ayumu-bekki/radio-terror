@@ -27,7 +27,7 @@
 #include "status_indicator.h"
 #include "task.h"
 #include "timer_digit_rule.h"
-#include "whack_game.h"
+#include "color_match_game.h"
 
 namespace CoreSystem {
 
@@ -128,7 +128,6 @@ class GameTask final : public Task {
   void Tick();
   void TickCountdown();
   void TickLeds();
-  void TickWhack();
   void TickForbiddenRotary();
   void TickDisplay();
 
@@ -139,8 +138,8 @@ class GameTask final : public Task {
   /// timer_digit の猶予タイマーを進める (§5)
   void UpdateTimerDigitGrace();
   void ApplyPenalty(int32_t penalty_ms);
-  /// モグラ叩きのミス。ブザーと軽いペナルティで伝える (§5.1)
-  void HandleWhackMiss(const StageConfig& stage);
+  /// 色合わせのミス。ブザーと軽いペナルティで伝える (§5.1)
+  void HandleColorMatchMiss(const StageConfig& stage);
   void AdvanceStage();
   void ResetStageProgress();
 
@@ -150,7 +149,7 @@ class GameTask final : public Task {
   // --- 出力 ---
   /// 現在の状態に応じて kLED の表示を反映する (§4.1)
   void ApplyLedOutputs();
-  /// 上書き表示を解除する。whack 進行中はモグラ表示を復元する (§5.1)
+  /// 上書き表示を解除する。色合わせ進行中は点灯中の色を復元する (§5.1)
   void ClearLedOverrides();
   void UpdateFullColorLed();
   void FireSolenoid();
@@ -190,8 +189,8 @@ class GameTask final : public Task {
   /// 確定済みのロータリー位置 (§5.2)
   int8_t rotary_position_ = 0;
 
-  /// モグラ叩きの進行 (§5.1)
-  WhackGame whack_;
+  /// 色合わせの進行 (§5.1)
+  ColorMatchGame color_match_;
 
   /// ボタン列入力の進行 (§5)
   PushSeqInput push_seq_;

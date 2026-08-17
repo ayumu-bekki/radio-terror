@@ -323,7 +323,7 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 206 モグラ叩き: whack_completed の後に「最後に押した色」を思い出させる。
+	// 206 色合わせ: color_match_completed の後に「最後に押した色」を思い出させる。
 	"206": {
 		StageID: "206",
 		Turns: []simTurn{
@@ -331,9 +331,9 @@ var simScripts = map[string]simScript{
 			{Trigger: "session_ready", HintLevel: HintL1},
 			{Trigger: "session_start", HintLevel: HintL1},
 			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "ランプが次々光ります。同じ色のボタンを押せばいいですか。どうぞ"},
-			{Trigger: "whack_completed", HintLevel: HintL2,
-				Event: "プレイヤーがモグラ叩きを完了した。最後に押した色が次の手がかりになる。"},
+				Player: "1つだけ光っています。同じ色のボタンを押せばいいですか。どうぞ"},
+			{Trigger: "color_match_completed", HintLevel: HintL2,
+				Event: "プレイヤーが色合わせを完了した。最後に押した色が次の手がかりになる。"},
 			{Trigger: "player_message", HintLevel: HintL3,
 				Player: "最後に押した色は覚えています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL4,

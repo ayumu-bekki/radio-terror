@@ -325,12 +325,12 @@ void GameTask::HandlePushChanged(ColorId color, bool pressed) {
 
   const StageConfig& stage = session_.stages[stage_index_];
 
-  if (whack_.IsRunning()) {
-    const WhackResult result = whack_.HandlePush(color, stage, &leds_);
-    if (result == WHACK_COMPLETED) {
-      sender_.SendWhackCompleted(stage_index_, remaining_ms_);
-    } else if (result == WHACK_MISSED) {
-      HandleWhackMiss(stage);
+  if (color_match_.IsRunning()) {
+    const ColorMatchResult result = color_match_.HandlePush(color, stage, &leds_);
+    if (result == COLOR_MATCH_COMPLETED) {
+      sender_.SendColorMatchCompleted(stage_index_, remaining_ms_);
+    } else if (result == COLOR_MATCH_MISSED) {
+      HandleColorMatchMiss(stage);
     }
     ApplyLedOutputs();
     return;
@@ -471,7 +471,6 @@ void GameTask::Tick() {
     // カウントダウンでタイムアウトした場合は以降の描画を行わない
     if (state_ == STATE_PLAYING) {
       TickLeds();
-      TickWhack();
       TickForbiddenRotary();
       TickDisplay();
     }
@@ -521,13 +520,6 @@ void GameTask::TickCountdown() {
 
 void GameTask::TickLeds() {
   leds_.TickPatterns(session_.stages[stage_index_]);
-  ApplyLedOutputs();
-}
-
-// tick はモグラの出現・消灯を進めるだけで、ミスは返さない。
-// ミスの通知は「誤ったボタンを押した」HandlePush 側だけが行う (§5.1)。
-void GameTask::TickWhack() {
-  whack_.Tick(session_.stages[stage_index_], &leds_);
   ApplyLedOutputs();
 }
 
@@ -620,7 +612,7 @@ bool GameTask::IsPreconditionMet(const StageConfig& stage) const {
     }
   }
 
-  if (precondition.has_whack && !whack_.IsCompleted()) {
+  if (precondition.has_color_match && !color_match_.IsCompleted()) {
     return false;
   }
 
@@ -669,12 +661,12 @@ void GameTask::ApplyPenalty(int32_t penalty_ms) {
   }
 }
 
-// モグラ叩きのミス。ブザーと軽いペナルティで「失敗した」ことを伝える (§5.1)。
+// 色合わせのミス。ブザーと軽いペナルティで「失敗した」ことを伝える (§5.1)。
 //
-// 以前は叩き直しになるだけで**何の反応も無く**、ミスに気づけなかった。
+// 以前は押し直しになるだけで**何の反応も無く**、ミスに気づけなかった。
 // 無線越しでは画面が見えないので、**音**が唯一のフィードバックになる。
-void GameTask::HandleWhackMiss(const StageConfig& stage) {
-  const int32_t penalty = stage.precondition.whack.penalty_ms;
+void GameTask::HandleColorMatchMiss(const StageConfig& stage) {
+  const int32_t penalty = stage.precondition.color_match.penalty_ms;
   if (0 < penalty) {
     // ApplyPenalty がブザーと残り時間の減算を行う (0到達なら Detonating)
     ApplyPenalty(penalty);
@@ -682,7 +674,7 @@ void GameTask::HandleWhackMiss(const StageConfig& stage) {
     // ペナルティ無し設定でも、ミスしたことは音で伝える
     buzzer_.Beep(1);
   }
-  sender_.SendWrongAction("whack", COLOR_NONE, penalty, remaining_ms_);
+  sender_.SendWrongAction("color_match", COLOR_NONE, penalty, remaining_ms_);
 }
 
 void GameTask::AdvanceStage() {
@@ -697,7 +689,7 @@ void GameTask::AdvanceStage() {
 
 void GameTask::ResetStageProgress() {
   leds_.Reset();
-  whack_.Reset();
+  color_match_.Reset();
   push_seq_.Reset();
 
   forbidden_hold_ms_ = 0;
@@ -710,8 +702,8 @@ void GameTask::ResetStageProgress() {
   }
 
   const StageConfig& stage = session_.stages[stage_index_];
-  if (stage.precondition.has_whack) {
-    whack_.Start(stage.precondition.whack, &leds_);
+  if (stage.precondition.has_color_match) {
+    color_match_.Start(stage.precondition.color_match, stage, &leds_);
   }
 }
 
@@ -780,9 +772,15 @@ void GameTask::ApplyLedOutputs() {
 void GameTask::ClearLedOverrides() {
   leds_.ClearOverride();
 
-  // whack進行中はモグラ表示がkLEDを専有し続ける (§5.1)
-  if (whack_.IsRunning() && whack_.CurrentMole() != COLOR_NONE) {
-    leds_.SetOverride(whack_.CurrentMole(), true);
+  // 色合わせ進行中は点灯中の色がkLEDを専有し続ける (§5.1)
+  if (color_match_.IsRunning() && color_match_.Current() != COLOR_NONE) {
+    leds_.SetOverride(color_match_.Current(), true);
+  }
+
+  // 完了後は**全消灯を保つ** — ステージのヒント表示へ戻さない。
+  // 「最後に押した色」だけが手がかりとして残る形にするため (§5.1)。
+  if (color_match_.IsCompleted()) {
+    leds_.SetOverrideAll(false);
   }
 
   ApplyLedOutputs();

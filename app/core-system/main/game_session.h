@@ -89,16 +89,17 @@ enum TimerDigitMatch : uint8_t {
   TIMER_MATCH_ROTARY,  ///< 現在のロータリー位置と比較する
 };
 
-/// 事前条件: モグラ叩き (§5.1)
-struct WhackSpec {
+/// 事前条件: 色合わせ (§5.1)
+///
+/// **時間の指定を持たない。** 点灯した色のボタンを押すと次へ進む形式なので、
+/// 点灯時間や出現間隔という概念が無い。
+struct ColorMatchSpec {
   int32_t count = 0;
-  int32_t mole_on_ms = 1500;
-  int32_t gap_ms = 400;
-  /// 最後の1匹を cut と同色に固定する (F. モグラ叩き用)
-  bool last_mole_matches_cut = false;
+  /// 最後の1つを cut と同色に固定する (206 の「最後に押した色の線を切れ」用)
+  bool last_matches_cut = false;
   /// ミス時のペナルティ (ms)。0 なら減算しない。
   ///
-  /// **ミスに何の反応も無いと、失敗したことに気づけない**。叩き直しになる
+  /// **ミスに何の反応も無いと、失敗したことに気づけない**。押し直しになる
   /// だけでは損失が伝わらず、緊張感も出ない (§5)。ブザーと合わせて使う。
   int32_t penalty_ms = 0;
 };
@@ -139,8 +140,8 @@ struct Precondition {
   bool push_required[kColorNum] = {false, false, false, false, false};
   bool has_push = false;
 
-  bool has_whack = false;
-  WhackSpec whack;
+  bool has_color_match = false;
+  ColorMatchSpec color_match;
 
   bool has_push_seq = false;
   PushSeqSpec push_seq;

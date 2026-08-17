@@ -39,12 +39,12 @@ func ValidateSession(s *BuiltSession) error {
 		}
 		usedCut[stage.Cut] = stage.TemplateID
 
-		// whack と push_seq が併用されていないこと (kLED表示の専有が衝突する)
+		// color_match と push_seq が併用されていないこと (kLED表示の専有が衝突する)
 		if precondition, ok := stage.Core["precondition"].(map[string]any); ok {
-			_, hasWhack := precondition["whack"]
+			_, hasColorMatch := precondition["color_match"]
 			_, hasPushSeq := precondition["push_seq"]
-			if hasWhack && hasPushSeq {
-				return fmt.Errorf("%s: whack and push_seq cannot be combined", prefix)
+			if hasColorMatch && hasPushSeq {
+				return fmt.Errorf("%s: color_match and push_seq cannot be combined", prefix)
 			}
 
 			if err := validateRotaryField(prefix, precondition["rotary"]); err != nil {

@@ -100,7 +100,7 @@ func TestNavigatorTriggerInstructions(t *testing.T) {
 
 	// GameCoordinator / AudioPipeline が実際に渡すトリガー名
 	for _, trigger := range []string{
-		"session_start", "stage_cleared", "whack_completed", "push_progress",
+		"session_start", "stage_cleared", "color_match_completed", "push_progress",
 		"wrong_action", "exploded", "defused", "player_message",
 		"silence", "time_warning",
 	} {

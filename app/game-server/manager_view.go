@@ -230,7 +230,7 @@ func batteryClass(volts float64, low bool) string {
 // eventClass はイベント種別の色分け (成功=緑 / 失敗=赤 / 区切り=黄)。
 func eventClass(event string) string {
 	switch event {
-	case EventStageCleared, EventWhackDone:
+	case EventStageCleared, EventColorMatchDone:
 		return "ev-ok"
 	case EventWrongAction, EventExploded, EventForced:
 		return "ev-ng"

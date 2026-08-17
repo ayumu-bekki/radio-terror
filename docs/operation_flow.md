@@ -97,7 +97,7 @@
 
 - プレイヤーは Core の状態(LEDの光り方など)を無線で報告し、
   ナビゲーターがヒントを返す。
-- Core の進行イベント(`stage_cleared` / `whack_completed` / `push_progress` /
+- Core の進行イベント(`stage_cleared` / `color_match_completed` / `push_progress` /
   `wrong_action` / `exploded` / `defused`)はナビゲーターの声掛け演出のトリガーになる。
 
 ### 5.1 混線演出

@@ -93,8 +93,8 @@ class EventSender final {
     });
   }
 
-  void SendWhackCompleted(int32_t stage_index, int32_t remaining_ms) {
-    SendJson("whack_completed", [stage_index, remaining_ms](cJSON* root) {
+  void SendColorMatchCompleted(int32_t stage_index, int32_t remaining_ms) {
+    SendJson("color_match_completed", [stage_index, remaining_ms](cJSON* root) {
       cJSON_AddNumberToObject(root, "stage_index", stage_index);
       cJSON_AddNumberToObject(root, "remaining_ms", remaining_ms);
     });

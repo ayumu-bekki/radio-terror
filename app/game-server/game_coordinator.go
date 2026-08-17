@@ -417,10 +417,10 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		c.speakAsync(ctx, sender, session, "stage_cleared",
 			fmt.Sprintf("プレイヤーが%d番目の課題を突破した。次の課題へ進む。", msg.StageIndex+1))
 
-	case msgWhackCompleted:
-		c.logEvent(session, EventWhackDone, "モグラ叩き完了", msg.StageIndex, msg.RemainingMS)
-		c.speakAsync(ctx, sender, session, "whack_completed",
-			"プレイヤーがモグラ叩きを完了した。最後に押した色が次の手がかりになる。")
+	case msgColorMatchCompleted:
+		c.logEvent(session, EventColorMatchDone, "色合わせ完了", msg.StageIndex, msg.RemainingMS)
+		c.speakAsync(ctx, sender, session, "color_match_completed",
+			"プレイヤーが色合わせを完了した。最後に押した色が次の手がかりになる。")
 
 	case msgPushProgress:
 		// ログは毎回残す (後から入力の進み方を追えるようにする)
@@ -453,12 +453,12 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 			fmt.Sprintf("✗ %s%s", describeWrongAction(msg), describePenalty(msg.PenaltyMS)),
 			msg.StageIndex, msg.RemainingMS)
 
-		// **モグラ叩きのミスでは発話しない** (決定48)。
+		// **色合わせのミスでは発話しない** (決定48)。
 		//
-		// 反射で叩いている最中に無線が入ると、そちらに気を取られて
-		// さらにミスを誘う。ミスはブザーと残り時間の減りで既に伝わっている。
-		// ログには残すので、後から何が起きたかは追える。
-		if msg.Detail == "whack" {
+		// ナビゲーターは装置を見ていないので、どの色が光っていたかも
+		// 押し間違えたかも分からない。ミスはブザーと残り時間の減りで
+		// 既に伝わっている。ログには残すので、後から何が起きたかは追える。
+		if msg.Detail == "color_match" {
 			break
 		}
 
