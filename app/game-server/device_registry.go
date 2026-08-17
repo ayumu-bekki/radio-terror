@@ -155,6 +155,12 @@ func (r *DeviceRegistry) SendSessionStart(deviceID string, payload json.RawMessa
 	return conn.SendJSON(payload)
 }
 
+// SendSessionPending は開始申告が通ったことを通知する (§4.2)。
+// デバイスは青点滅で待機し、続く session_start でカウントダウンを始める。
+func (r *DeviceRegistry) SendSessionPending(deviceID string) error {
+	return r.Send(deviceID, sessionPendingCommand{Type: msgSessionPending, DeviceID: deviceID})
+}
+
 // SendSessionAbort は安全な中断 (Setup へ戻す) を指示する。
 func (r *DeviceRegistry) SendSessionAbort(deviceID string) error {
 	return r.Send(deviceID, sessionAbortCommand{Type: msgSessionAbort, DeviceID: deviceID})

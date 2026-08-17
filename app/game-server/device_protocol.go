@@ -54,10 +54,21 @@ const (
 
 // サーバー → デバイス のメッセージ type
 const (
-	msgSessionStart  = "session_start"
-	msgSessionAbort  = "session_abort"
-	msgForceDetonate = "force_detonate"
+	msgSessionStart   = "session_start"
+	msgSessionPending = "session_pending"
+	msgSessionAbort   = "session_abort"
+	msgForceDetonate  = "force_detonate"
 )
+
+// sessionPendingCommand は開始申告が通ったことの通知 (§4.2)。
+//
+// カウントダウンはまだ始まらない。ナビゲーターがマネージャーへ応答し、
+// 鳴り終わってから session_start が届く。その間デバイスは青点滅で
+// 「開始申告は通った、まもなく始まる」を示す。
+type sessionPendingCommand struct {
+	Type     string `json:"type"`
+	DeviceID string `json:"device_id"`
+}
 
 // sessionAbortCommand は安全に中断して Setup へ戻す指示。
 type sessionAbortCommand struct {
@@ -75,6 +86,7 @@ type forceDetonateCommand struct {
 const (
 	deviceStateSetup      = "setup"
 	deviceStateReady      = "ready"
+	deviceStatePending    = "pending"
 	deviceStatePlaying    = "playing"
 	deviceStateDetonating = "detonating"
 	deviceStateExploded   = "exploded"
@@ -98,8 +110,13 @@ type DeviceStatus struct {
 }
 
 // IsReady は session_start を受理できる状態かを返す (§4)。
+//
+// **pending も受理できる** — 開始申告が通ってナビゲーターの応答を
+// 待っている状態で、その直後に session_start が届く (§4.2)。
+// ここを ready だけにすると、開始申告のあと5秒間だけ
+// 「自分が送った session_start を自分で拒否する」状態になる。
 func (s *DeviceStatus) IsReady() bool {
-	return s != nil && s.State == deviceStateReady
+	return s != nil && (s.State == deviceStateReady || s.State == deviceStatePending)
 }
 
 // IsPlaying はゲーム進行中かを返す。バインド競合の判定に使う (§5)。

@@ -471,3 +471,57 @@ func TestRedactCutColorKeepsOtherColors(t *testing.T) {
 		t.Errorf("置換が二重になっている: %s", got)
 	}
 }
+
+// TestReassuranceStylesAreDistinct は、第一声の「安心のさせ方」が
+// キャラクターごとに**別の型**になっていることを確かめる (決定43)。
+//
+// 当初はプロンプトに「『自分がついているから大丈夫だ』という趣旨の一言」と
+// **型まで指定**していたため、4人とも「私(自分)がついている/慣れている →
+// だから大丈夫」という同じ言い方になり、語尾しか違わなかった。
+// 型は決定28 (何を見ているか) に沿ってキャラごとに変える。
+func TestReassuranceStylesAreDistinct(t *testing.T) {
+	cfg := loadTestNavigator(t)
+
+	// 各キャラシートに【安心のさせ方】があること
+	for _, c := range cfg.Characters {
+		if !strings.Contains(c.Sheet, "【安心のさせ方】") {
+			t.Errorf("%s: 【安心のさせ方】が無い — 型が指定されないと"+
+				"他キャラと同じ言い方に寄る", c.Name)
+		}
+	}
+
+	// **「私がついている」型はヒバリだけ**。他キャラの開始例に出てはいけない。
+	for _, c := range cfg.Characters {
+		if c.ID == "lark" {
+			continue
+		}
+		opening := extractOpeningExample(c.Sheet)
+		if opening == "" {
+			t.Errorf("%s: 開始の台詞例が無い", c.Name)
+			continue
+		}
+		for _, ng := range []string{"ついてます", "ついている", "付いて"} {
+			if strings.Contains(opening, ng) {
+				t.Errorf("%s: 開始例に %q が入っている — これはヒバリの型:\n  %s",
+					c.Name, ng, opening)
+			}
+		}
+	}
+
+	// プロンプト側が特定の型を指定していないこと
+	inst := cfg.Prompt.TriggerInstruction("session_start")
+	if strings.Contains(inst, "自分がついているから") {
+		t.Error("session_start が安心のさせ方の型を指定している — " +
+			"全キャラが同じ言い方になる")
+	}
+}
+
+// extractOpeningExample はキャラシートから「開始:」の台詞例を取り出す。
+func extractOpeningExample(sheet string) string {
+	for _, line := range strings.Split(sheet, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "- 開始:") {
+			return line
+		}
+	}
+	return ""
+}

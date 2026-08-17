@@ -117,6 +117,18 @@ void GameTask::EnterReady() {
   SendDeviceStatus();
 }
 
+void GameTask::EnterPending() {
+  state_ = STATE_PENDING;
+
+  // 表示以外は Ready のまま。**カウントダウンはまだ始まっていない**ので
+  // 7セグには何も出さず、kLED も触らない (session_start で初めて動く)。
+  UpdateFullColorLed();
+  ApplyLedOutputs();
+
+  ESP_LOGI(TAG, "state -> Pending");
+  SendDeviceStatus();
+}
+
 void GameTask::EnterPlaying() {
   state_ = STATE_PLAYING;
   stage_index_ = 0;
@@ -221,8 +233,9 @@ void GameTask::HandleEvent(const GameEvent& event) {
   if (event.type == EVENT_WS_DISCONNECTED) {
     ws_connected_ = false;
     // ゲーム進行はデバイス内で完結するため Playing は継続する (§7.3)。
-    // Ready の場合のみ session_start を受理できなくなるので Setup へ戻す (§4)。
-    if (state_ == STATE_READY) {
+    // Ready / Pending は session_start を受理できなくなるので Setup へ戻す (§4)。
+    // Pending は開始申告が通った直後だが、切断された以上セッションは始まらない。
+    if (state_ == STATE_READY || state_ == STATE_PENDING) {
       EnterSetup();  // 中で UpdateFullColorLed() が呼ばれる
       return;
     }
@@ -285,9 +298,11 @@ void GameTask::HandleLineChanged(ColorId color, bool connected) {
     return;
   }
 
-  if (state_ == STATE_READY) {
+  if (state_ == STATE_READY || state_ == STATE_PENDING) {
     if (!connected) {
-      // Ready中に線が外れたら Setup へ戻る (§4)
+      // Ready / Pending 中に線が外れたら Setup へ戻る (§4)。
+      // Pending でも同じ — 開始申告は通っていても、配線が崩れた状態で
+      // カウントダウンを始めるわけにはいかない。
       EnterSetup();
     }
     return;
@@ -362,6 +377,8 @@ void GameTask::HandleWsMessage(const std::string& payload) {
 
   if (type == "session_start") {
     HandleSessionStart(payload);
+  } else if (type == "session_pending") {
+    HandleSessionPending();
   } else if (type == "session_abort") {
     HandleSessionAbort();
   } else if (type == "force_detonate") {
@@ -372,7 +389,9 @@ void GameTask::HandleWsMessage(const std::string& payload) {
 // --- サーバーコマンド (§7.1) ----------------------------------------------
 
 void GameTask::HandleSessionStart(const std::string& payload) {
-  if (state_ != STATE_READY) {
+  // Pending は「開始申告が通って応答を待っている」状態なので受理する。
+  // 通常はこちらを通る (サーバーが session_pending → session_start の順で送る)。
+  if (state_ != STATE_READY && state_ != STATE_PENDING) {
     // Ready状態でない場合は切断済みライン一覧を添えて拒否する (§7.2)
     std::string cut_lines;
     for (int i = 0; i < kColorNum; ++i) {
@@ -399,6 +418,17 @@ void GameTask::HandleSessionStart(const std::string& payload) {
   EnterPlaying();
 }
 
+void GameTask::HandleSessionPending() {
+  // Ready からのみ入れる。既に Pending なら何もしない (再送への保険)。
+  if (state_ != STATE_READY) {
+    if (state_ != STATE_PENDING) {
+      ESP_LOGI(TAG, "session_pending ignored: state=%s", GameStateName(state_));
+    }
+    return;
+  }
+  EnterPending();
+}
+
 void GameTask::HandleSessionAbort() {
   // Detonating中でもソレノイド駆動前なら中止して安全側へ倒す (§8.5)
   if (state_ == STATE_DETONATING && solenoid_fired_) {
@@ -422,7 +452,7 @@ void GameTask::HandleForceDetonate() {
 void GameTask::Tick() {
   buzzer_.Tick();
 
-  // Ready / Exploded / Defused は tick で進む処理を持たない
+  // Ready / Pending / Exploded / Defused は tick で進む処理を持たない
   if (state_ == STATE_SETUP) {
     // 全線結線が一定時間安定し、サーバーと接続できたら Ready へ (§4)
     if (AreAllLinesConnected() && ws_connected_) {
@@ -721,7 +751,8 @@ void GameTask::ApplyLedOutputs() {
     return;
   }
 
-  // Ready / Detonating / Exploded / Defused は全消灯 (§4.1)
+  // Ready / Pending / Detonating / Exploded / Defused は全消灯 (§4.1)
+  // (Pending はカウントダウン前なので kLED は触らない)
   leds_.ApplyAllOff();
 }
 

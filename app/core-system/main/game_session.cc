@@ -426,6 +426,9 @@ const char* GameStateName(GameState state) {
   if (state == STATE_READY) {
     return "ready";
   }
+  if (state == STATE_PENDING) {
+    return "pending";
+  }
   if (state == STATE_PLAYING) {
     return "playing";
   }

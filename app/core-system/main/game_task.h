@@ -103,6 +103,8 @@ class GameTask final : public Task {
   // --- 状態遷移 ---
   void EnterSetup();
   void EnterReady();
+  /// 開始申告が通り、ナビゲーターの応答を待つ状態へ入る (§4.2)
+  void EnterPending();
   void EnterPlaying();
   void EnterDetonating(const char* reason, const char* detail, ColorId line);
   void EnterExploded();
@@ -117,6 +119,8 @@ class GameTask final : public Task {
 
   // --- サーバーコマンド (§7.1) ---
   void HandleSessionStart(const std::string& payload);
+  /// session_pending: 開始申告が通ったことの通知 (§7.1)
+  void HandleSessionPending();
   void HandleSessionAbort();
   void HandleForceDetonate();
 

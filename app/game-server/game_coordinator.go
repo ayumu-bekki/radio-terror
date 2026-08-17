@@ -184,6 +184,18 @@ func (c *GameCoordinator) StartSession(ctx context.Context, sender *AudioSender,
 	// バインドを確立する (後勝ち。明示的な解除は設けない)
 	c.binder.Bind(bridgeID, deviceID, session)
 
+	// **開始申告が通ったことをデバイスへ知らせる** (§4.2)。
+	//
+	// ここから session_start までは、ナビゲーターの応答 (生成 + TTS) と
+	// countdownStartDelay で数秒かかる。その間デバイスが Ready のままだと、
+	// **申告が通ったのか失敗したのか現場から分からない**。
+	// 青点滅で「通った、まもなく始まる」を示す。
+	//
+	// 失敗しても続行する — 表示が変わらないだけで、ゲームは開始できる。
+	if err := c.devices.SendSessionPending(deviceID); err != nil {
+		log.Printf("[game] send session_pending failed (開始は継続): %v", err)
+	}
+
 	// **カウントダウンを始める前に、マネージャーへ応答する。**
 	//
 	// 以前は session_start を先に送っていたため、**返答が無いままいきなり

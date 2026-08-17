@@ -1,5 +1,10 @@
 package main
 
+import (
+	"strings"
+	"testing"
+)
+
 // ステージごとのプレイヤー台本 (navigator_stage_sim_test.go から使う)。
 //
 // 台本は「装置を見たプレイヤーが無線で報告しそうな内容」を書く。
@@ -60,6 +65,10 @@ var simScripts = map[string]simScript{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
 			{Trigger: "session_start", HintLevel: HintL1},
+			// **まずランプを報告する**。ここでダイヤルを回すと、
+			// 報告→指示の往復を飛ばしてしまい検証にならない (決定44)。
+			{Trigger: "player_message", HintLevel: HintL1,
+				Player: "ランプが1つ光っています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL1,
 				Player: "ダイヤルを0に戻しました。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL1,
@@ -84,6 +93,10 @@ var simScripts = map[string]simScript{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
 			{Trigger: "session_start", HintLevel: HintL1},
+			// **まずランプを報告する**。押してから報告すると、
+			// 報告→照合→列 の往復を飛ばしてしまう (決定44)。
+			{Trigger: "player_message", HintLevel: HintL1,
+				Player: "ランプが1つ光っています。どうぞ"},
 			{Trigger: "push_progress", HintLevel: HintL1,
 				Event:  "プレイヤーがボタン入力を1個目まで正しく進めた。短く反応する。",
 				Player: "1つ目のボタンを押しました。次は何色ですか。どうぞ"},
@@ -202,6 +215,10 @@ var simScripts = map[string]simScript{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
 			{Trigger: "session_start", HintLevel: HintL1},
+			// **まずランプを報告する**。ここで列を要求させると、
+			// 報告→照合の往復を飛ばしてしまい検証にならない (決定44)。
+			{Trigger: "player_message", HintLevel: HintL1,
+				Player: "ランプが1つ光っています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL1,
 				Player: "もう一度、順番を言ってください。どうぞ"},
 			{Trigger: "push_progress", HintLevel: HintL2,
@@ -524,6 +541,9 @@ var simScripts = map[string]simScript{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
 			{Trigger: "session_start", HintLevel: HintL1},
+			// **まずランプを報告する** (決定44)。
+			{Trigger: "player_message", HintLevel: HintL1,
+				Player: "ランプが1つ光っています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL1,
 				Player: "もう一度、順番を言ってください。どうぞ"},
 			{Trigger: "push_progress", HintLevel: HintL2,
@@ -607,4 +627,55 @@ var simScripts = map[string]simScript{
 				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
 		},
 	},
+}
+
+// TestScriptsReportLampsFirst は、各台本の**最初のプレイヤー発話**が
+// ランプの状態報告になっていることを確かめる (決定44)。
+//
+// 101・102・201・305 で、報告を飛ばして「ダイヤルを0に戻しました」
+// 「順番を言ってください」から始まる台本になっていた (決定22 時代の名残)。
+// これだと**報告 → 照合 → 指示**の往復が検証されない。
+// ナビゲーター側は正しく尋ねているのに、台本が答えていない状態だった。
+//
+// このテストは**台本の検査**であって発話の検査ではない。
+// 実際の発話は `no_observation_first` 検査が見る。
+func TestScriptsReportLampsFirst(t *testing.T) {
+	// ランプの状態に言及していると見なす語
+	observed := []string{"ランプ", "光", "点滅", "点灯", "消え"}
+
+	// 209 は危険位置を第一声で警告する設計 (決定22) なので、
+	// プレイヤーがそれを聞き返すところから始まるのが自然。
+	exempt := map[string]string{
+		"209": "危険位置の警告を聞き返す形が自然なため",
+	}
+
+	for id, script := range simScripts {
+		if reason, ok := exempt[id]; ok {
+			t.Logf("%s: 検査対象外 (%s)", id, reason)
+			continue
+		}
+
+		first := ""
+		for _, turn := range script.Turns {
+			if turn.Player != "" {
+				first = turn.Player
+				break
+			}
+		}
+		if first == "" {
+			continue // プレイヤー発話が無い台本
+		}
+
+		found := false
+		for _, w := range observed {
+			if strings.Contains(first, w) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%s: 最初のプレイヤー発話がランプの報告になっていない — "+
+				"報告→照合→指示の往復が検証されない:\n  %s", id, first)
+		}
+	}
 }

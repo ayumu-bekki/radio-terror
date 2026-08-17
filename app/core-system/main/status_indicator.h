@@ -84,6 +84,12 @@ inline constexpr uint32_t PlayingBlinkOffMs(int32_t remaining_ms) {
 /// Setup中の黄点滅の周期
 inline constexpr uint32_t kSetupBlinkMs = 500;
 
+/// Pending中の青点滅の周期 (§4.2)
+///
+/// Setup の黄点滅より**速く**する。どちらも「待っている」状態だが、
+/// Pending は数秒で終わるので、動きの速さで「もうすぐ始まる」を伝える。
+inline constexpr uint32_t kPendingBlinkMs = 250;
+
 /// 起動インジケータの色 (フルカラーLED)
 struct BootColor {
   uint8_t r;
@@ -151,6 +157,19 @@ inline Pl9823Task::Command MakeCommand(GameState state, int32_t remaining_ms,
     // 青点灯。開始を待つ間ずっと点いているので暗くする
     command.pattern = Pl9823Task::PATTERN_SOLID;
     command.b = kDimBrightness;
+    return command;
+  }
+
+  if (state == STATE_PENDING) {
+    // 青点滅。開始申告が通り、ナビゲーターの応答を待っている段階 (§4.2)。
+    //
+    // Ready (青点灯) の延長として「青が動いている = もうすぐ始まる」と読ませる。
+    // Setup の黄点滅とは色で、Ready とは点滅の有無で区別できる。
+    // まだ始まっていないので明るさは Ready と揃えて落としておく。
+    command.pattern = Pl9823Task::PATTERN_BLINK;
+    command.b = kDimBrightness;
+    command.on_ms = kPendingBlinkMs;
+    command.off_ms = kPendingBlinkMs;
     return command;
   }
 

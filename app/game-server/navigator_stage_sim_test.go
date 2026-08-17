@@ -238,6 +238,9 @@ func simulateStage(
 
 	// プレイヤーが正解色を口にしたか。以降その色の復唱は漏洩と見なさない。
 	playerSaidCut := false
+	// L4 で正解色を明かしたか。以降の言及は完了報告なので漏洩と見なさない。
+	revealedAtL4 := false
+	cutJA := colorNameJA[stage.Cut]
 
 	for _, turn := range script.Turns {
 		// session_ready は**セッション開始時に1回だけ**。実機では
@@ -253,7 +256,7 @@ func simulateStage(
 		}
 
 		player := expandSimText(turn.Player, vars)
-		if cutJA := colorNameJA[stage.Cut]; cutJA != "" && strings.Contains(player, cutJA) {
+		if cutJA != "" && strings.Contains(player, cutJA) {
 			playerSaidCut = true
 		}
 		if player != "" {
@@ -300,7 +303,12 @@ func simulateStage(
 		}
 
 		result.Findings = append(result.Findings,
-			simCheckTurn(id, stage, turn, reply, script, vars, playerSaidCut)...)
+			simCheckTurn(id, stage, turn, reply, script, vars, playerSaidCut, revealedAtL4)...)
+
+		// L4 で色名を出したら、以降の言及は完了報告として扱う
+		if turn.HintLevel >= HintL4 && cutJA != "" && strings.Contains(stripTTSTags(reply), cutJA) {
+			revealedAtL4 = true
+		}
 	}
 
 	return result
@@ -419,7 +427,7 @@ var simColorToldByDesign = map[string]bool{}
 // (208 速さくらべは「報告を照合して復唱する」のが正規の手順)。
 func simCheckTurn(
 	id string, stage *BuiltStage, turn simTurn, reply string,
-	script simScript, vars map[string]string, playerSaidCut bool,
+	script simScript, vars map[string]string, playerSaidCut, revealedAtL4 bool,
 ) []simFinding {
 	findings := make([]simFinding, 0)
 	body := stripTTSTags(reply)
@@ -437,6 +445,13 @@ func simCheckTurn(
 	// プレイヤーが先に言った色の復唱は漏洩ではない (205 だけは例外で、
 	// 復唱すること自体が禁止されている)。
 	if playerSaidCut && id != "205" {
+		checkLeak = false
+	}
+	// **L4 で正当に明かしたあとは漏洩ではない。**
+	// 課題突破後の stage_cleared は L1 に戻るが、直前の L4 で
+	// 「赤色の線を切ってください」と伝えた以上、
+	// 「赤色の線を切断しましたね」は完了報告であって漏洩ではない。
+	if revealedAtL4 && id != "205" {
 		checkLeak = false
 	}
 	if checkLeak && cutJA != "" && strings.Contains(body, cutJA) {

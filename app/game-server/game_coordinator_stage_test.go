@@ -379,3 +379,27 @@ type failingSpeaker struct{}
 func (f *failingSpeaker) Speak(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) error {
 	return errors.New("TTS unavailable")
 }
+
+// TestPendingStateAcceptsSessionStart は、pending のデバイスが
+// **session_start を受理できる**ことを確かめる (§4.2)。
+//
+// 開始申告 → session_pending → (応答 + 5秒) → session_start という順序なので、
+// session_start が届くときデバイスは既に pending になっている。
+// IsReady が ready しか通さないと、**自分が送る session_start を
+// 自分で拒否する**状態が5秒間できてしまう。
+func TestPendingStateAcceptsSessionStart(t *testing.T) {
+	for _, tc := range []struct {
+		state string
+		want  bool
+	}{
+		{deviceStateReady, true},
+		{deviceStatePending, true},
+		{deviceStateSetup, false},
+		{deviceStatePlaying, false},
+	} {
+		got := (&DeviceStatus{State: tc.state}).IsReady()
+		if got != tc.want {
+			t.Errorf("IsReady(%s) = %v, want %v", tc.state, got, tc.want)
+		}
+	}
+}

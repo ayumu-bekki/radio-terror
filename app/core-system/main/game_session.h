@@ -35,7 +35,8 @@ constexpr int kTickMs = 100;
 /// GameTask ではなくここに置く。
 enum GameState : uint8_t {
   STATE_SETUP,       ///< 準備中 (風船交換・配線復旧)
-  STATE_READY,       ///< セッティング完了。session_start を受理できる唯一の状態
+  STATE_READY,       ///< セッティング完了。開始を待つ
+  STATE_PENDING,     ///< 開始申告が通り、ナビゲーターの応答を待っている (§4.2)
   STATE_PLAYING,     ///< ステージ消化中
   STATE_DETONATING,  ///< 失敗確定。detonate_delay_ms 後にソレノイド駆動
   STATE_EXPLODED,    ///< 破裂済み
