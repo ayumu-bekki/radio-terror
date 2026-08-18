@@ -32,7 +32,6 @@ display = { pick = "color" }
 [core]
 leds = { "${display}" = { pattern = "morse", word = "${color_word}", unit_ms = 250 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "1つのランプがモールス信号でローマ字を繰り返し表示している。読み解くと色名になっており、その色の線を切る。対照表での変換は不要で、読めればそのまま答えになる。"

@@ -47,7 +47,6 @@ display = { pick = "color" }
 [core]
 leds = { "${display}" = { pattern = "morse", word = "${word}", unit_ms = 300 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "1つのランプがモールス信号で単語を繰り返し表示している。ミッションシートのモールス対照表で解読し、その単語の頭文字の色と同じ色の線を切る。"

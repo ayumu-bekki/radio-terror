@@ -13,7 +13,6 @@ fast = { pick = "color", exclude = ["${cut}"] }  # 点滅が速い方 = 不正�
 [core]
 leds = { "${cut}" = { pattern = "blink", on_ms = 800, off_ms = 800 }, "${fast}" = { pattern = "blink", on_ms = 150, off_ms = 150 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "消えているランプの色の線は絶対に切ってはいけない。点滅している2本のうち、遅い方が正解。"

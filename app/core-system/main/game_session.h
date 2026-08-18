@@ -166,7 +166,6 @@ struct StageConfig {
   Precondition precondition;
   ForbiddenRotary forbidden_rotary;
   ColorId cut = COLOR_NONE;
-  ActionSpec on_wrong_cut{ACTION_EXPLODE, 0};
 };
 
 /// セッション定義一式 (session_start のペイロード)

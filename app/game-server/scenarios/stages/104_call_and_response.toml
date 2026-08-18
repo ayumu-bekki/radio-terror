@@ -29,7 +29,6 @@ precondition = { push_seq = { entries = [
   { push = "${p1}" },
   { push = "${p2}" },
 ], on_wrong_press = { action = "penalty", penalty_ms = 3000 } } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "プレイヤーに点灯しているランプの色を報告させ、それに応じてボタンを押させる対話形式。最後に点滅しているランプと同じ色の線を切る。"

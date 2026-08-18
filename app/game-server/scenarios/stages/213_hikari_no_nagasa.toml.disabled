@@ -37,7 +37,6 @@ cut = { pick = "choice", as_line = true, candidates = [
 # 周期が同じなので「速さ」では区別できず、点灯の長さを見る必要がある。
 leds = { "${c1}" = { pattern = "blink", on_ms = 1500, off_ms = 500 }, "${c2}" = { pattern = "blink", on_ms = 1100, off_ms = 900 }, "${c3}" = { pattern = "blink", on_ms = 800, off_ms = 1200 }, "${c4}" = { pattern = "blink", on_ms = 500, off_ms = 1500 }, "${c5}" = { pattern = "blink", on_ms = 250, off_ms = 1750 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5つのランプが同じ周期で点滅しているが、光っている長さがそれぞれ違う。長い順に並べて、指定された順番の色の線を切る。"

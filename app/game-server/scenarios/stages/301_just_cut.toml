@@ -15,7 +15,6 @@ digit = { pick = "int", min = 1, max = 9 }
 leds = { "${cut}" = "on" }
 cut = "${cut}"
 precondition = { timer_digit = { digit = "ones", value = "${digit}" } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "カウントダウン表示の秒の一の位が指定の数字になった瞬間に線を切る。タイミングを外すと即座に失敗する。"

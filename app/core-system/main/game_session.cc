@@ -101,7 +101,7 @@ bool ParseLedValue(const cJSON* value, int32_t led_blink_ms, LedPattern* out,
   return false;
 }
 
-/// on_wrong_cut / on_violation / on_wrong_press の共通パース
+/// on_violation / on_wrong_press の共通パース
 bool ParseActionSpec(const cJSON* obj, bool allow_retry, ActionSpec* out,
                      std::string* error_detail) {
   const cJSON* action_item = cJSON_GetObjectItemCaseSensitive(obj, "action");
@@ -389,12 +389,8 @@ bool ParseStage(const cJSON* obj, StageConfig* out, std::string* error_detail) {
     }
   }
 
-  const cJSON* on_wrong_cut = cJSON_GetObjectItemCaseSensitive(obj, "on_wrong_cut");
-  if (cJSON_IsObject(on_wrong_cut)) {
-    if (!ParseActionSpec(on_wrong_cut, false, &out->on_wrong_cut, error_detail)) {
-      return false;
-    }
-  }
+  // on_wrong_cut は**常に即爆発**なのでパースしない (決定27)。
+  // JSONに書かれていても無視する — 分岐を残すと penalty が復活しうる。
 
   return true;
 }

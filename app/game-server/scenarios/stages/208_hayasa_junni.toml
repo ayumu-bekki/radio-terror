@@ -64,7 +64,6 @@ m3 = { pick = "color", exclude = ["${cut}", "${steady}", "${m1}", "${m2}"] }
 # cut が最速 (150ms) で、m1 → m2 → m3 の順に遅くなる。
 leds = { "${steady}" = "on", "${cut}" = { pattern = "blink", on_ms = 150, off_ms = 150 }, "${m1}" = { pattern = "blink", on_ms = 300, off_ms = 300 }, "${m2}" = { pattern = "blink", on_ms = 550, off_ms = 550 }, "${m3}" = { pattern = "blink", on_ms = 1000, off_ms = 1000 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "1つのランプが点灯しっぱなしで、残り4つが違う速さで点滅している。点灯している色は数に入れず、点滅している4色の中で一番速く点滅している色の線を切る。"

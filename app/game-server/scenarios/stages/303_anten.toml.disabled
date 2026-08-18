@@ -16,7 +16,6 @@ cut = { pick = "line" }
 leds = { "A" = { pattern = "blink", on_ms = 300, off_ms = 500 }, "B" = { pattern = "blink", on_ms = 300, off_ms = 700 }, "C" = { pattern = "blink", on_ms = 300, off_ms = 900 }, "D" = { pattern = "blink", on_ms = 300, off_ms = 1100 }, "E" = { pattern = "blink", on_ms = 300, off_ms = 1300 } }
 cut = "${cut}"
 precondition = { leds_all_off = true }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5つのランプがそれぞれ違う周期で点滅している。全てのランプが同時に消えた瞬間に、指定の線を切る。"

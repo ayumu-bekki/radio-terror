@@ -14,7 +14,6 @@ cut = { pick = "line" } # 周期が違う1つ = 正解
 # ${cut} だけ速い点滅、それ以外(rest)は揃った遅い点滅にする
 leds = { "${cut}" = { pattern = "blink", on_ms = 200, off_ms = 200 }, "${rest}" = { pattern = "blink", on_ms = 650, off_ms = 650 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5つのランプが全て点滅しているが、1つだけ点滅の速さが違う。その仲間外れの色の線を切る。"

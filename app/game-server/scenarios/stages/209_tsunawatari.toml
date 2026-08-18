@@ -22,11 +22,10 @@ forbidden = { pick = "int", min = 1, max = 2 }
 leds = { "${cut}" = "on" }
 cut = "${cut}"
 precondition = { rotary = "${target}" }
-# 禁止位置で止まったら即爆発 (101 は penalty。ここが難易度差)
+# 禁止位置で止まったら即爆発 (通過はセーフ。止まった時だけ違反)
 forbidden_rotary = { positions = [
   "${forbidden}",
 ], on_violation = { action = "explode" } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "ダイヤルを指定位置に合わせて線を切る。ただし途中に危険な位置があり、そこで止まると即座に起動してしまう。通り過ぎる分には問題ない。"

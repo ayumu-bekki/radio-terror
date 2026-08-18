@@ -41,7 +41,6 @@ precondition = { push_seq = { entries = [
   { push = "${p4}" },
   { push = "${p5}" },
 ], on_wrong_press = { action = "penalty", penalty_ms = 5000 } } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5個のボタン列を2周押す必要がある。1周目は読み上げるが、2周目は自分で思い出して押す。1つでも間違えると最初からやり直し。"

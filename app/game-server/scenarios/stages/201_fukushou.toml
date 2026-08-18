@@ -32,7 +32,6 @@ precondition = { push_seq = { entries = [
   { push = "${p4}" },
   { push = "${p5}" },
 ], on_wrong_press = { action = "penalty", penalty_ms = 5000 } } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5個のボタン列を順番どおりに押し切る必要がある。1つでも間違えると最初からやり直しになる。"

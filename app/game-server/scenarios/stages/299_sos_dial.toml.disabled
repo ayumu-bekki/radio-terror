@@ -24,7 +24,6 @@ precondition = { push_seq = { entries = [
   { push = "B", rotary = 0 },
   { push = "C", rotary = 5 },
 ], on_wrong_press = { action = "retry" } } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "3つのランプが同時にモールスで文字を表示している。解読した文字を数字に見立て、その位置にダイヤルを合わせて対応する色のボタンを押す。"

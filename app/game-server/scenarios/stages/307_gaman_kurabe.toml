@@ -28,7 +28,6 @@ cut = "${cut}"
 precondition = { push = [
   "${hold}",
 ], timer_digit = { digit = "ones", value = "${digit}" } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "ボタンを押さえたまま、カウントダウンの秒の一の位が指定の数字になった瞬間に線を切る。押さえながらタイミングを待つ必要がある。"

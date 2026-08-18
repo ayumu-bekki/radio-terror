@@ -54,7 +54,6 @@ leds = { "${display}" = { pattern = "morse", word = "${word}", unit_ms = 300 } }
 # noise_leds は展開時に leds へマージされる (表示用LEDは上書きしない)
 noise_leds = "${noise}"
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "複数のランプが光っているが、そのうち1つだけがモールス信号で単語を繰り返している。他は無関係な点灯・点滅。モールスの語を解読し、ミッションシートの対照表でその頭文字の色を引いて、同じ色の線を切る。"

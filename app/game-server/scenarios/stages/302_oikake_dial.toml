@@ -17,7 +17,6 @@ leds = { "${cut}" = "blink" }
 led_blink_ms = 400
 cut = "${cut}"
 precondition = { timer_digit = { digit = "tens", match = "rotary" } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "残り時間の十の位の数字と、ダイヤルの位置を一致させた状態で線を切る。時間が進むと正解の位置も変わり続ける。"

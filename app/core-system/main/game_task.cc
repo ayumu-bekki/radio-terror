@@ -576,25 +576,9 @@ void GameTask::OnLineCut(ColorId color) {
   // 誤配線と事前条件未達を detail で区別する (§7.2)
   const char* detail = is_correct_line ? "precondition_unmet" : "wrong_line";
 
-  if (stage.on_wrong_cut.action == ACTION_EXPLODE) {
-    EnterDetonating("wrong_cut", detail, color);
-    return;
-  }
-
-  // penalty の場合
-  ApplyPenalty(stage.on_wrong_cut.penalty_ms);
-  sender_.SendWrongAction(detail, color, stage.on_wrong_cut.penalty_ms, remaining_ms_);
-  if (state_ != STATE_PLAYING) {
-    // ペナルティで残り時間が0になった場合
-    return;
-  }
-
-  if (is_correct_line) {
-    // 事前条件未達でも正解線は物理的に戻せないため、クリア扱いで次へ進む (§5)
-    ESP_LOGI(TAG, "stage %d cleared (precondition unmet, penalty applied)",
-             static_cast<int>(stage_index_));
-    AdvanceStage();
-  }
+  // **誤切断は常に即爆発** (決定27)。切った線は物理的に戻せないため、
+  // ペナルティで続行させると後続ステージがその色を使えなくなる。
+  EnterDetonating("wrong_cut", detail, color);
 }
 
 bool GameTask::IsPreconditionMet(const StageConfig& stage) const {

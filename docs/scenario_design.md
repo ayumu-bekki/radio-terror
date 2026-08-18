@@ -67,7 +67,6 @@ slow = { pick = "color", exclude = ["${cut}"] }   # 比較用のもう1本 (線�
 [core]
 leds = { "${cut}" = { pattern = "blink", on_ms = 150, off_ms = 150 }, "${slow}" = { pattern = "blink", on_ms = 700, off_ms = 700 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 # --- ナビゲーター向けステージ知識 ---
 [navigator]

@@ -29,7 +29,6 @@ terminal = { derive = "terminal_for_color", from = "${cut}" }
 # 色のヒントにはならない (どの色も同じ表示) ため、謎の難度は変わらない。
 leds = { "A" = "on", "B" = "on", "C" = "on", "D" = "on", "E" = "on" }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5つのランプが全て点灯している状態は、回路図シートを参照せよという合図。Coreの隣にある回路図シートに端子番号(T1〜T5)と配線色の対応が描かれており、ナビゲーターは端子番号だけを指示し、色は言わない。"

@@ -33,7 +33,6 @@ d4 = { pick = "choice", candidates = ["6", "7", "8", "9", "0"], exclude = ["${d1
 # 各色がモールスで1桁の数字を繰り返し表示する
 leds = { "${cut}" = { pattern = "morse", word = "${target_digit}", unit_ms = 250 }, "${o1}" = { pattern = "morse", word = "${d1}", unit_ms = 250 }, "${o2}" = { pattern = "morse", word = "${d2}", unit_ms = 250 }, "${o3}" = { pattern = "morse", word = "${d3}", unit_ms = 250 }, "${o4}" = { pattern = "morse", word = "${d4}", unit_ms = 250 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5つのランプがそれぞれモールス信号で1桁の数字を表示している。指定した数字を出している色の線を切る。ミッションシートのモールス対照表で数字を読む。"

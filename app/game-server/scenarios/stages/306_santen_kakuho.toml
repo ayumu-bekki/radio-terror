@@ -29,7 +29,6 @@ precondition = { push = [
   "${hold1}",
   "${hold2}",
 ] }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "2つのボタンを同時に押さえたまま、指定の線を切る必要がある。押さえたまま切るため、手の使い方に工夫が要る。"

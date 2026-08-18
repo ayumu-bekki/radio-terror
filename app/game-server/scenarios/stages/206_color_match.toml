@@ -22,7 +22,6 @@ cut = "${cut}"
 # ミスは**ブザー + 5秒**で伝える。押し直しになるだけだと、
 # 無線越しでは失敗したことに気づけない (§5.1)。
 precondition = { color_match = { count = "${count}", last_matches_cut = true, penalty_ms = 5000 } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "ランプが1つずつ光るので、光った色と同じボタンを押す。押すと次の色に変わる。急ぐ必要はない。規定の数を押し終えるとランプが全部消えるので、最後に押した色の線を切る。"

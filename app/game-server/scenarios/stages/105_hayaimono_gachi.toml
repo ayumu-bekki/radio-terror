@@ -12,7 +12,6 @@ slow = { pick = "color", exclude = ["${cut}"] } # 比較用のもう1本
 [core]
 leds = { "${cut}" = { pattern = "blink", on_ms = 150, off_ms = 150 }, "${slow}" = { pattern = "blink", on_ms = 700, off_ms = 700 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "2つのランプが点滅している。速く点滅している色の線を切れば解除できる。"

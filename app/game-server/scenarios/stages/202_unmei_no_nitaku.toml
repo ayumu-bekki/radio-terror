@@ -30,7 +30,6 @@ signal = { pick = "color" }
 leds = { "${signal}" = "blink" }
 led_blink_ms = 500
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "ミッションシートを使った二択。点滅している色によって数える対象が変わり、その集計結果を閾値と比べて切る線を決める。"

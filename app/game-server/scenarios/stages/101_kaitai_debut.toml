@@ -27,8 +27,6 @@ via1 = { pick = "int", min = 1, max = 5, exclude = ["${final_rotary}"] }
 leds = { "${cut}" = "on" }
 cut = "${cut}"
 precondition = { rotary = "${final_rotary}" }
-# チュートリアルなので誤切断も即失敗にはしない
-on_wrong_cut = { action = "penalty", penalty_ms = 30000 }
 
 [navigator]
 briefing = "解体の基本手順を確認する。ダイヤル(ロータリースイッチ)を指示どおりに合わせてから、光っているランプと同じ色の線を切る。点灯しているランプは1つだけなので、色名を言わなくても『光っているランプと同じ色』で一意に決まる。"

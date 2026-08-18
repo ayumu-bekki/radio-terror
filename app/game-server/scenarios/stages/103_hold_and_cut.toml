@@ -22,7 +22,6 @@ cut = "${cut}"
 precondition = { rotary = "${rotary}", push = [
   "${hold}",
 ] }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "ダイヤルを指定位置に合わせ、指定のボタンを押したままの状態で線を切る必要がある。ランプは2つ光っており、点滅しているほうが押すボタン、点灯しているほうが切る線を示す。"

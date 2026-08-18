@@ -26,7 +26,6 @@ leds = { "${lit}" = "on" }
 cut = "${cut}"
 # 「タイマーの一の位 + 点灯数 == ダイヤル位置」で判定する
 precondition = { timer_digit = { digit = "ones", match = "rotary", offset = "${lit_count}" } }
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "点灯しているランプの数と、タイマーの秒の一の位を足した数。その位置にダイヤルを合わせた状態で線を切る。時間が進むと正解の位置も変わる。"

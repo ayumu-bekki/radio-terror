@@ -30,7 +30,6 @@ cut = { pick = "line" }
 # ずれている1色: 同じ周期800msだが、点灯150ms / 消灯650ms で明滅がずれる
 leds = { "${rest}" = { pattern = "blink", on_ms = 400, off_ms = 400 }, "${cut}" = { pattern = "blink", on_ms = 150, off_ms = 650 } }
 cut = "${cut}"
-on_wrong_cut = { action = "explode" }
 
 [navigator]
 briefing = "5つのランプが同じ速さで点滅しているが、1色だけ他と息が合っていない。他の4色は揃って明滅するので、そこから外れている色を切る。"
