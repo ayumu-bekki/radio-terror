@@ -109,7 +109,7 @@ constexpr gpio_num_t kLineGpiosByColor[kColorNum] = {
 };
 
 /// PL9823 (フルカラーLED) のデイジーチェーン接続数
-constexpr uint32_t kFullColorLedNum = 1;
+constexpr uint32_t kFullColorLedNum = 2;
 }  // namespace Esp32Pin
 
 /// I2Cクライアントアドレス

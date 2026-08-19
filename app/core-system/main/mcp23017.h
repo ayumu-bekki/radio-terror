@@ -74,10 +74,17 @@ class MCP23017 {
  public:
   class GPIO {
    public:
-    GPIO() : is_input_(false), is_up_(false) {}
+    GPIO() : is_input_(false), is_up_(false), is_output_up_(false) {}
 
     bool is_input_;
+    /// 入力ピンの読み値 (Refresh のたびに実機の値で置き換わる)
     bool is_up_;
+    /// 出力ピンの出力値 (**入力の読み出しでは決して壊さない**)
+    ///
+    /// is_up_ と分けてあるのは、入力の読み直し (RefreshInputGroup) が
+    /// ポート全体を上書きしてしまい、**出力の指示値まで実機の読み値で
+    /// 置き換わっていた**ため。LEDが薄暗くなる不具合の原因になる (§6.1)。
+    bool is_output_up_;
   };
 
   class GPIOGroup {
@@ -94,22 +101,30 @@ class MCP23017 {
              (gpio_[7].is_input_ ? 1 : 0) << 7;
     }
 
-    uint8_t GetIsUpData() const {
-      return (gpio_[0].is_up_ ? 1 : 0) | (gpio_[1].is_up_ ? 1 : 0) << 1 |
-             (gpio_[2].is_up_ ? 1 : 0) << 2 | (gpio_[3].is_up_ ? 1 : 0) << 3 |
-             (gpio_[4].is_up_ ? 1 : 0) << 4 | (gpio_[5].is_up_ ? 1 : 0) << 5 |
-             (gpio_[6].is_up_ ? 1 : 0) << 6 | (gpio_[7].is_up_ ? 1 : 0) << 7;
+    /// 出力ポートへ書き込む値を組み立てる。
+    ///
+    /// **出力ピンは is_output_up_ を使う。** 入力ピンの分は 0 にしておく
+    /// (入力に設定されたピンの GPIO ビットは出力段に影響しない)。
+    uint8_t GetOutputData() const {
+      uint8_t data = 0;
+      for (uint8_t i = 0; i < GPIO_NUM; ++i) {
+        if (!gpio_[i].is_input_ && gpio_[i].is_output_up_) {
+          data |= static_cast<uint8_t>(1 << i);
+        }
+      }
+      return data;
     }
 
+    /// 読み出した値を入力ピンのキャッシュへ反映する。
+    ///
+    /// **出力ピンには触れない。** ここで全ビットを書き戻すと、
+    /// 出力の指示値が実機の読み値で上書きされてしまう。
     void SetIsUp(uint8_t data) {
-      gpio_[0].is_up_ = (data & 0x01) != 0;
-      gpio_[1].is_up_ = (data >> 1 & 0x01) != 0;
-      gpio_[2].is_up_ = (data >> 2 & 0x01) != 0;
-      gpio_[3].is_up_ = (data >> 3 & 0x01) != 0;
-      gpio_[4].is_up_ = (data >> 4 & 0x01) != 0;
-      gpio_[5].is_up_ = (data >> 5 & 0x01) != 0;
-      gpio_[6].is_up_ = (data >> 6 & 0x01) != 0;
-      gpio_[7].is_up_ = (data >> 7 & 0x01) != 0;
+      for (uint8_t i = 0; i < GPIO_NUM; ++i) {
+        if (gpio_[i].is_input_) {
+          gpio_[i].is_up_ = (data >> i & 0x01) != 0;
+        }
+      }
     }
 
     GPIO gpio_[GPIO_NUM];
@@ -181,7 +196,7 @@ class MCP23017 {
       return;
     }
 
-    const bool output = gpio_group_[group_id].gpio_[gpio_no].is_up_;
+    const bool output = gpio_group_[group_id].gpio_[gpio_no].is_output_up_;
     if (output == is_output && !is_force) {
       return;
     }
@@ -189,10 +204,10 @@ class MCP23017 {
     // ESP_LOGI(TAG, "Set GPIO group:%d gpio_no:%d output:%s",
     // static_cast<int>(group_id), static_cast<int>(gpio_no), is_output ? "1" :
     // "0");
-    gpio_group_[group_id].gpio_[gpio_no].is_up_ = is_output;
+    gpio_group_[group_id].gpio_[gpio_no].is_output_up_ = is_output;
 
     WriteRegister(GPIO_REGADDR_GPIO_TBL[group_id],
-                  gpio_group_[group_id].GetIsUpData());
+                  gpio_group_[group_id].GetOutputData());
   }
 
   /// GPIOグループ単位でI2Cを1回だけ読み直してキャッシュを更新する

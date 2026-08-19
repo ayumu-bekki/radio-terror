@@ -37,10 +37,10 @@ void System::Start() {
   // この紫は GameTask 起動後も引き継がれる。Setup かつサーバー未接続の間は
   // StatusIndicator が同じ紫を出すため、接続できるまで点灯したままになる。
   pl9823_task_.Start();
-  boot_animation_.SetIndicator(kBootColorInitializing, Pl9823Task::PATTERN_SOLID);
+  boot_animation_.SetIndicator(kLookBootInitializing, Pl9823Task::PATTERN_SOLID);
 
   if (!InitializeDevices()) {
-    boot_animation_.SetIndicator(kBootColorFailed, Pl9823Task::PATTERN_BLINK);
+    boot_animation_.SetIndicator(kLookBootFailed, Pl9823Task::PATTERN_BLINK);
     return;
   }
 
@@ -49,7 +49,7 @@ void System::Start() {
   boot_animation_.Play();
 
   if (!ConnectWifi()) {
-    boot_animation_.SetIndicator(kBootColorFailed, Pl9823Task::PATTERN_BLINK);
+    boot_animation_.SetIndicator(kLookBootFailed, Pl9823Task::PATTERN_BLINK);
     // 起動は続行する。WS接続は ws_client_ 側の再接続に委ねる。
     //
     // GameTask 起動後もサーバー待ちの表示を点滅のまま保つ。

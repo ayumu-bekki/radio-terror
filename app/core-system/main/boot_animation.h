@@ -19,9 +19,9 @@ namespace CoreSystem {
 
 /// 起動インジケータの色は表示仕様として status_indicator.h に集約している。
 /// Setup中のサーバー未接続でも同じ紫を使うため (§4.0)。
-using StatusIndicator::BootColor;
-using StatusIndicator::kBootColorFailed;
-using StatusIndicator::kBootColorInitializing;
+using StatusIndicator::Appearance;
+using StatusIndicator::kLookBootFailed;
+using StatusIndicator::kLookBootInitializing;
 
 /// 起動演出と起動インジケータを担う。
 ///
@@ -37,12 +37,10 @@ class BootAnimation final {
   /// 明るさは StatusIndicator と揃える。GameTask 起動後は同じ紫を
   /// StatusIndicator が出し続けるため、ここで明るさが違うと
   /// 起動の瞬間に明滅して見える。
-  void SetIndicator(const BootColor& color, Pl9823Task::PatternType pattern) {
+  void SetIndicator(const Appearance& look, Pl9823Task::PatternType pattern) {
     Pl9823Task::Command command;
     command.pattern = pattern;
-    command.r = StatusIndicator::Dim(color.r);
-    command.g = StatusIndicator::Dim(color.g);
-    command.b = StatusIndicator::Dim(color.b);
+    StatusIndicator::ApplyLook(command, look);
     command.on_ms = kIndicatorBlinkMs;
     command.off_ms = kIndicatorBlinkMs;
     pl9823_task_->SendCommand(command);
