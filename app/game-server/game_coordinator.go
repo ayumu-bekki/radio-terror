@@ -89,6 +89,14 @@ func NewGameCoordinator(
 	}
 }
 
+// Binder はバインド表を返す。
+//
+// 自動送信局アナウンスが「その bridge が体験中か」を判定するために使う
+// (announce.go)。
+func (c *GameCoordinator) Binder() *SessionBinder {
+	return c.binder
+}
+
 // SetNavigatorSpeaker はナビゲーターの発話生成器を設定する。
 func (c *GameCoordinator) SetNavigatorSpeaker(speaker NavigatorSpeaker) {
 	c.speaker = speaker

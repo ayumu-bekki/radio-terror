@@ -93,6 +93,7 @@ func (p *GeminiProcessor) Transcribe(ctx context.Context, oggData []byte) (*Tran
 	config := &genai.GenerateContentConfig{
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   p.transcribeSchema,
+		ServiceTier:      p.cfg.GenAIServiceTier(),
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.TranscribeTimeout())
@@ -212,6 +213,7 @@ func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instr
 	}
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
+		ServiceTier:       p.cfg.GenAIServiceTier(),
 	}
 	if useSearch {
 		config.Tools = []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}

@@ -14,9 +14,11 @@ assets/
 │   ├── jamming/   … 邪魔者系。色バリエーションを持つため {name}_{色}.ogg
 │   ├── ambient/   … 環境ボイス系。{name}.ogg
 │   └── uneasy/    … 不穏系。{name}.ogg
-└── sfx/
-    ├── success.ogg … 解除成功の効果音
-    └── failure.ogg … 失敗の効果音
+├── sfx/
+│   ├── success.ogg … 解除成功の効果音
+│   └── failure.ogg … 失敗の効果音
+└── announce/
+    └── station_id.ogg … 自動送信局アナウンス (15分ごと)
 ```
 
 形式は **Ogg Opus** (radio-bridge がそのままキューへ積んで再生する)。
@@ -74,3 +76,23 @@ Playing中の他チームの無線へ流す (イベント駆動)。ファイル�
 
 混線ボイスは**ナビゲーターとは別のボイス**で生成し、「別人が喋っている」ことが
 声で分かるようにする (`docs/navigator_design.md` §4)。
+
+## 自動送信局アナウンス (announce) — 1ファイル
+
+特小無線は免許不要の**共用チャンネル**なので、他の利用者へ
+「これはゲーム用の自動送信局である」と15分ごとに名乗る
+(`docs/operation_flow.md` §7.3)。
+
+**体験中の無線には流さない** — セッションが紐づいた bridge は除外される。
+
+声は**カラス**(疎通確認の応答者と同じ `Achird`)。「こちらはカラス」と
+名乗る以上、同じ声でなければ別人に聞こえる。混線音声が
+ナビゲーター・カラスと声を重複させない規則とは**逆向きの要求**。
+
+ファイル名 `station_id.ogg` は `announce.go` の `announceFile` が参照するため
+**固定**。変えると無言でスキップされる。
+
+```bash
+cd app/crosstalk-gen
+go run . -category announce -out ../game-server/assets
+```

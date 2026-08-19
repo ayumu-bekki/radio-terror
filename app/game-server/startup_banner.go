@@ -21,6 +21,22 @@ func logStartupBanner(configPath string, cfg *Config) {
 	log.Printf("[boot] commit: %s", buildIdentity())
 	log.Printf("[boot] config: %s", configPath)
 	log.Printf("[boot] manager secret words: %s", describeSecretWords(cfg.Manager.SecretWord))
+	log.Printf("[boot] gemini service tier: %s", describeServiceTier(cfg.Gemini.ServiceTier))
+}
+
+// describeServiceTier は API 呼び出しの優先度を説明する。
+//
+// priority は**課金が標準の75〜100%増し**になる。意図せず有効なまま
+// 運用する事故を避けたいので、起動ログで必ず見えるようにしておく。
+// 未設定なら Gemini 側の既定 (standard) に委ねていることを明示する。
+func describeServiceTier(tier string) string {
+	if tier == "" {
+		return "unset (Gemini 側の既定 = standard)"
+	}
+	if tier == serviceTierPriority {
+		return serviceTierPriority + " (課金は標準の75〜100%増し)"
+	}
+	return tier
 }
 
 // buildIdentity は commit id と Go バージョンを返す。

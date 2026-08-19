@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"google.golang.org/genai"
 )
 
 // 接続先が揃っているかを起動時に弾けること。
@@ -171,5 +173,72 @@ func TestTTSAttemptCount(t *testing.T) {
 	}
 	if got := (GeminiConfig{TTSAttempts: 0}).TTSAttemptCount(); got != defaultTTSAttempts {
 		t.Errorf("0 の TTSAttemptCount() = %d, want %d", got, defaultTTSAttempts)
+	}
+}
+
+// service_tier の設定値が genai.ServiceTier に変換されること。
+//
+// 未設定は**空文字**に倒す。ServiceTierUnspecified は実体が "unspecified" で
+// omitempty に落ちず、そのまま送られてしまうため使えない
+// (回帰: TestServiceTierOmittedWhenUnset)。
+func TestGenAIServiceTier(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want genai.ServiceTier
+	}{
+		{"", ""},
+		{"priority", genai.ServiceTierPriority},
+		{"standard", genai.ServiceTierStandard},
+		{"flex", genai.ServiceTierFlex},
+		// 不正値は Validate が起動時に弾く。ここでは既定へ倒すことを確認する
+		{"PRIORITY", ""},
+		{"urgent", ""},
+	}
+	for _, c := range cases {
+		got := GeminiConfig{ServiceTier: c.raw}.GenAIServiceTier()
+		if got != c.want {
+			t.Errorf("service_tier %q => %q, want %q", c.raw, got, c.want)
+		}
+	}
+}
+
+// 綴り違いの service_tier を起動時に弾くこと。
+//
+// 黙って標準ティアへ落ちると「priority のつもりで課金だけ標準」という
+// 取り違えになるため、実行中ではなく起動時に落とす。
+func TestServiceTierValidation(t *testing.T) {
+	base := GeminiConfig{Project: "p", Location: "global"}
+
+	for _, ok := range []string{"", "priority", "standard", "flex"} {
+		cfg := base
+		cfg.ServiceTier = ok
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("service_tier %q は受理されるべき: %v", ok, err)
+		}
+	}
+
+	for _, ng := range []string{"Priority", "unspecified", "fast", "priority "} {
+		cfg := base
+		cfg.ServiceTier = ng
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("service_tier %q は起動時に弾かれるべき", ng)
+		}
+	}
+}
+
+// TOML から読んだ service_tier が反映されること。
+func TestServiceTierFromTOML(t *testing.T) {
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "p")
+	t.Setenv("GOOGLE_CLOUD_LOCATION", "global")
+
+	path := filepath.Join(t.TempDir(), "c.toml")
+	os.WriteFile(path, []byte("[gemini]\nservice_tier = \"priority\"\n"), 0o644)
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Gemini.GenAIServiceTier() != genai.ServiceTierPriority {
+		t.Errorf("service_tier = %q, want priority", cfg.Gemini.GenAIServiceTier())
 	}
 }

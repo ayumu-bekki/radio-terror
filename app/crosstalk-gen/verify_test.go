@@ -138,6 +138,9 @@ func TestStripTags(t *testing.T) {
 //
 // 重複すると「自称犯人がナビゲーターと同じ声で『ナビゲーターを信じるな』と言う」
 // といった演出の破綻が起きる。混線は本物の声と区別がつくことが前提。
+//
+// **announce は対象外**。自動送信局アナウンスはカラス本人が名乗る放送なので、
+// カラスと同じ声であることが正しい (TestAnnounceUsesCrowVoice で逆を担保する)。
 func TestVoicesDoNotCollideWithNavigators(t *testing.T) {
 	protected := map[string]string{}
 
@@ -184,10 +187,85 @@ func TestVoicesDoNotCollideWithNavigators(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	for _, j := range jobs {
+		if j.Category == catAnnounce {
+			continue
+		}
 		if owner, ok := protected[j.VoiceID]; ok {
 			t.Errorf("%s/%s: voice=%q が %s と重複", j.Category, j.Name, j.VoiceID, owner)
 		}
 	}
+}
+
+// アナウンスの声が疎通確認のカラスと**一致していること**。
+//
+// 「こちらはカラス」と名乗る放送なので、疎通確認で応答するカラスと
+// 同じ声でなければ別人に聞こえる。混線の重複禁止とは逆向きの要求で、
+// 声を変えたときに気づけるようにテストで固定する。
+func TestAnnounceUsesCrowVoice(t *testing.T) {
+	src, err := os.ReadFile("../game-server/test_responder.go")
+	if err != nil {
+		t.Fatalf("read test_responder.go: %v", err)
+	}
+	m := regexp.MustCompile(`testResponderTTSVoice = "([^"]+)"`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("testResponderTTSVoice が見つからない")
+	}
+	crowVoice := string(m[1])
+
+	cfg, err := LoadConfig("crosstalk.toml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	jobs, err := cfg.BuildJobs()
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	var found int
+	for _, j := range jobs {
+		if j.Category != catAnnounce {
+			continue
+		}
+		found++
+		if j.VoiceID != crowVoice {
+			t.Errorf("%s/%s: voice=%q だがカラスは %q。同一人物に聞こえなくなる",
+				j.Category, j.Name, j.VoiceID, crowVoice)
+		}
+	}
+	if found == 0 {
+		t.Error("announce のジョブが1件も無い")
+	}
+}
+
+// アナウンスのファイル名が game-server 側の参照と一致していること。
+//
+// announce.go の announceFile が名前で参照するため、
+// 片方だけ変えると**無言でスキップ**され、鳴らない理由が分かりにくい。
+func TestAnnounceFileNameMatchesServer(t *testing.T) {
+	src, err := os.ReadFile("../game-server/announce.go")
+	if err != nil {
+		t.Fatalf("read announce.go: %v", err)
+	}
+	m := regexp.MustCompile(`announceFile = "([^"]+)"`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("announceFile が見つからない")
+	}
+	want := strings.TrimSuffix(string(m[1]), ".ogg")
+
+	cfg, err := LoadConfig("crosstalk.toml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	jobs, err := cfg.BuildJobs()
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	for _, j := range jobs {
+		if j.Category == catAnnounce && j.Name == want {
+			return
+		}
+	}
+	t.Errorf("announce に %q が無い (announce.go は %q を読む)", want, string(m[1]))
 }
 
 func TestOnlyRejectsUnknownName(t *testing.T) {

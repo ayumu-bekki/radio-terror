@@ -22,6 +22,11 @@ type Config struct {
 	Jamming []Voice `toml:"jamming"`
 	Ambient []Voice `toml:"ambient"`
 	Uneasy  []Voice `toml:"uneasy"`
+
+	// Announce は自動送信局アナウンス (docs/operation_flow.md §7.3)。
+	// 混線ではなく**こちらから聞き手へ直接送る**放送なので、
+	// scene を各エントリで上書きする前提にしてある。
+	Announce []Voice `toml:"announce"`
 }
 
 type Defaults struct {
@@ -56,11 +61,16 @@ type Voice struct {
 	Text    string `toml:"text"`
 	Model   string `toml:"model"`
 	Voice   string `toml:"voice"`
+
+	// Scene は共通の [defaults] scene を上書きする。
+	// 既定の scene は「傍受した混線」を前提に書かれているため、
+	// 直接送信するアナウンスではそのまま使えない。
+	Scene string `toml:"scene"`
 }
 
 // Job は展開後の生成単位 (1ファイル = 1ジョブ)。
 type Job struct {
-	Category string // jamming / ambient / uneasy
+	Category string // jamming / ambient / uneasy / announce
 	Name     string // ファイル名 (拡張子なし)
 	Role     string
 	Model    string
@@ -70,9 +80,10 @@ type Job struct {
 }
 
 const (
-	catJamming = "jamming"
-	catAmbient = "ambient"
-	catUneasy  = "uneasy"
+	catJamming  = "jamming"
+	catAmbient  = "ambient"
+	catUneasy   = "uneasy"
+	catAnnounce = "announce"
 )
 
 func LoadConfig(path string) (*Config, error) {
@@ -184,6 +195,21 @@ func (c *Config) BuildJobs() ([]Job, error) {
 		})
 	}
 
+	for _, v := range c.Announce {
+		if err := v.validate(catAnnounce); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, Job{
+			Category: catAnnounce,
+			Name:     v.Name,
+			Role:     v.Role,
+			Model:    c.pickModel(v),
+			VoiceID:  c.pickVoice(v),
+			Prompt:   c.buildPromptWithScene(v.Scene, v.Context, v.Text),
+			Text:     v.Text,
+		})
+	}
+
 	if len(jobs) == 0 {
 		return nil, fmt.Errorf("no voices defined")
 	}
@@ -241,9 +267,22 @@ func (c *Config) pickVoice(v Voice) string {
 // 読み上げ本文にはタグを入れず、口調指定は context に一本化している
 // (docs/crosstalk_audio_generation.md 決定記録 #3)。
 func (c *Config) buildPrompt(context, text string) string {
+	return c.buildPromptWithScene("", context, text)
+}
+
+// buildPromptWithScene は scene を差し替えてプロンプトを組み立てる。
+//
+// scene が空なら [defaults] の共通 scene を使う。アナウンスのように
+// **傍受した混線ではない**音声では、共通 scene をそのまま使うと
+// 「偶然漏れ聞こえた」という前提が邪魔になる。
+func (c *Config) buildPromptWithScene(scene, context, text string) string {
+	if strings.TrimSpace(scene) == "" {
+		scene = c.Defaults.Scene
+	}
+
 	var b strings.Builder
 	b.WriteString("# Scene\n")
-	b.WriteString(strings.TrimSpace(c.Defaults.Scene))
+	b.WriteString(strings.TrimSpace(scene))
 	if s := strings.TrimSpace(context); s != "" {
 		b.WriteString("\n\n# Sample Context\n")
 		b.WriteString(s)

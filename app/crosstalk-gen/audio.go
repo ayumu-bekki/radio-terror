@@ -16,6 +16,10 @@ const (
 	channels   = 1
 	frameSize  = 480 // 20ms @ 24kHz
 	preSkip    = 312 // Opus standard pre-skip
+
+	// opusGranuleRate は Ogg の granule position が使う基準レート。
+	// Opus は入力が何 Hz でも granule を 48kHz で数える (RFC 7845 §4)。
+	opusGranuleRate = 48000
 )
 
 // stripWAVHeader は先頭に "RIFF" がある場合、"data" チャンクのペイロードを返す。
@@ -124,7 +128,12 @@ func encodePCMToOggOpus(pcm []int16, bitrate int) ([]byte, error) {
 			return nil, fmt.Errorf("opus.Encode: %w", err)
 		}
 		totalSamples += uint64(frameSize)
-		granule := uint64(preSkip) + totalSamples
+		// granule position は**常に 48kHz 基準**で数える (RFC 7845 §4)。
+		// 入力は 24kHz なのでサンプル数を2倍する (ADR T-7)。
+		// ここを 24kHz のまま書くと、granule から尺を求める側
+		// (game-server の oggOpusDuration、radio-bridge の長さ上限チェック) が
+		// **実尺の半分**と誤認する。混線の重なり判定もずれる。
+		granule := uint64(preSkip) + totalSamples*(opusGranuleRate/sampleRate)
 		isLast := i+frameSize+frameSize > len(pcm)
 
 		if err := pw.WritePacket(packet[:n], granule, false, isLast); err != nil {

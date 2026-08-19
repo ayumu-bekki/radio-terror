@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11 \
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12 \
     && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
 
 WORKDIR /build

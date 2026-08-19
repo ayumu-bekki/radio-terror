@@ -53,6 +53,19 @@ tts_timeout_sec        = 10
 # 通常は1回で成功する。通信エラー時の保険。
 tts_attempts = 3
 
+# API 呼び出しの優先度 (service tier)。省略・空欄なら Gemini 側の既定 (standard)。
+#   "priority" … 低レイテンシ優先。**課金が標準の75〜100%増し**、
+#                 レート上限は標準の0.3倍。容量超過時は失敗せず
+#                 standard へ自動降格し、その分は標準料金で課金される
+#   "standard" … 既定
+#   "flex"     … 安価だが遅延が大きい。無線の体験には向かない
+#
+# 文字起こし・発話生成・TTS の**3経路すべて**に適用される。
+# 綴りを間違えると起動時に落ちる (黙って standard に落ちると
+# priority のつもりで課金だけ標準、という取り違えになるため)。
+# 実際に効いているかは起動ログ `[boot] gemini service tier:` で確認する。
+service_tier = "priority"
+
 [scenario]
 # シナリオテンプレートの配置 (stages/ と difficulty/ を含むディレクトリ)
 dir = "scenarios"
@@ -74,6 +87,22 @@ addr = "valkey:6379"
 #   {dir}/sfx/success.ogg, {dir}/sfx/failure.ogg
 # 未制作でもサーバーは起動する (該当の再生がスキップされる)。
 dir = "assets"
+
+[announce]
+# 自動送信局アナウンス (docs/operation_flow.md §7.3)。
+#
+# 特小無線は誰でも使える共用チャンネルなので、他の利用者へ
+# 「これは自動送信局である」と定期的に名乗り、譲る用意があると伝える。
+#
+# **体験中の無線には流さない。** セッションが紐づいた bridge は必ず除外する
+# (カウントダウン中に割り込むと体験を壊すため)。
+#
+# 音声は {assets.dir}/announce/station_id.ogg。未配置なら黙って無効になる
+# (起動ログの `[announce]` 行で確認できる)。生成は:
+#   cd app/crosstalk-gen
+#   go run . -category announce -out ../game-server/assets
+interval_min = 15
+# disabled = true   # 自宅での開発中など、鳴らす必要がない場面用
 
 [manager]
 # 強制リセット(キルスイッチ)の秘密ワード。運営内でのみ共有する。

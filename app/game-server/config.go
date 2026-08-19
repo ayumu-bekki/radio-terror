@@ -19,6 +19,7 @@ type Config struct {
 	Navigator    NavigatorConfigPath `toml:"navigator"`
 	Valkey       ValkeyConfig        `toml:"valkey"`
 	Assets       AssetsConfig        `toml:"assets"`
+	Announce     AnnounceConfig      `toml:"announce"`
 	Manager      ManagerConfig       `toml:"manager"`
 	MissionSheet MissionSheet        `toml:"mission_sheet"`
 }
@@ -42,6 +43,27 @@ type ValkeyConfig struct {
 // AssetsConfig は混線音声・効果音アセットの配置。
 type AssetsConfig struct {
 	Dir string `toml:"dir"`
+}
+
+// AnnounceConfig は自動送信局アナウンスの設定 (docs/operation_flow.md §7.3)。
+//
+// 特小無線は共用チャンネルのため、他の利用者へ「これは自動送信局である」と
+// 定期的に名乗る。体験中の無線には流さない。
+type AnnounceConfig struct {
+	// IntervalMin は送出周期 (分)。0 なら既定値 15分。
+	IntervalMin int `toml:"interval_min"`
+
+	// Disabled は true でアナウンスを止める。
+	// 自宅での開発中など、鳴らす必要がない場面用。
+	Disabled bool `toml:"disabled"`
+}
+
+// Interval は送出周期を time.Duration で返す (未設定なら既定値)。
+func (c AnnounceConfig) Interval() time.Duration {
+	if c.IntervalMin <= 0 {
+		return announceIntervalDefault
+	}
+	return time.Duration(c.IntervalMin) * time.Minute
 }
 
 // ManagerConfig はマネージャーの音声コマンド設定 (docs/operation_flow.md §7)。
@@ -95,6 +117,46 @@ type GeminiConfig struct {
 	// TTSAttempts は TTS を試す回数 (初回を含む)。0 なら既定値。
 	// 打ち切った呼び出しは作り直す。詳細は defaultTTSAttempts 参照。
 	TTSAttempts int `toml:"tts_attempts"`
+
+	// ServiceTier は API 呼び出しの優先度 ("priority" / "standard" / "flex")。
+	// 空なら Gemini 側の既定 (standard) に任せ、フィールド自体を送らない。
+	//
+	// **設定で戻せるようにしてある**。priority は課金が標準の75〜100%増しで、
+	// レート上限は標準の0.3倍になるため、費用が問題になった当日に
+	// 再ビルドなしで standard へ落とせる必要がある。
+	ServiceTier string `toml:"service_tier"`
+}
+
+// 指定できる service_tier の値。genai.ServiceTier* と対応する。
+//
+// SDK には "unspecified" もあるが、**受け付けない**。未指定は空文字で表し、
+// その場合はフィールドごと送らない (Gemini 側の既定に委ねる)。
+const (
+	serviceTierPriority = "priority"
+	serviceTierStandard = "standard"
+	serviceTierFlex     = "flex"
+)
+
+// GenAIServiceTier は設定値を genai.ServiceTier に変換する。
+//
+// **未設定は空文字を返す** (genai.ServiceTierUnspecified ではない)。
+// ServiceTierUnspecified の実体は文字列 "unspecified" なので、
+// `omitempty` では落ちず `"serviceTier":"unspecified"` がそのまま送られてしまう。
+// 「設定しない = Gemini 側の既定に委ねる」を表すには空文字にする必要がある
+// (回帰: TestServiceTierOmittedWhenUnset)。
+//
+// 値の検証は Validate が起動時に済ませてあるため、ここでは未設定へ倒す。
+func (c GeminiConfig) GenAIServiceTier() genai.ServiceTier {
+	if c.ServiceTier == serviceTierPriority {
+		return genai.ServiceTierPriority
+	}
+	if c.ServiceTier == serviceTierStandard {
+		return genai.ServiceTierStandard
+	}
+	if c.ServiceTier == serviceTierFlex {
+		return genai.ServiceTierFlex
+	}
+	return ""
 }
 
 // TTSAttemptCount は TTS の試行回数を返す (未設定なら既定値)。
@@ -158,6 +220,16 @@ func (c GeminiConfig) Validate() error {
 	if c.Location == "" {
 		return fmt.Errorf("[gemini] location が未設定です " +
 			"(環境変数 GOOGLE_CLOUD_LOCATION でも指定できます)")
+	}
+	// 綴り違いは**黙って標準ティアに落ちる**形で表れる。priority のつもりで
+	// 課金だけ標準、という取り違えを避けるため起動時に弾く。
+	if c.ServiceTier != "" &&
+		c.ServiceTier != serviceTierPriority &&
+		c.ServiceTier != serviceTierStandard &&
+		c.ServiceTier != serviceTierFlex {
+		return fmt.Errorf("[gemini] service_tier が不正です: %q "+
+			"(%q / %q / %q のいずれか。未指定なら空欄)",
+			c.ServiceTier, serviceTierPriority, serviceTierStandard, serviceTierFlex)
 	}
 	return nil
 }

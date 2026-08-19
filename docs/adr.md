@@ -572,6 +572,9 @@ N-10 で報告を引き出せるようにしたが、**報告を受けたあと�
 遅延はモデルの推論ではなく**一括応答の待ち受け側**にあった。入力内容・並行数・出力量の
 いずれとも無関係なことは実測で確認済み (`tts_latency_probe_test.go`。`-ttsprobe`)。
 
+ストリーミングのまま Priority ティアで呼ぶ (G-5)。両者は独立で、
+`serviceTier` は `:streamGenerateContent` にも載る。
+
 > 出典: NV 決定15
 
 ### T-2. 1発話1リクエスト・1パケット
@@ -640,7 +643,20 @@ Transcribe / reply / TTS の各呼び出しに上限を設ける (`config.toml` 
 再生自体はデコード後のサンプル数で行われるため**表面化しにくい**。
 尺を使う箇所は `audio_duration.go` (サーバー) と `queue.rs` (bridge)。
 
-> 出典: OP 決定13
+**エンコーダは2箇所ある。** `game-server/tts.go` と
+`crosstalk-gen/audio.go` の**両方**がこの規則に従う必要がある。
+crosstalk-gen 側は入力レートのまま書いており、**事前生成アセット全30ファイルが
+実尺の半分と報告されていた** (2026-08-19 に修正)。混線の重なり判定が
+実際の半分の時間しか無線を塞がっていないと誤認するため、**発話に混線が
+かぶる**方向の事故になる。
+
+**エンコーダを直しただけでは既存アセットは直らない** — granule は
+ファイルに書き込まれているため、**再生成が必要**。2026-08-19 に全30ファイルを
+再生成済み (`aserase_A` は 1.96s → 4.76s と実尺どおりになった)。
+以後アセットを作り直したときは、`TestAnnounceAssetDecodes` と同じ要領で
+生成ログの秒数と `oggOpusDuration` の値が一致することを確かめる。
+
+> 出典: OP 決定13 / 回帰: `TestAnnounceAssetDecodes`
 
 ### T-8. 混線の重なり判定は再生時間ベース
 
@@ -665,6 +681,44 @@ Transcribe / reply / TTS の各呼び出しに上限を設ける (`config.toml` 
 `[crosstalk] loaded assets:` で件数を確認する。
 
 > 出典: OP 決定6・決定7 / CT 決定6・決定8・決定10・決定11
+
+### T-11. 待機中の無線から15分ごとに自動送信局アナウンスを流す
+
+特小無線は**免許不要の共用チャンネル**で、他の利用者と周波数が重なりうる。
+長時間占有すると迷惑になるため、カラスの声で「これはゲーム用の自動送信局である」
+と名乗り、**譲る用意がある**と伝える (`announce.go`)。
+
+**体験中の無線には流さない。** セッションが紐づいた bridge は必ず除外する
+(カウントダウン中に割り込むと体験を壊す)。判定は `SessionForBridge` が nil か
+どうかだけで行う。
+
+混線 (`CrosstalkScheduler`) とは**逆向きの仕組み**である点に注意する —
+混線はセッションごとに開始・停止するが、こちらはセッションが**無い** bridge が対象。
+そのためサーバー全体で1つだけ動かし、周期ごとに宛先を選び直す。
+塞がり判定も混線は `device_id` で持つが、**待機中の bridge には device_id が
+存在しない**ため `bridge_id` で持つ。
+
+- **周期はサーバー共通**。bridge ごとに独立させると同じ会場でバラバラに鳴り、
+  運営が「今どれが鳴ったのか」を追えなくなる
+- 事前生成アセットを再生するだけ (T-10 と同じ理由)
+- 音声が未配置なら黙って無効。起動ログの `[announce]` 行で確認する
+
+> 出典: OP 決定20・決定23 / 回帰: `TestAnnounceSkipsBoundBridge`
+
+### T-12. アナウンスの声はカラスと一致させる
+
+「こちらはカラス」と名乗る放送なので、疎通確認で応答するカラス
+(`testResponderTTSVoice` = `Achird`) と**同じ声でなければ別人に聞こえる**。
+
+混線音声がナビゲーター・カラスと声を重複させない規則とは**逆向きの要求**になる。
+crosstalk-gen の重複検査は announce を除外し、代わりに
+「カラスと一致すること」を検査する (`TestAnnounceUsesCrowVoice`)。
+
+ファイル名も `announce.go` の `announceFile` と一致させる
+(`TestAnnounceFileNameMatchesServer`)。片方だけ変えると**無言でスキップ**され、
+鳴らない理由が分かりにくい。
+
+> 出典: OP 決定21
 
 ---
 
@@ -1038,6 +1092,56 @@ GCE 外での運用のため。ユーザーADCは有効期限があり無人運�
 SDK 定数は `genai.BackendEnterprise` を使う。`api_key` 設定項目は廃止済み。
 
 > 出典: GE 決定8・9・10
+
+### G-5. Priority ティアで呼ぶ (`service_tier = "priority"`)
+
+文字起こし・発話生成・TTS の**3経路すべて**を Priority で呼ぶ。
+無線越しの体験はレイテンシがそのまま沈黙になるため、費用より応答速度を採る。
+
+**代償を承知の上での選択**である:
+
+- 課金は標準の **75〜100%増し**
+- レート上限は標準の **0.3倍**
+- 容量超過時は**失敗せず standard へ自動降格**する(その分は標準料金)
+
+`config.toml` で切り替えられる。当日に費用が問題になったら
+**再ビルドなしで `"standard"` へ落とせる**ようにしてある。
+綴りを間違えると黙って標準ティアに落ちる — 「priority のつもりで課金だけ標準」を
+避けるため、**不正値は起動時に落とす**。
+
+実際に効いているかは起動ログ `[boot] gemini service tier:` で確認する。
+
+**未設定は空文字にすること。** `genai.ServiceTierUnspecified` の実体は文字列
+`"unspecified"` で、`omitempty` に落ちず**そのまま送信されてしまう**
+(回帰: `TestServiceTierOmittedWhenUnset`)。
+
+`serviceTier` は `generationConfig` の**中ではなくリクエストのトップレベル**に載る。
+送信されることは実リクエストを捕まえて検証済み
+(`service_tier_wire_test.go`。一括・ストリーミングの両経路)。
+
+### G-6. Interactions API へは移行しない (2026-08 時点)
+
+Gemini のドキュメントは Interactions API (`v1beta2/interactions`) を推奨し
+`generateContent` を「レガシー」と位置づけているが、**移行しない**。
+
+- **Go SDK に存在しない**。`google.golang.org/genai` v1.68.0 (最新) の
+  `genai.Client` は `Models` / `Live` / `Caches` / `Chats` / `Files` / `Operations` /
+  `FileSearchStores` / `Batches` / `Tunings` / `AuthTokens` の10サービスのみ。
+  `client.Interactions` はコンパイルが通らない。Python / JS のみ対応
+- **エンドポイントが別系統**。Interactions は `generativelanguage.googleapis.com`
+  (= APIキー認証の Gemini Developer API) で、**G-4 の決定と正面から衝突する**
+- `generateContent` は「レガシーだが引き続き完全にサポート」と明記され、
+  廃止期限の告知もない
+
+grep で当たる `InteractionStatus` は **Live API (WebSocket) の応答フィールド**で
+無関係。紛らわしいので注意する。
+
+**Priority を使うために Interactions は要らない** (G-5)。
+
+追跡先は **go-genai issue #658 (Open / P1)**。実装PR (#770・#829) は closed で
+未リリース。**入り次第この決定を見直す**。
+
+> 出典: 本ドキュメント (2026-08-19 調査)
 
 ---
 

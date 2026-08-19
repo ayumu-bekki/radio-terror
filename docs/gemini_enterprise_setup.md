@@ -141,6 +141,18 @@ location = "us-central1"
 transcribe_model = "gemini-3.1-flash-lite"
 reasoning_model  = "gemini-3.5-flash-lite"
 tts_model        = "gemini-3.1-flash-tts-preview"
+
+# API 呼び出しの優先度。"priority" / "standard" / "flex"。
+# 省略・空欄なら Gemini 側の既定 (standard)。
+# **priority は課金が標準の75〜100%増し** (§7 参照)。
+service_tier = "priority"
+```
+
+`service_tier` は文字起こし・発話生成・TTS の**3経路すべて**に適用される。
+綴りを間違えると起動時に落ちる。効いているかは起動ログで確認する:
+
+```
+[boot] gemini service tier: priority (課金は標準の75〜100%増し)
 ```
 
 ### crosstalk-gen (`app/crosstalk-gen/crosstalk.toml`)
@@ -258,6 +270,10 @@ Gemini API と Gemini Enterprise Agent Platform で提供状況が異なるこ�
 Gemini Enterprise Agent Platform は従量課金。無料枠は限定的。
 
 - **TTS が最もコストに効く**。ナビゲーターは本番中ずっと喋る
+- **`service_tier = "priority"` にすると課金が 75〜100%増しになる**。
+  レート上限も標準の0.3倍に下がる。無線越しの体験を優先した意図的な選択だが
+  (`docs/adr.md` G-5)、**費用が問題になったら `"standard"` に戻せる**
+  (再ビルド不要)。容量超過時は失敗せず standard へ自動降格する
 - 混線音声30ファイルは一度作れば終わり (再生成しない限り課金されない)
 - 予期せぬ高額請求を防ぐため、**予算アラートの設定を推奨**する
   (<https://console.cloud.google.com/billing/budgets>)
@@ -282,5 +298,10 @@ crosstalk-gen には `max_requests` (1回の実行の上限) があり、
 | 9 | Gemini API (APIキー認証) には対応しない | バックエンド切り替えの分岐を持たずシンプルに保つ。レート制限の厳しい Gemini API を本番で使う理由がない |
 | 10 | `api_key` 設定項目を廃止 | ADC 認証のみになり不要。設定ファイルから秘密情報が1つ減った |
 | 11 | `location = "global"` を使う | 実測で**3モデルすべてが使えるのは global のみ**。`us-central1` は TTS のみ、`asia-northeast1` は全て404。モデル構成を変えたら再検証する |
+| 12 | 3経路すべてを Priority ティアで呼ぶ | 無線越しの体験はレイテンシがそのまま沈黙になる。課金75〜100%増し・レート0.3倍は承知の上。容量超過時は standard へ自動降格するため落ちはしない |
+| 13 | `service_tier` は設定ファイルで切り替え可能にする | 課金が跳ねるため、当日に費用が問題になったら**再ビルドなしで standard へ落とせる**必要がある |
+| 14 | 不正な `service_tier` は起動時に落とす | 綴り違いは**黙って標準ティアに落ちる**形で表れる。「priority のつもりで課金だけ標準」という取り違えを実行中に気づけない |
+| 15 | 未設定の `service_tier` は空文字で表す | `genai.ServiceTierUnspecified` の実体は文字列 `"unspecified"` で、`omitempty` に落ちず**そのまま送信される**。回帰 `TestServiceTierOmittedWhenUnset` |
+| 16 | Interactions API へは移行しない (2026-08 時点) | **Go SDK に存在しない** (v1.68.0 の `genai.Client` に `Interactions` フィールドが無く、`client.Interactions.Create` はコンパイルが通らない)。かつ `v1beta2/interactions` は APIキー認証の Gemini Developer API 系で決定9と衝突する。`generateContent` は「レガシーだが完全にサポート」で廃止期限の告知も無い。追跡先は go-genai issue #658 (Open/P1) |
 
 <!-- EOF -->

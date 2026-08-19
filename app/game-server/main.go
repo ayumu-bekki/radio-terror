@@ -126,6 +126,16 @@ func main() {
 	crosstalk := NewCrosstalkScheduler(crosstalkLib, bridges, rng)
 	game.SetCrosstalkScheduler(crosstalk)
 
+	// --- 自動送信局アナウンス ---
+	// 特小無線は共用チャンネルのため、体験していない無線から定期的に名乗る
+	// (docs/operation_flow.md §7.3)。体験中の無線には流さない。
+	if cfg.Announce.Disabled {
+		log.Printf("[announce] disabled by config")
+	} else {
+		announce := NewAnnounceScheduler(assetDir, game.Binder(), bridges, cfg.Announce.Interval())
+		go announce.Run(ctx)
+	}
+
 	// --- ナビゲーター ---
 	navigator := NewGeminiNavigator(processor, ttsClient, sessionLogs, navigatorCfg, assetDir+"/sfx")
 	navigator.SetCrosstalkScheduler(crosstalk)

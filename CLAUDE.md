@@ -176,6 +176,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | `app/game-server/scenarios/difficulty/*.toml` | 難易度テンプレート |
 | `app/game-server/navigator/prompt.toml` | 共通役割定義・出力ルール・発話トリガー指示 |
 | `app/game-server/navigator/characters/*.toml` | キャラクター(1人1ファイル) |
+| `app/game-server/assets/announce/station_id.ogg` | 自動送信局アナウンス(15分ごと) |
 
 保留中のステージは `.toml.disabled` にしておけば置いたまま無効化できる。
 
@@ -196,9 +197,13 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | まず報告させる | 課題の第一声は「ランプはどうなっている?」。`hint_l1` は「報告させる」と動作で書く | N-10 |
 | 60文字は目安 | 締めると危険の警告・数字といった情報が先に削られる。切り詰めない・止めない | N-22 |
 | TTS はストリーミング | `GenerateContent` に戻すと応答待ちが跳ねる(最大56.51秒) | T-1 |
+| Priority は課金が跳ねる | `service_tier = "priority"` は標準の75〜100%増し・レート0.3倍。未設定は空文字(`Unspecified` は `"unspecified"` として送信されてしまう) | G-5 |
+| Interactions API は使えない | Go SDK v1.68.0 に `client.Interactions` が無い。APIキー系エンドポイントでもあり G-4 と衝突する | G-6 |
 | 表情タグは6語 | `allowedTTSTags` と `prompt.toml` の両方に書く。片方だけでは効かない | T-5 |
 | ノートに場面を書かない | TTS が場面を演じて相手の発話まで作る | T-6 |
-| granule は48kHz | 入力レートで書くと尺が半分に誤認される (RFC 7845 §4) | T-7 |
+| granule は48kHz | 入力レートで書くと尺が半分に誤認される (RFC 7845 §4)。**エンコーダは game-server と crosstalk-gen の2箇所** | T-7 |
+| アナウンスは体験中に流さない | セッション付きの bridge は必ず除外する。混線とは逆でセッションが**無い** bridge が対象 | T-11 |
+| アナウンスの声はカラス | 疎通確認と同じ `Achird`。混線の「重複禁止」とは逆向きの要求 | T-12 |
 | 結線通知を破棄 | プレイ中の `切断→結線→切断` バウンスで正しく切っても即爆発する | C-3 |
 | INTA はレベルで見る | エッジで拾うと入力検知が永久に止まる | C-2 |
 | 配線テーブルは1箇所 | 対応表は `hardware_config.h` だけ。他に同種の表を作らない | C-4 |
@@ -219,6 +224,9 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
   残るのは**音声込みの品質**(声質・間)と**音声認識との組み合わせ**で、
   これは実機でしか確認できない。
   Gemini API (APIキー認証) には対応しない (`docs/gemini_enterprise_setup.md`)。
+  **Interactions API へは移行しない** — Go SDK v1.68.0 に未実装
+  (`client.Interactions` はコンパイルが通らない)。追跡先は go-genai issue #658。
+  Priority ティアは Interactions なしで使える (ADR G-5・G-6)。
 - **紙資料**は未制作。`config.toml` の `[mission_sheet]` は印刷物の実測値なので、
   刷ったら値を突き合わせる (`docs/printed_materials.md`)。
 - **音声アセットは全て配置済み**(混線30ファイル + 効果音2ファイル)。
