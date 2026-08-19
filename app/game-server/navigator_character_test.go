@@ -583,19 +583,27 @@ func TestExplodedIsTreatedAsDeath(t *testing.T) {
 	cfg := loadTestNavigator(t)
 	inst := cfg.Prompt.TriggerInstruction("exploded")
 
-	// 安否確認を求めていること
+	// 安否が分からない場面だと伝えていること
 	for _, want := range []string{"安否", "応答"} {
 		if !strings.Contains(inst, want) {
-			t.Errorf("exploded に %q が無い — 安否確認で締める演出にならない", want)
+			t.Errorf("exploded に %q が無い — 死を伝える場面にならない", want)
 		}
 	}
 
-	// **締め方は統一しないこと** (決定47b)。
+	// **第一声も締め方も統一しないこと** (決定47b)。
 	// 「現地へ向かう」を全員に求めると、新人で手配できないヒバリや
 	// 温度を上げないツグミがキャラクターに反する対応をする。
-	if !strings.Contains(inst, "キャラクターによって違います") {
-		t.Error("exploded が締め方を統一している — " +
+	//
+	// **呼びかけも同様**。全員に安否確認をさせると、手順へ切り替える
+	// アオサギや、返事を待たず本音が漏れるヒバリの形が潰れる。
+	// キャラシートへ委ねる指示になっていることを確かめる。
+	if !strings.Contains(inst, "キャラシートの「爆発」の例に従ってください") {
+		t.Error("exploded がキャラシートへ委ねていない — " +
 			"全キャラが同じ対応をしてキャラクターが潰れる")
+	}
+	if !strings.Contains(inst, "全員が呼びかけるわけではありません") {
+		t.Error("exploded が呼びかけを全員に強いている — " +
+			"アオサギ・ヒバリの形が潰れる")
 	}
 
 	// 生存前提の言葉を禁じていること
