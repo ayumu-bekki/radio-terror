@@ -125,6 +125,14 @@ type GeminiConfig struct {
 	// レート上限は標準の0.3倍になるため、費用が問題になった当日に
 	// 再ビルドなしで standard へ落とせる必要がある。
 	ServiceTier string `toml:"service_tier"`
+
+	// TTSServiceTier は TTS だけに使う優先度。空なら ServiceTier に従う。
+	//
+	// **TTS はレイテンシが体験に直結する** — 生成が遅れるとその間ずっと
+	// 無線が沈黙する (ADR T-1・T-4)。一方で文字起こし・発話生成は
+	// 多少遅れても間が空くだけで済む。**TTS だけ優先度を上げたい**という
+	// 使い分けができるように分けてある。
+	TTSServiceTier string `toml:"tts_service_tier"`
 }
 
 // 指定できる service_tier の値。genai.ServiceTier* と対応する。
@@ -147,13 +155,27 @@ const (
 //
 // 値の検証は Validate が起動時に済ませてあるため、ここでは未設定へ倒す。
 func (c GeminiConfig) GenAIServiceTier() genai.ServiceTier {
-	if c.ServiceTier == serviceTierPriority {
+	return toGenAIServiceTier(c.ServiceTier)
+}
+
+// GenAITTSServiceTier は TTS 呼び出しに使う優先度を返す。
+//
+// tts_service_tier が空なら service_tier に従う (従来どおりの挙動)。
+func (c GeminiConfig) GenAITTSServiceTier() genai.ServiceTier {
+	if c.TTSServiceTier != "" {
+		return toGenAIServiceTier(c.TTSServiceTier)
+	}
+	return toGenAIServiceTier(c.ServiceTier)
+}
+
+func toGenAIServiceTier(tier string) genai.ServiceTier {
+	if tier == serviceTierPriority {
 		return genai.ServiceTierPriority
 	}
-	if c.ServiceTier == serviceTierStandard {
+	if tier == serviceTierStandard {
 		return genai.ServiceTierStandard
 	}
-	if c.ServiceTier == serviceTierFlex {
+	if tier == serviceTierFlex {
 		return genai.ServiceTierFlex
 	}
 	return ""
@@ -223,15 +245,27 @@ func (c GeminiConfig) Validate() error {
 	}
 	// 綴り違いは**黙って標準ティアに落ちる**形で表れる。priority のつもりで
 	// 課金だけ標準、という取り違えを避けるため起動時に弾く。
-	if c.ServiceTier != "" &&
-		c.ServiceTier != serviceTierPriority &&
-		c.ServiceTier != serviceTierStandard &&
-		c.ServiceTier != serviceTierFlex {
-		return fmt.Errorf("[gemini] service_tier が不正です: %q "+
-			"(%q / %q / %q のいずれか。未指定なら空欄)",
-			c.ServiceTier, serviceTierPriority, serviceTierStandard, serviceTierFlex)
+	if err := validateServiceTier("service_tier", c.ServiceTier); err != nil {
+		return err
+	}
+	if err := validateServiceTier("tts_service_tier", c.TTSServiceTier); err != nil {
+		return err
 	}
 	return nil
+}
+
+// validateServiceTier は service_tier 系の設定値を検証する。
+// 空 (未指定) は許可する。
+func validateServiceTier(name, tier string) error {
+	if tier == "" ||
+		tier == serviceTierPriority ||
+		tier == serviceTierStandard ||
+		tier == serviceTierFlex {
+		return nil
+	}
+	return fmt.Errorf("[gemini] %s が不正です: %q "+
+		"(%q / %q / %q のいずれか。未指定なら空欄)",
+		name, tier, serviceTierPriority, serviceTierStandard, serviceTierFlex)
 }
 
 // NewGenAIClient は Gemini Enterprise Agent Platform のクライアントを作る。

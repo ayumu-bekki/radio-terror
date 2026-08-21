@@ -89,7 +89,7 @@ func NewTTSClient(ctx context.Context, cfg GeminiConfig) (*TTSClient, error) {
 		model:       model,
 		timeout:     cfg.TTSTimeout(),
 		attempts:    cfg.TTSAttemptCount(),
-		serviceTier: cfg.GenAIServiceTier(),
+		serviceTier: cfg.GenAITTSServiceTier(),
 	}, nil
 }
 

@@ -55,7 +55,10 @@ tts_attempts           = 3
 # 綴りを間違えると起動時に落ちる (黙って standard に落ちると
 # priority のつもりで課金だけ標準、という取り違えになるため)。
 # 実際に効いているかは起動ログ `[boot] gemini service tier:` で確認する。
-service_tier = "priority"
+# Vertex/Enterprise は受け付けない (どの値でも400)。空にしておく。
+service_tier = ""
+# TTS だけ別のティアにする場合に指定 (空なら service_tier に従う)
+# tts_service_tier = "priority"
 
 [scenario]
 # シナリオテンプレートの配置 (stages/ と difficulty/ を含むディレクトリ)

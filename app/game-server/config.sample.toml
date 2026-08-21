@@ -64,7 +64,18 @@ tts_attempts = 3
 # 綴りを間違えると起動時に落ちる (黙って standard に落ちると
 # priority のつもりで課金だけ標準、という取り違えになるため)。
 # 実際に効いているかは起動ログ `[boot] gemini service tier:` で確認する。
-service_tier = "priority"
+# **Vertex/Enterprise (このプロジェクトの接続先) は受け付けない。**
+# 実測 (2026-08-20): "priority" / "standard" / "flex" のいずれでも
+# 400 INVALID_ARGUMENT になり、**全API呼び出しが失敗する**。
+# 空にしておくこと。将来 Vertex 側が対応したら使える。
+service_tier = ""
+
+# TTS だけ別のティアにしたい場合に指定する。空なら service_tier に従う。
+#
+# **TTS はレイテンシが体験に直結する** — 生成が遅れるとその間ずっと無線が
+# 沈黙する (ADR T-1・T-4)。文字起こし・発話生成は多少遅れても間が空くだけなので、
+# **TTS だけ priority にする**という使い分けができる。
+# tts_service_tier = "priority"
 
 [scenario]
 # シナリオテンプレートの配置 (stages/ と difficulty/ を含むディレクトリ)

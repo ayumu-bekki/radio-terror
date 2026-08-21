@@ -89,7 +89,9 @@ func TestBuildIdentityShortensFullHash(t *testing.T) {
 // ログで気づけるようにしてある。
 func TestDescribeServiceTier(t *testing.T) {
 	cases := map[string]string{
-		"":         "unset (Gemini 側の既定 = standard)",
+		// tts 側では「service_tier に従う」、共通側では「Gemini の既定」を意味する。
+		// どちらとも読めるよう素の "unset" にしてある。
+		"":         "unset",
 		"priority": "priority (課金は標準の75〜100%増し)",
 		"standard": "standard",
 		"flex":     "flex",

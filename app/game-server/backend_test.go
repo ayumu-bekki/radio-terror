@@ -242,3 +242,55 @@ func TestServiceTierFromTOML(t *testing.T) {
 		t.Errorf("service_tier = %q, want priority", cfg.Gemini.GenAIServiceTier())
 	}
 }
+
+// tts_service_tier が未指定なら service_tier に従い、指定があればそちらを使うこと。
+//
+// TTS はレイテンシが体験に直結するため、**TTS だけ優先度を上げる**運用を
+// できるようにしてある (ADR T-1・T-4)。
+func TestTTSServiceTierFallsBackToCommon(t *testing.T) {
+	cases := []struct {
+		common string
+		tts    string
+		want   genai.ServiceTier
+	}{
+		// 未指定なら共通設定に従う
+		{"standard", "", genai.ServiceTierStandard},
+		{"priority", "", genai.ServiceTierPriority},
+		{"", "", ""},
+		// 指定があればそちらが勝つ
+		{"standard", "priority", genai.ServiceTierPriority},
+		{"priority", "standard", genai.ServiceTierStandard},
+		{"", "priority", genai.ServiceTierPriority},
+	}
+	for _, c := range cases {
+		cfg := GeminiConfig{ServiceTier: c.common, TTSServiceTier: c.tts}
+		if got := cfg.GenAITTSServiceTier(); got != c.want {
+			t.Errorf("service_tier=%q tts=%q => %q, want %q",
+				c.common, c.tts, got, c.want)
+		}
+		// 共通側は tts の指定に影響されない
+		if got := cfg.GenAIServiceTier(); got != toGenAIServiceTier(c.common) {
+			t.Errorf("tts の指定が共通側に漏れている: %q", got)
+		}
+	}
+}
+
+// tts_service_tier の綴り違いも起動時に弾くこと。
+func TestTTSServiceTierValidation(t *testing.T) {
+	base := GeminiConfig{Project: "p", Location: "global"}
+
+	for _, ok := range []string{"", "priority", "standard", "flex"} {
+		cfg := base
+		cfg.TTSServiceTier = ok
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("tts_service_tier %q は受理されるべき: %v", ok, err)
+		}
+	}
+	for _, ng := range []string{"Priority", "unspecified", "fast"} {
+		cfg := base
+		cfg.TTSServiceTier = ng
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("tts_service_tier %q は起動時に弾かれるべき", ng)
+		}
+	}
+}
