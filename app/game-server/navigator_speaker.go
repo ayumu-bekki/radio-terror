@@ -102,9 +102,14 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	if session.Built != nil {
 		budget = session.Built.StageBudgetMS
 	}
+	// ヒント閾値は**ステージごとに引く**。難易度の値を基本に、
+	// ステージ定義の [hints] で上書きされている場合がある (ADR N-36)。
 	hints := HintRule{}
 	if session.Built != nil {
 		hints = session.Built.Hints
+		if stageIndex >= 0 && stageIndex < len(session.Built.Stages) {
+			hints = session.Built.Stages[stageIndex].Hints
+		}
 	}
 	level := HintLevel(&session.progress, budget, hints, time.Now())
 	session.mu.Unlock()

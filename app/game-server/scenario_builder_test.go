@@ -123,7 +123,7 @@ func TestNavigatorKnowledgeMatchesCore(t *testing.T) {
 		for seed := int64(0); seed < 60; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
 
-			built, err := builder.buildStage(stageTmpl, map[string]bool{})
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 			if err != nil {
 				t.Fatalf("stage %s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -176,7 +176,7 @@ func TestLedKeyExpansion(t *testing.T) {
 	}
 
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-	built, err := builder.buildStage(stageTmpl, map[string]bool{})
+	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 	if err != nil {
 		t.Fatalf("buildStage: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 		}
 
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-		built, err := builder.buildStage(stageTmpl, usedLines)
+		built, err := builder.buildStage(stageTmpl, usedLines, stdHints)
 		if err != nil {
 			t.Fatalf("remaining=%s: buildStage: %v", remaining, err)
 		}
@@ -286,7 +286,7 @@ func TestNoiseLedsAreSymmetric(t *testing.T) {
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{})
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -373,7 +373,7 @@ func TestSpeedRankingConsistency(t *testing.T) {
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{})
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -481,7 +481,7 @@ func TestAsLineExcludesUsedLines(t *testing.T) {
 
 	for seed := int64(0); seed < 50; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, used)
+		built, err := builder.buildStage(stageTmpl, used, stdHints)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -500,7 +500,7 @@ func TestAsLineExcludesUsedLines(t *testing.T) {
 	// 残り1色でも組み立てられること
 	only := map[string]bool{"A": true, "B": true, "C": true, "D": true}
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-	built, err := builder.buildStage(stageTmpl, only)
+	built, err := builder.buildStage(stageTmpl, only, stdHints)
 	if err != nil {
 		t.Fatalf("残り1色: buildStage: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestMorseWordIsAlwaysString(t *testing.T) {
 		}
 		for seed := int64(0); seed < 30; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{})
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 			if err != nil {
 				t.Fatalf("stage %s seed=%d: %v", id, seed, err)
 			}
@@ -728,7 +728,7 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 		}
 		for seed := int64(0); seed < 300; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{})
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -793,7 +793,7 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 		// 展開しても未解決の変数が残らないこと
 		for seed := int64(0); seed < 20; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{})
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -864,7 +864,7 @@ func TestSheetSectionResolves(t *testing.T) {
 	seen := map[string]bool{}
 	for seed := int64(0); seed < 60; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{})
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}

@@ -46,6 +46,13 @@ type BuiltStage struct {
 
 	// Navigator は解決済みのナビゲーター向けステージ知識
 	Navigator map[string]string `json:"navigator"`
+
+	// Hints はこのステージに適用するヒント閾値 (解決済み)。
+	//
+	// 難易度テンプレートの値を基本に、ステージ定義の `[hints]` があれば
+	// それで上書きしてある。**ステージごとに引く**ため、
+	// 発話生成時はセッションではなくここを見る (ADR N-36)。
+	Hints HintRule `json:"hints"`
 }
 
 // BuiltSession は組み立て済みのセッション一式。
@@ -131,7 +138,7 @@ func (b *ScenarioBuilder) Build(sessionID, difficulty string) (*BuiltSession, er
 		if err != nil {
 			return nil, err
 		}
-		stage, err := b.buildStage(stageTmpl, usedLines)
+		stage, err := b.buildStage(stageTmpl, usedLines, tmpl.Hints)
 		if err != nil {
 			return nil, fmt.Errorf("stage %s: %w", id, err)
 		}
@@ -249,7 +256,12 @@ func toJapaneseColorVars(vars map[string]string) map[string]string {
 }
 
 // buildStage は1ステージの抽選変数を解決し、Core向け要素とナビゲーター知識を生成する。
-func (b *ScenarioBuilder) buildStage(tmpl *StageTemplate, usedLines map[string]bool) (*BuiltStage, error) {
+//
+// hints は難易度テンプレートのヒント閾値。ステージ定義に `[hints]` があれば
+// それで上書きする (ADR N-36)。
+func (b *ScenarioBuilder) buildStage(
+	tmpl *StageTemplate, usedLines map[string]bool, hints HintRule,
+) (*BuiltStage, error) {
 	vars, err := b.resolveVars(tmpl, usedLines)
 	if err != nil {
 		return nil, err
@@ -278,12 +290,19 @@ func (b *ScenarioBuilder) buildStage(tmpl *StageTemplate, usedLines map[string]b
 		navigator[key] = expanded
 	}
 
+	// ステージ定義に [hints] があれば難易度の値を上書きする。
+	// **書かれた項目だけを差し替える** — 全項目を書かせると、
+	// L4 を塞ぎたいだけのステージが L2・L3 の閾値まで抱え込み、
+	// 難易度側を調整しても追従しなくなる。
+	hints = tmpl.Hints.Apply(hints)
+
 	return &BuiltStage{
 		TemplateID: tmpl.ID,
 		Name:       tmpl.Name,
 		Core:       core,
 		Cut:        cut,
 		Navigator:  navigator,
+		Hints:      hints,
 	}, nil
 }
 

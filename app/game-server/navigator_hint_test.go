@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 	"time"
@@ -252,5 +253,87 @@ func TestStageProgressResetClearsObserved(t *testing.T) {
 	p.Reset(time.Now())
 	if p.Observed {
 		t.Error("Reset 後も Observed が立っている")
+	}
+}
+
+// TestStageHintOverrideDisablesL4 は 206 色合わせが L4 (直言) へ到達しないことを
+// 確かめる (ADR N-36)。
+//
+// 206 は**正解がプレイヤーの記憶の中にしかない**。押し切ると全消灯するため
+// 装置に手がかりが残らず、色名の直言は課題そのものを消す。
+// 実運用で L4 到達後に正解色を直言し、プレイヤーの正しい記憶を上書きして
+// 誤切断 → 即爆発を招いた (2026-08-23)。
+func TestStageHintOverrideDisablesL4(t *testing.T) {
+	lib := loadTestLibrary(t)
+	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+
+	stageTmpl, err := lib.Stage("206")
+	if err != nil {
+		t.Fatalf("Stage(206): %v", err)
+	}
+	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+	if err != nil {
+		t.Fatalf("buildStage(206): %v", err)
+	}
+
+	if built.Hints.L4Pct != 0 {
+		t.Errorf("206: l4_pct = %d, want 0 — 正解の直言が課題を消す",
+			built.Hints.L4Pct)
+	}
+	// L2・L3 は難易度テンプレートの値を引き継ぐ (上書きしたのは L4 だけ)
+	if built.Hints.L2Pct != stdHints.L2Pct || built.Hints.L3Pct != stdHints.L3Pct {
+		t.Errorf("206: L2/L3 が難易度の値を引き継いでいない: %+v", built.Hints)
+	}
+
+	// 予算を使い切っても L4 へ到達しない
+	progress, now := progressAfter(10*time.Minute, 99, 99)
+	progress.Observed = true
+	if got := HintLevel(progress, 140000, built.Hints, now); got >= HintL4 {
+		t.Errorf("206: 時間を使い切っても L%d へ到達した、want L3 以下", got)
+	}
+}
+
+// TestStageHintOverrideKeepsDifficultyDefault は [hints] を書いていない
+// ステージが難易度テンプレートの値をそのまま使うことを確かめる。
+func TestStageHintOverrideKeepsDifficultyDefault(t *testing.T) {
+	lib := loadTestLibrary(t)
+	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+
+	// 105 は [hints] を持たない
+	stageTmpl, err := lib.Stage("105")
+	if err != nil {
+		t.Fatalf("Stage(105): %v", err)
+	}
+	built, err := builder.buildStage(stageTmpl, map[string]bool{}, hardHints)
+	if err != nil {
+		t.Fatalf("buildStage(105): %v", err)
+	}
+	if built.Hints != hardHints {
+		t.Errorf("105: Hints = %+v, want %+v (難易度の値をそのまま使う)",
+			built.Hints, hardHints)
+	}
+}
+
+// TestStageHintOverrideZeroIsMeaningful は「0 は無効化」であって
+// 「未指定」ではないことを確かめる。
+//
+// HintRule の 0 はハードの l4_pct = 0 のように**意味を持つ値**なので、
+// 上書きの有無はポインタで区別している。ここが int に戻ると、
+// l4_pct = 0 と書いても「未指定」と読まれて直言が復活する。
+func TestStageHintOverrideZeroIsMeaningful(t *testing.T) {
+	zero := 0
+	over := StageHintOverride{L4Pct: &zero}
+	got := over.Apply(stdHints)
+
+	if got.L4Pct != 0 {
+		t.Errorf("l4_pct = 0 の上書きが効いていない: %+v", got)
+	}
+	if got.L2Pct != stdHints.L2Pct || got.L3Pct != stdHints.L3Pct {
+		t.Errorf("未指定の項目まで書き換わった: %+v", got)
+	}
+
+	// 何も指定しなければ base のまま
+	if empty := (StageHintOverride{}).Apply(stdHints); empty != stdHints {
+		t.Errorf("空の上書きで値が変わった: %+v", empty)
 	}
 }

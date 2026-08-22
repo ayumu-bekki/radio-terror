@@ -54,6 +54,41 @@ type StageTemplate struct {
 
 	// Navigator はナビゲーター向けステージ知識 (${...} を含む)。
 	Navigator map[string]string `toml:"navigator"`
+
+	// Hints は難易度テンプレートのヒント閾値に対する**ステージ単位の上書き**。
+	//
+	// 既定 (未指定) は難易度テンプレートの値をそのまま使う。
+	// 上書きが要るのは「そのレベルがステージを壊す」場合だけ (ADR N-36)。
+	// 206 色合わせは**正解がプレイヤーの記憶の中にしかない**ため、
+	// L4 (正解の直言) が課題そのものを消してしまう。`l4_pct = 0` で塞ぐ。
+	Hints StageHintOverride `toml:"hints"`
+}
+
+// StageHintOverride はヒント閾値のステージ単位の上書き (ADR N-36)。
+//
+// **項目ごとに任意**。書いた項目だけが上書きされ、残りは難易度テンプレートの
+// 値をそのまま使う。`0` は「そのレベルの無効化」という**意味を持つ値**
+// (ハードの `l4_pct = 0`) なので、「0 なら未指定」とは読めない。
+// ポインタにして**書かれたかどうか**を型で区別する。
+type StageHintOverride struct {
+	L2Pct *int `toml:"l2_pct"`
+	L3Pct *int `toml:"l3_pct"`
+	L4Pct *int `toml:"l4_pct"`
+}
+
+// Apply は難易度のヒント閾値へこの上書きを適用した結果を返す。
+// 未指定の項目は base のまま。
+func (o StageHintOverride) Apply(base HintRule) HintRule {
+	if o.L2Pct != nil {
+		base.L2Pct = *o.L2Pct
+	}
+	if o.L3Pct != nil {
+		base.L3Pct = *o.L3Pct
+	}
+	if o.L4Pct != nil {
+		base.L4Pct = *o.L4Pct
+	}
+	return base
 }
 
 // DifficultyTemplate は難易度テンプレート (scenarios/difficulty/*.toml)。
