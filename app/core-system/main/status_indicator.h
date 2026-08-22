@@ -155,6 +155,27 @@ inline constexpr Appearance kLookBootFailed = kLookBootInitializing;
 /// 起動インジケータの点滅周期
 inline constexpr uint32_t kBootBlinkMs = 300;
 
+/// 破裂の瞬間の閃光 (白点灯)。**最高光度**で焚く。
+///
+/// ソレノイド駆動と同時に光らせ、風船が割れる瞬間を視覚でも打ち込む。
+/// 赤点灯 (kLookDanger) の延長では「破裂した」ことが伝わらないため、
+/// **状態表示から外れた色**として白を使う。
+inline constexpr Appearance kLookBurst = {{255, 255, 255}, 255};
+
+/// 閃光の点灯時間。長いと「白点灯の状態」に見えてしまう
+inline constexpr uint32_t kBurstFlashMs = 100;
+
+/// 破裂の閃光コマンドを組み立てる。
+///
+/// 状態から導けない**一瞬の演出**なので MakeCommand とは分けてある。
+/// 消灯は呼び出し側 (FireSolenoid) が Exploded 遷移で上書きして行う。
+inline Pl9823Task::Command MakeBurstFlashCommand() {
+  Pl9823Task::Command command;
+  command.pattern = Pl9823Task::PATTERN_SOLID;
+  ApplyLook(command, kLookBurst);
+  return command;
+}
+
 /// Setup中にサーバーを待っている間の表示 (§4.0)。
 ///
 /// wifi_failed が真なら紫点滅 (接続に失敗した)、偽なら紫点灯 (接続待ち)。
