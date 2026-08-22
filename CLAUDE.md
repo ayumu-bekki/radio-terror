@@ -28,6 +28,11 @@ go build ./... && go vet ./... && go test ./...
 go test -run TestBuildAllDifficulties -v
 go test -run "TestHintLevel" -v      # 前方一致で複数実行
 
+# observed 判定を実APIで検証 (約10秒。ADR N-35)
+# 「正しく報告できたか」の判定が意図どおり働くかを見る。
+# 実運用の誤変換 (「点滅」→「全滅」) を含むケースを入れてある
+go test -run TestObservationJudgement -observed -v
+
 # keepalive の切断再現テスト (約5分。既定では飛ばされる)
 go test -run TestKeepaliveAcceptsBridgePings -keepalive -timeout 420s -v
 
@@ -195,6 +200,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | 正解色を伏せる | L4未満は `redactCutColor` でプロンプトから伏せる。「書いてあるが言うな」は守られない | N-1 |
 | 出し惜しみしない | 装置に現れない情報(ボタン列・危険位置)は伏せると手詰まりになる | N-4 |
 | まず報告させる | 課題の第一声は「ランプはどうなっている?」。`hint_l1` は「報告させる」と動作で書く | N-10 |
+| 報告は前倒しする | 正しく報告できたらヒントを進める。全ステージに `observation` を定義し、`hint_l1` は報告後の返し先まで書く | N-35 |
 | 60文字は目安 | 締めると危険の警告・数字といった情報が先に削られる。切り詰めない・止めない | N-22 |
 | TTS はストリーミング | `GenerateContent` に戻すと応答待ちが跳ねる(最大56.51秒) | T-1 |
 | `service_tier` は空にする | Vertex/Enterprise は**どの値でも400**。指定すると全API呼び出しが失敗する(実測2026-08-20)。TTSだけ別にするなら `tts_service_tier` | G-5 |

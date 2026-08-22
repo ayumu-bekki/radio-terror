@@ -188,14 +188,83 @@ func convertSchema(raw map[string]any) (*genai.Schema, error) {
 	return s, nil
 }
 
+// NavigatorReply はナビゲーターの1発話ぶんの生成結果。
+//
+// Observed を**発話生成と同じ呼び出しで**返させる (決定54)。
+// 判定を別の呼び出しに分けるとプレイヤー発話ごとに API 往復が2回になり、
+// カウントダウン中の応答待ちが伸びる (ADR T-1 と同じ理由で避ける)。
+// モデルは会話ログと「観察」の定義を既に読んでいるので、
+// 発話を作るついでに判定できる。
+type NavigatorReply struct {
+	// Reply は無線へ流す発話本文
+	Reply string `json:"reply"`
+	// Observed は、そのステージが要求する観察をプレイヤーが報告済みかどうか。
+	// ステージに observation の定義が無い場合は常に false でよい。
+	Observed bool `json:"observed"`
+}
+
+// navigatorReplySchema は GenerateNavigatorReply の構造化出力スキーマ。
+//
+// 音声にするのは reply だけで、observed はヒントレベルの前倒しに使う
+// (docs/navigator_design.md §3.2)。
+var navigatorReplySchema = &genai.Schema{
+	Type: genai.TypeObject,
+	Properties: map[string]*genai.Schema{
+		"reply":    {Type: genai.TypeString},
+		"observed": {Type: genai.TypeBoolean},
+	},
+	Required: []string{"reply", "observed"},
+}
+
 // GenerateNavigatorReply はナビゲーターの発話を1つ生成する
 // (docs/navigator_design.md §3.3 のプロンプト構成)。
 //
 // systemPrompt は BuildNavigatorPrompt が組み立てた [A]〜[F] の全ブロック、
 // instruction は発話トリガーごとの指示 (§3.5)。
 // 会話ターンごとに呼ぶため、低レイテンシの ReasoningModel を使う。
-func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemPrompt, instruction string) (string, error) {
-	return p.generateReply(ctx, systemPrompt, instruction, false)
+//
+// 発話本文と併せて「観察の報告があったか」も返す (決定54)。
+func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemPrompt, instruction string) (*NavigatorReply, error) {
+	contents := []*genai.Content{
+		genai.NewContentFromText(instruction, genai.RoleUser),
+	}
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
+		ServiceTier:       p.cfg.GenAIServiceTier(),
+		ResponseMIMEType:  "application/json",
+		ResponseSchema:    navigatorReplySchema,
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, p.cfg.ReplyTimeout())
+	defer cancel()
+
+	start := time.Now()
+	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, config)
+	log.Printf("[gemini] reply latency: %v", time.Since(start))
+	p.noteResult(err)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateContent (Navigator): %w", err)
+	}
+
+	if resp == nil || len(resp.Candidates) == 0 ||
+		resp.Candidates[0].Content == nil ||
+		len(resp.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("empty response from Gemini Navigator")
+	}
+
+	text := resp.Candidates[0].Content.Parts[0].Text
+	if text == "" {
+		return nil, fmt.Errorf("empty text from Gemini Navigator")
+	}
+
+	var reply NavigatorReply
+	if err := json.Unmarshal([]byte(text), &reply); err != nil {
+		return nil, fmt.Errorf("json.Unmarshal (Navigator): %w", err)
+	}
+	if reply.Reply == "" {
+		return nil, fmt.Errorf("empty reply text from Gemini Navigator")
+	}
+	return &reply, nil
 }
 
 // GenerateReplyWithSearch は Google 検索を許可して発話を1つ生成する。

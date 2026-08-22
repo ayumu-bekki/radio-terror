@@ -115,6 +115,25 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		if procedure := stage.Navigator["procedure"]; procedure != "" {
 			b.WriteString("- 進め方: " + procedure + "\n")
 		}
+
+		// [観察の判定] 発話と同時に「報告があったか」を返させる (決定54)。
+		//
+		// 観察系のステージは**報告そのものが答えの決め手**になるため、
+		// 報告できた時点でヒントレベルを前倒しする。判定材料は上の会話ログ。
+		if observation := stage.Navigator["observation"]; observation != "" {
+			b.WriteString("\n## 観察の判定 (observed)\n")
+			b.WriteString("この課題でプレイヤーに報告してほしい観察は次のとおりです。\n")
+			b.WriteString("- 観察: " + observation + "\n")
+			b.WriteString("**直近の交信で、プレイヤーがこの観察を報告できているかを判定し、" +
+				"出力の `observed` に入れてください。**\n" +
+				"- 言い回しは問いません。**内容が伝わっていれば true** です" +
+				"(色名が正確でなくても、速い/遅い・点いている/消えているの区別が" +
+				"できていれば報告できたとみなします)。\n" +
+				"- まだ尋ねていない・報告が返っていない・内容が食い違う場合は false です。\n" +
+				"- **一度 true になった観察は、その後も true のままにしてください。**\n" +
+				"- この判定は `reply` の内容には影響させないでください" +
+				"(判定について発話で触れてはいけません)。\n")
+		}
 	} else {
 		// ステージ知識が無い状態 (全ステージ完了後など)。
 		//

@@ -130,11 +130,29 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		instruction = event
 	}
 
-	text, err := n.processor.GenerateNavigatorReply(ctx, prompt, instruction)
+	reply, err := n.processor.GenerateNavigatorReply(ctx, prompt, instruction)
 	if err != nil {
 		// 生成AIの障害時は自動フォールバックを設けず、マネージャー介入で運用する
 		// (docs/game_session_design.md §9)。Web画面で検知できるようログに残す。
 		return fmt.Errorf("GenerateNavigatorReply: %w", err)
+	}
+	text := reply.Reply
+
+	// 観察の報告があったら記録する。次の発話からヒントレベルが前倒しされる
+	// (docs/navigator_design.md §3.2 / 決定54)。
+	//
+	// **一度立てたら下ろさない。** 報告できたという事実はその後の発話で
+	// 覆らないが、モデルは直近の発話だけを見て false を返しうる。
+	// 下ろすとレベルが L2 → L1 へ落ち、同じ空振りが再発する。
+	if reply.Observed {
+		session.mu.Lock()
+		first := !session.progress.Observed
+		session.progress.Observed = true
+		session.mu.Unlock()
+		if first {
+			log.Printf("[navigator %s] observation reported: stage=%d (hint level front-loaded)",
+				session.DeviceID, stageIndex)
+		}
 	}
 
 	// 文字数を併記する。無線を塞ぐ長さになっていないか運用中に確認するため

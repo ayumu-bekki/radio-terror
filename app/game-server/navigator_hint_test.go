@@ -205,3 +205,52 @@ func TestHintPolicyBelowL4NeverEmbedsAnswer(t *testing.T) {
 		}
 	}
 }
+
+// TestHintLevelObservedFrontLoading は観察の報告による前倒しを確かめる
+// (§3.2 / ADR N-35)。
+//
+// 実運用で 105 早い者勝ち を「緑がゆっくり、青が早く点滅」と完璧に報告したのに、
+// 経過22秒では L1 のままで「2つの光り方の違いをよく見比べてください」と
+// 空振りが返った。報告できた時点で判断基準を示せるようにする。
+func TestHintLevelObservedFrontLoading(t *testing.T) {
+	const budget = 140000
+
+	// 報告済みなら、経過0でも L2 (判断基準を示す) へ前倒しする
+	progress, now := progressAfter(0, 0, 0)
+	progress.Observed = true
+	if got := HintLevel(progress, budget, stdHints, now); got != HintL2 {
+		t.Errorf("observed: HintLevel = L%d, want L2", got)
+	}
+
+	// 未報告なら L1 のまま (前倒しの条件は報告そのもの)
+	progress, now = progressAfter(0, 0, 0)
+	if got := HintLevel(progress, budget, stdHints, now); got != HintL1 {
+		t.Errorf("not observed: HintLevel = L%d, want L1", got)
+	}
+
+	// 既に時間で L3 のとき、報告済みでも L2 へ落としてはいけない
+	progress, now = progressAfter(70*time.Second, 0, 0)
+	progress.Observed = true
+	if got := HintLevel(progress, budget, stdHints, now); got != HintL3 {
+		t.Errorf("observed at L3: HintLevel = L%d, want L3", got)
+	}
+
+	// L2 が無効 (比率0) なら、報告済みでも解禁しない
+	progress, now = progressAfter(0, 0, 0)
+	progress.Observed = true
+	noL2 := HintRule{L2Pct: 0, L3Pct: 50, L4Pct: 75}
+	if got := HintLevel(progress, budget, noL2, now); got != HintL1 {
+		t.Errorf("observed with l2_pct=0: HintLevel = L%d, want L1", got)
+	}
+}
+
+// TestStageProgressResetClearsObserved はステージ切り替えで観察の報告が
+// リセットされることを確かめる。次のステージは別の観察を要求するため、
+// 持ち越すと最初から L2 で始まってしまう。
+func TestStageProgressResetClearsObserved(t *testing.T) {
+	p := &StageProgress{Observed: true, Questions: 3, WrongActions: 1}
+	p.Reset(time.Now())
+	if p.Observed {
+		t.Error("Reset 後も Observed が立っている")
+	}
+}

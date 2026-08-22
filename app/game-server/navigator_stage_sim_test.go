@@ -277,7 +277,7 @@ func simulateStage(
 		})
 
 		instruction := navCfg.Prompt.TriggerInstruction(turn.Trigger)
-		reply, err := processor.GenerateNavigatorReply(ctx, prompt, instruction)
+		gen, err := processor.GenerateNavigatorReply(ctx, prompt, instruction)
 		if err != nil {
 			result.Findings = append(result.Findings, simFinding{
 				StageID: id, Level: turn.HintLevel, Kind: "api_error", Detail: err.Error(),
@@ -285,6 +285,7 @@ func simulateStage(
 			t.Logf("  L%d %-15s ERROR: %v", turn.HintLevel, turn.Trigger, err)
 			continue
 		}
+		reply := gen.Reply
 		logs.Append(sessionID, ConversationEntry{
 			Sender: character.Name, Receiver: senderPlayer, Message: stripTTSTags(reply),
 		})

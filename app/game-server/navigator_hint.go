@@ -27,6 +27,17 @@ type StageProgress struct {
 	Questions int
 	// WrongActions はこのステージで発生した誤操作の回数
 	WrongActions int
+	// Observed は、そのステージが要求する観察をプレイヤーが報告済みかどうか。
+	//
+	// 観察系のステージ (105 早い者勝ち・204 切るな危険など) は、
+	// **報告そのものが答えの決め手**になる。「速い方と遅い方がある」と
+	// 報告できた時点でプレイヤーは判断材料を揃えており、そこへ
+	// 「見比べてください」と返すのは空振りになる (実運用で発生)。
+	//
+	// 経過時間だけで解禁していると、正しく報告してもステージ予算の25%
+	// (ノーマル3ステージで35秒) まで待たされる。報告できたという事実を
+	// 前倒し条件に加えて、次の発話から判断基準を示せるようにする。
+	Observed bool
 }
 
 // Reset はステージ切り替え時にヒントレベルを L1 へ戻す。
@@ -34,6 +45,7 @@ func (p *StageProgress) Reset(now time.Time) {
 	p.StartedAt = now
 	p.Questions = 0
 	p.WrongActions = 0
+	p.Observed = false
 }
 
 // HintLevel は現在の許可ヒントレベルを算出する (§3.2)。
@@ -60,9 +72,13 @@ func HintLevel(progress *StageProgress, budgetMS int, hints HintRule, now time.T
 		level = HintL4
 	}
 
-	// 質問回数・誤操作による前倒し。
+	// 質問回数・誤操作・観察報告による前倒し。
 	// 経過時間による判定を下回らせず、無効化されたレベル (比率0) へも到達させない。
-	if progress.Questions >= hintQuestionsForL2 && level < HintL2 && hints.L2Pct > 0 {
+	//
+	// **観察の報告は質問1回より強い**。質問は「分からない」の表明だが、
+	// 報告は判断材料が揃った証拠なので、1回で L2 (判断基準を示す) まで上げる。
+	if (progress.Questions >= hintQuestionsForL2 || progress.Observed) &&
+		level < HintL2 && hints.L2Pct > 0 {
 		level = HintL2
 	}
 	if (progress.Questions >= hintQuestionsForL3 || progress.WrongActions > 0) &&

@@ -885,3 +885,54 @@ func TestSheetSectionResolves(t *testing.T) {
 		}
 	}
 }
+
+// TestStagesDefineObservation は、全ステージが observation を定義していることを
+// 確かめる (docs/navigator_design.md §3.2 / ADR N-35)。
+//
+// observation はプレイヤーが報告すべき観察の定義で、これが無いステージは
+// ヒントレベルの前倒しが働かない。実運用で 105 早い者勝ち を完璧に報告したのに
+// 経過22秒では L1 のままとなり、「よく見比べてください」と空振りが返った。
+//
+// 報告そのものが答えの決め手になる観察系ステージ (105/204/207/212 など) で
+// 特に効くが、**全ステージが第一声でランプの報告を求める**設計
+// (TestStagesAskForLampReportFirst) なので、定義も全ステージに要る。
+func TestStagesDefineObservation(t *testing.T) {
+	lib := loadTestLibrary(t)
+
+	for id := range lib.stages {
+		stageTmpl, err := lib.Stage(id)
+		if err != nil {
+			t.Fatalf("Stage(%q): %v", id, err)
+		}
+		if stageTmpl.Navigator["observation"] == "" {
+			t.Errorf("%s: observation が未定義 — このステージだけ"+
+				"報告してもヒントレベルが前倒しされない", id)
+		}
+	}
+}
+
+// TestStagesObservationIsAQuestion は observation が「報告できたか」を問う形で
+// 書かれていることを確かめる。
+//
+// observation はプロンプトで「この観察を報告できているかを判定せよ」と
+// 使うため、**判定できる条件**として書く必要がある (ADR N-33)。
+// 装置の状態を書き写しただけ (「2つ点滅している」) だと、生成AIは
+// 自分の知識と照合してしまい、プレイヤーが何も言っていなくても true を返す。
+func TestStagesObservationIsAQuestion(t *testing.T) {
+	lib := loadTestLibrary(t)
+
+	for id := range lib.stages {
+		stageTmpl, err := lib.Stage(id)
+		if err != nil {
+			t.Fatalf("Stage(%q): %v", id, err)
+		}
+		observation := stageTmpl.Navigator["observation"]
+		if observation == "" {
+			continue // 未定義は TestStagesDefineObservation が報告する
+		}
+		if !strings.Contains(observation, "報告できたか") {
+			t.Errorf("%s: observation が判定条件の形になっていない — "+
+				"「〜を報告できたか」と書くこと:\n  %s", id, observation)
+		}
+	}
+}

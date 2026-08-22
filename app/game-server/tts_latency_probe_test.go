@@ -725,12 +725,13 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 					RemainingMS: 45000,
 					HintLevel:   HintL1,
 				})
-				text, err := processor.GenerateNavigatorReply(
+				gen, err := processor.GenerateNavigatorReply(
 					ctx, prompt, navCfg.Prompt.TriggerInstruction(trigger))
 				if err != nil {
 					t.Logf("  %s/%s: %v", id, trigger, err)
 					continue
 				}
+				text := gen.Reply
 				attempts++
 
 				found := tagPattern.FindAllStringSubmatch(text, -1)
@@ -823,12 +824,13 @@ func TestNavigatorDoesNotLeakAnswer(t *testing.T) {
 					StageIndex: 0, RemainingMS: 120000, HintLevel: level,
 				})
 				// プレイヤーがまだ何も報告していない状況を作る
-				text, err := processor.GenerateNavigatorReply(ctx, prompt,
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("silence"))
 				if err != nil {
 					t.Logf("  L%d/%s: %v", level, character.ID, err)
 					continue
 				}
+				text := gen.Reply
 				total++
 				if strings.Contains(text, answerJA) {
 					leaks++
