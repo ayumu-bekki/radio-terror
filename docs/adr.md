@@ -813,14 +813,19 @@ Pending は Ready と同じ安全動作を引き継ぐ — WS切断・線が外�
 
 > 出典: OP 決定16・決定17
 
-### P-4b. リセットは Valkey からも消す — 終了は残す
+### P-4b. リセットは Valkey からも消す(`session:{id}` は無条件)
 
 `AbortSession` (リセット) は `store.DeleteSession` まで呼ぶ。
 binder を外すだけだと、サーバー再起動時に `LoadSessions` が読み戻し、
 **リセットしたはずのセッションが復活する**
 (`docker compose down` → `up` で実際に発生した)。
 
-**消すのは中断だけ。** 終了 (爆発・解除) したセッションは P-4 のとおり残す。
+**`session:{id}` は終了済みかどうかを問わず、リセットのたびに無条件で消してよい。**
+以前は「終了 (爆発・解除) したセッションだけは消さず残す」としていたが、
+運用は成功・失敗を問わず**終了後も必ずリセット申告する**
+(`manager_manual.md` §6.3) ため、その例外が**履歴を毎回消す不具合**になった
+(P-4c 参照)。履歴は P-4c で別キー (`history:{id}`) に分離したので、
+`session:{id}` 側は例外を持つ理由が無い。
 
 **ログは中断でも消さない。** 中断イベントもログに記録されており、
 消すと「なぜ終わったか」が追えなくなる。
@@ -828,8 +833,31 @@ binder を外すだけだと、サーバー再起動時に `LoadSessions` が読
 
 メモリ上の bridge → device の紐付けは残す(再接続で継続できるようにする設計)。
 
-> 出典: GS 決定60 / 回帰 `TestAbortedSessionDoesNotSurviveRestart`・
-> `TestFinishedSessionSurvivesRestart`
+> 出典: GS 決定60・決定61 / 回帰 `TestAbortedSessionDoesNotSurviveRestart`・
+> `TestFinishedSessionSurvivesRestart`・`TestReleaseAfterFinishWritesHistory`
+
+### P-4c. 履歴は `session:{id}` と別キーへ分離する
+
+`session:{id}` は「今バインド中のセッション」専用と割り切り、
+**履歴 (Management Console の振り返り用) は `history:{session_id}` へ独立させる**。
+
+`session:{id}` は再起動時の復元と進行中ダッシュボード表示にしか使わず、
+リセットのたびに無条件で消える (P-4b)。一方、履歴はいつリセットされるかに
+関係なく残す必要がある。両者を同じキーに同居させると、
+**「履歴のため終了セッションを消さない」という例外が、
+「終了後も必ずリセット申告する」という運用と衝突し、
+結局リセットのたびに履歴が消える**(§9)。
+
+`releaseAfterFinish` (爆発・解除でセッションを終了させる箇所) で、
+**終了の瞬間に一度だけ** `history:{id}` へスナップショットを書く。
+内容は `session:{id}` と同じ `GameSession` の JSON — 履歴詳細ページが
+`Built.Stages` (到達しなかった先の正解) まで使うため、要約用の別型は作らない。
+
+中断 (未終了のままのリセット) は今まで通り履歴に出さない。
+ログ (`session:{id}:log`) は変更なし — 発話・進行イベントの記録という
+役割はそのまま。
+
+> 出典: GS 決定61 / 回帰 `TestReleaseAfterFinishWritesHistory`
 
 ### P-5. リセット対象はバインド優先で決める
 
@@ -1012,6 +1040,25 @@ tick 側から両者を区別できなかった。
 (`ClearOverride()` ではなく `SetOverrideAll(false)` を使う)。
 
 > 出典: GS 決定25・決定26
+
+### C-12. forbidden_rotary は実際に動くまで判定を始めない
+
+`TickForbiddenRotary` は禁止判定を**プレイヤーが一度でもロータリーを動かすまで武装しない**
+(`rotary_touched_since_reset_`)。`ResetStageProgress` (ステージ開始のたびに呼ぶ) でこのフラグを
+下ろし、`HandleRotaryChanged` が実際の位置変化を検知したときだけ立てる。
+
+ロータリーは物理的な位置が**プレイ間で保持される**。前回のプレイヤーが偶然
+禁止位置(209 綱渡りなら 1 か 2)で止めたまま終わると、次のセッションでその
+位置がまた `forbidden` に抽選された場合、**プレイヤーが何も操作していないのに
+PLAYING開始から `kForbiddenRotaryHoldMs` (300ms) 経過しただけで無警告のまま
+爆発する**(209 のテストプレイで発覚。設計は「危険位置は最初に必ず伝える」
+としていたが、伝える暇もなく即爆発していた)。
+
+目標位置と禁止位置は重ならない (209 は target=3-5, forbidden=1-2) ため、
+この待機はパズルの難度に影響しない — どのみちプレイヤーはダイヤルを
+動かさなければ目標へ到達できない。
+
+> 出典: GS 決定62
 
 ### C-10. 書き方の決まり
 

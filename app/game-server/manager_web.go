@@ -281,9 +281,9 @@ func (w *ManagerWeb) historyViews(ctx context.Context, filter historyFilter, lim
 		return items
 	}
 
-	sessions, err := w.store.LoadSessions(ctx)
+	sessions, err := w.store.LoadHistories(ctx)
 	if err != nil {
-		log.Printf("[manager-web] load sessions: %v", err)
+		log.Printf("[manager-web] load histories: %v", err)
 		return items
 	}
 
@@ -334,11 +334,14 @@ func (w *ManagerWeb) historyViews(ctx context.Context, filter historyFilter, lim
 }
 
 // dateKey は日付絞り込みのキー (YYYY-MM-DD)。ゼロ値は空。
+//
+// displayLocation (現場のタイムゾーン) の暦日で区切る。UTCのまま区切ると、
+// 表示時刻 (JST) と日付の選択肢がずれる (UTC 15:00〜23:59 は JST では翌日)。
 func dateKey(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Format("2006-01-02")
+	return t.In(displayLocation).Format("2006-01-02")
 }
 
 // --- セッション詳細 ---
@@ -408,12 +411,12 @@ func (w *ManagerWeb) handleSessionPage(rw http.ResponseWriter, r *http.Request) 
 	w.render(rw, managerSessionTmpl, "page", data)
 }
 
-// fmtDateTimeFull は詳細ページの開始時刻 (年まで出す)。
+// fmtDateTimeFull は詳細ページの開始時刻 (年まで出す)。表示は displayLocation。
 func fmtDateTimeFull(t time.Time) string {
 	if t.IsZero() {
 		return "—"
 	}
-	return t.Format("2006/01/02 15:04:05")
+	return t.In(displayLocation).Format("2006/01/02 15:04:05")
 }
 
 // --- 共通 ---
@@ -435,7 +438,7 @@ func (w *ManagerWeb) entriesFor(ctx context.Context, sessionID string) []Convers
 	return entries
 }
 
-// sessionFor はセッション本体を返す。進行中はメモリ、終了済みは永続化層から引く
+// sessionFor はセッション本体を返す。進行中はメモリ、終了済みは履歴から引く
 // (entriesFor と同じ方針)。見つからなければ nil。
 func (w *ManagerWeb) sessionFor(ctx context.Context, sessionID string) *GameSession {
 	for _, session := range w.game.Sessions() {
@@ -450,9 +453,9 @@ func (w *ManagerWeb) sessionFor(ctx context.Context, sessionID string) *GameSess
 	if w.store == nil {
 		return nil
 	}
-	sessions, err := w.store.LoadSessions(ctx)
+	sessions, err := w.store.LoadHistories(ctx)
 	if err != nil {
-		log.Printf("[manager-web] load sessions: %v", err)
+		log.Printf("[manager-web] load histories: %v", err)
 		return nil
 	}
 	for _, session := range sessions {

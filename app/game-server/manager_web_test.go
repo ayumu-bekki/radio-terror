@@ -27,7 +27,8 @@ func newTestManagerWeb(t *testing.T) (*ManagerWeb, *http.ServeMux, SessionStore)
 	return web, mux, store
 }
 
-// saveTestSession は終了済みセッションを1件永続化する。
+// saveTestSession は終了済みセッションを1件、履歴として永続化する。
+// (`history:{id}` に書く。進行中セッション用の `session:{id}` とは別物 — session_store.go 参照)
 func saveTestSession(t *testing.T, store SessionStore, sessionID, deviceID, state string, startedAt time.Time) {
 	t.Helper()
 
@@ -61,8 +62,8 @@ func saveTestSession(t *testing.T, store SessionStore, sessionID, deviceID, stat
 			},
 		},
 	}
-	if err := store.SaveSession(context.Background(), session); err != nil {
-		t.Fatalf("SaveSession: %v", err)
+	if err := store.SaveHistory(context.Background(), session); err != nil {
+		t.Fatalf("SaveHistory: %v", err)
 	}
 }
 

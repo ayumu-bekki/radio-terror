@@ -255,11 +255,12 @@ func TestAbortedSessionDoesNotSurviveRestart(t *testing.T) {
 	}
 }
 
-// TestFinishedSessionSurvivesRestart は、終了 (爆発・解除) したセッションは
-// **消さない**ことを確かめる。
+// TestFinishedSessionSurvivesRestart は、終了 (爆発・解除) したセッションが
+// **`session:{id}` にも残る**ことを確かめる。
 //
-// Management Console の進行表・履歴で結果を確認するため残す必要がある
-// (docs/game_session_design.md §9)。中断との違いを取り違えないよう固定する。
+// これは Management Console の進行表 (終了直後、リセット前の結果表示) 用。
+// リセットが来れば `session:{id}` は消えてよい — 履歴側は
+// `TestReleaseAfterFinishWritesHistory` が別途保証する (§9)。
 func TestFinishedSessionSurvivesRestart(t *testing.T) {
 	game, _, store := newTestCoordinator(t)
 	session := newTestSession(t, game)
@@ -271,7 +272,7 @@ func TestFinishedSessionSurvivesRestart(t *testing.T) {
 
 	// 解除成功として終了させる (AbortSession は通さない)
 	game.finishSession(ctx, session, 12345)
-	game.releaseAfterFinish(session)
+	game.releaseAfterFinish(ctx, session)
 	if err := store.SaveSession(ctx, session); err != nil {
 		t.Fatalf("SaveSession: %v", err)
 	}
@@ -287,6 +288,52 @@ func TestFinishedSessionSurvivesRestart(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("終了したセッションが消えている — 履歴で結果を確認できなくなる")
+		t.Error("終了したセッションが消えている — リセット前に進行表で結果を確認できなくなる")
+	}
+}
+
+// TestReleaseAfterFinishWritesHistory は、セッション終了の瞬間に
+// `history:{id}` が書かれることを確かめる。
+//
+// `session:{id}` はその後のリセットで無条件に消える (P-4b) ため、
+// 履歴はリセットのタイミングに関係なくここで確定させる必要がある (§9)。
+func TestReleaseAfterFinishWritesHistory(t *testing.T) {
+	game, _, store := newTestCoordinator(t)
+	session := newTestSession(t, game)
+	ctx := context.Background()
+
+	game.finishSession(ctx, session, 12345)
+	game.releaseAfterFinish(ctx, session)
+
+	histories, err := store.LoadHistories(ctx)
+	if err != nil {
+		t.Fatalf("LoadHistories: %v", err)
+	}
+	var found bool
+	for _, s := range histories {
+		if s.SessionID == session.SessionID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("終了時に history:{id} が書かれていない — Web履歴に出てこなくなる")
+	}
+
+	// リセット (AbortSession) しても履歴は消えない。
+	// デバイス未接続はここでは無視してよい (状態整理とログ記録は必ず行われる。
+	// AbortSession 自身のコメント参照)。
+	_ = game.AbortSession(ctx, nil, session.DeviceID)
+	histories, err = store.LoadHistories(ctx)
+	if err != nil {
+		t.Fatalf("LoadHistories (after reset): %v", err)
+	}
+	found = false
+	for _, s := range histories {
+		if s.SessionID == session.SessionID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("終了後のリセットで履歴まで消えている")
 	}
 }

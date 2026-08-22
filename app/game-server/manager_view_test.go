@@ -260,10 +260,20 @@ func TestBuildBridgeViews(t *testing.T) {
 	}
 }
 
+// dateKey は displayLocation (JST) の暦日で区切る。
+// 内部の保存値は UTC のままで構わないが、UTCの日付をそのまま使うと
+// 表示時刻(JST)と日付の選択肢がずれる (§9)。
 func TestDateKey(t *testing.T) {
-	at := time.Date(2026, 8, 11, 23, 30, 0, 0, time.Local)
+	// UTC 14:30 = JST 23:30。日付はまたがない
+	at := time.Date(2026, 8, 11, 14, 30, 0, 0, time.UTC)
 	if got := dateKey(at); got != "2026-08-11" {
 		t.Errorf("dateKey = %q, want 2026-08-11", got)
+	}
+	// UTC 23:30 = JST 翌日08:30。**日付をまたぐ** — displayLocation で
+	// 変換しないと表示 (08:30) と日付選択肢 (11日) が食い違う
+	atLate := time.Date(2026, 8, 11, 23, 30, 0, 0, time.UTC)
+	if got := dateKey(atLate); got != "2026-08-12" {
+		t.Errorf("dateKey = %q, want 2026-08-12 (JSTでは日付が変わる)", got)
 	}
 	if got := dateKey(time.Time{}); got != "" {
 		t.Errorf("ゼロ値の dateKey = %q, want 空", got)

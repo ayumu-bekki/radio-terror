@@ -3,10 +3,31 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
 )
+
+// displayLocation は画面表示用のタイムゾーン (現場は日本時間で運用)。
+//
+// **内部で持つ時刻 (StartedAt・Valkeyへの保存など) は変えない。**
+// `time.Now()` 自体を JST にする (TZ環境変数) と、保存するJSONの表現まで
+// JST基準になってしまい「内部はUTCで持つ」という方針から外れる。
+// 表示関数の出口でだけ変換することで、保存側には触れずに済む。
+//
+// tzdata が無い環境 (稀) では UTC のまま表示する。運用に支障は出るが、
+// 起動できなくなるよりはよい。
+var displayLocation = loadDisplayLocation()
+
+func loadDisplayLocation() *time.Location {
+	loc, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		log.Printf("[manager-web] Asia/Tokyo のタイムゾーンが読み込めない。UTC表示にフォールバックする: %v", err)
+		return time.UTC
+	}
+	return loc
+}
 
 // 画面表示用のビューモデル。
 //
@@ -167,11 +188,12 @@ func fmtRotary(pos *int) string {
 }
 
 // fmtClock は時刻を「15:04:05」にする。ゼロ値は「—」。
+// 表示は displayLocation (現場のタイムゾーン)。
 func fmtClock(t time.Time) string {
 	if t.IsZero() {
 		return "—"
 	}
-	return t.Format("15:04:05")
+	return t.In(displayLocation).Format("15:04:05")
 }
 
 // fmtStamp はログ行の時刻。0 は時刻不明 (導入前のログ)。
@@ -179,15 +201,15 @@ func fmtStamp(unix int64) string {
 	if unix <= 0 {
 		return "--:--:--"
 	}
-	return time.Unix(unix, 0).Format("15:04:05")
+	return time.Unix(unix, 0).In(displayLocation).Format("15:04:05")
 }
 
-// fmtDateTime は履歴一覧の開始時刻。
+// fmtDateTime は履歴一覧の開始時刻。表示は displayLocation。
 func fmtDateTime(t time.Time) string {
 	if t.IsZero() {
 		return "—"
 	}
-	return t.Format("01/02 15:04")
+	return t.In(displayLocation).Format("01/02 15:04")
 }
 
 // fmtProgress は「2 / 3」形式の進行表示。

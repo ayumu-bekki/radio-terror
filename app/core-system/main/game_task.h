@@ -197,6 +197,15 @@ class GameTask final : public Task {
 
   // --- forbidden_rotary 進行状態 ---
   int32_t forbidden_hold_ms_ = 0;
+  /// このステージで実際にロータリーが動いたか。
+  ///
+  /// **これが立つまで違反判定を始めない。** ロータリーは物理的な位置が
+  /// プレイ間で保持されるため、前回の終了位置がたまたま今回の禁止位置と
+  /// 一致すると、プレイヤーが何もしていないのに PLAYING 開始から
+  /// kForbiddenRotaryHoldMs 経過しただけで無警告のまま爆発する
+  /// (実運用で発覚)。目標位置と禁止位置は重ならないため、この待機は
+  /// パズルの難度に影響しない。
+  bool rotary_touched_since_reset_ = false;
 
   // --- timer_digit 判定窓 (§5: 一致期間+直後1秒の猶予) ---
   TimerDigitRule timer_digit_;

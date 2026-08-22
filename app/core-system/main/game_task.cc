@@ -351,6 +351,8 @@ void GameTask::HandleRotaryChanged(int8_t position) {
   rotary_position_ = position;
   // 位置が変わったら停止時間の計測をやり直す (通過はセーフ。§5)
   forbidden_hold_ms_ = 0;
+  // 実際に動いたことが確定した。forbidden_rotary の判定はこれ以降でよい
+  rotary_touched_since_reset_ = true;
 
   ESP_LOGI(TAG, "rotary -> %d", static_cast<int>(position));
 }
@@ -530,6 +532,14 @@ void GameTask::TickForbiddenRotary() {
     return;
   }
 
+  // ロータリーの位置はプレイ間で物理的に保持される。プレイヤーがまだ
+  // 一度も動かしていないうちは、たまたま禁止位置で止まっていても
+  // 違反にしない (game_task.h の rotary_touched_since_reset_ 参照)
+  if (!rotary_touched_since_reset_) {
+    forbidden_hold_ms_ = 0;
+    return;
+  }
+
   if (!stage.forbidden_rotary.positions[rotary_position_]) {
     forbidden_hold_ms_ = 0;
     return;
@@ -677,6 +687,7 @@ void GameTask::ResetStageProgress() {
   push_seq_.Reset();
 
   forbidden_hold_ms_ = 0;
+  rotary_touched_since_reset_ = false;
   timer_digit_.Reset();
 
   ClearLedOverrides();

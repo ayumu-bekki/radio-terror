@@ -306,22 +306,27 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 
 	if session := c.sessionFor(deviceID); session != nil {
 		session.mu.Lock()
-		stageIndex, remaining := session.StageIndex, session.RemainingMS
+		stageIndex, remaining, finished := session.StageIndex, session.RemainingMS, session.Finished
 		session.mu.Unlock()
 
 		message := "マネージャーによる強制リセット (セッション中断)"
+		if finished {
+			message = "マネージャーによるリセット (終了後の片付け)"
+		}
 		if sendErr != nil {
 			message += " ※デバイス未接続のため通知は届いていない"
 		}
 		c.logEvent(session, EventAborted, message, stageIndex, remaining)
 
-		// **Valkey からも消す。** binder を外すだけだと、サーバーを
-		// 再起動したときに LoadSessions が読み戻し、
-		// **リセットしたはずのセッションが復活する** (実運用で発生)。
+		// **Valkey の `session:{id}` は無条件に消してよい。**
+		// これは「進行中(バインド中)のセッション」の保管場所であり、
+		// 再起動時の復元とダッシュボード表示にしか使わない。
+		// 終了 (爆発・解除) の記録は `releaseAfterFinish` が別途
+		// `history:{id}` へ書いているので、ここで消しても履歴は残る (§9)。
 		//
-		// 終了 (爆発・解除) したセッションは履歴のため残すが (§9)、
-		// 中断は「無かったことにする」操作なので消してよい。
-		// ログは残す — 「なぜ終わったか」を後から追うため。
+		// binder を外すだけだと、サーバーを再起動したときに LoadSessions が
+		// 読み戻し、リセットしたはずのセッションが復活する (実運用で発生)。
+		// ログは消さない — 「なぜ終わったか」を後から追うため。
 		if c.store != nil {
 			if err := c.store.DeleteSession(ctx, session); err != nil {
 				log.Printf("[store] delete session %s: %v", session.SessionID, err)
@@ -481,7 +486,7 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		// 最終メッセージを流し終えてからバインドを解放し、以後はカラスに引き継ぐ
 		c.speakAsyncThen(ctx, sender, session, "exploded",
 			"解体は失敗し、装置が起動してしまった。失敗を受け止めるメッセージを返す。",
-			func() { c.releaseAfterFinish(session) })
+			func() { c.releaseAfterFinish(context.WithoutCancel(ctx), session) })
 
 		// 他チームのCoreの爆発を契機に「別現場の通信」を流す (§5.1 イベント駆動)
 		if c.crosstalk != nil {
@@ -497,7 +502,7 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		// 最終メッセージを流し終えてからバインドを解放し、以後はカラスに引き継ぐ
 		c.speakAsyncThen(ctx, sender, session, "defused",
 			fmt.Sprintf("解除に成功した!残り時間%d秒でクリア。祝福する。", msg.RemainingMS/1000),
-			func() { c.releaseAfterFinish(session) })
+			func() { c.releaseAfterFinish(context.WithoutCancel(ctx), session) })
 	}
 
 	c.persist(ctx, session)
@@ -683,12 +688,18 @@ func (c *GameCoordinator) speakAsyncThen(ctx context.Context, sender *AudioSende
 // 印を付けないと**終了後もナビゲーターが応答し続ける**。実運用では爆発後に
 // 「もう一度ランプの状態を教えてくれ」と促し続け、マネージャーのリセット申告にも
 // ナビゲーターが反応していた (docs/operation_flow.md §6)。
-func (c *GameCoordinator) releaseAfterFinish(session *GameSession) {
+//
+// **ここで履歴 (`history:{id}`) も確定させる。** `session:{id}` はこの後の
+// リセットで無条件に消えるので (P-4b)、Management Console の履歴に残す分は
+// リセットのタイミングに関係なく、終了した瞬間にここで書いておく必要がある
+// (§9)。
+func (c *GameCoordinator) releaseAfterFinish(ctx context.Context, session *GameSession) {
 	session.mu.Lock()
 	session.Finished = true
 	session.mu.Unlock()
 	log.Printf("[game] session finished, navigator handed over to crow: device=%s",
 		session.DeviceID)
+	c.persistHistory(ctx, session)
 }
 
 // replyStartRejected は開始申告を拒否した旨を無線で返す。
@@ -708,5 +719,19 @@ func (c *GameCoordinator) persist(ctx context.Context, session *GameSession) {
 	}
 	if err := c.store.SaveSession(ctx, session); err != nil {
 		log.Printf("[game] persist error: %v", err)
+	}
+}
+
+// persistHistory はセッション終了時のスナップショットを `history:{id}` へ保存する。
+//
+// `session:{id}` (進行中管理用) とは別のキーに書く。前者はリセットのたびに
+// 消える (P-4b) が、履歴はいつリセットされるかに関係なく残す必要があるため
+// (§9)。
+func (c *GameCoordinator) persistHistory(ctx context.Context, session *GameSession) {
+	if c.store == nil {
+		return
+	}
+	if err := c.store.SaveHistory(ctx, session); err != nil {
+		log.Printf("[game] persist history error: %v", err)
 	}
 }

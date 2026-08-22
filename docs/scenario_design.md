@@ -233,8 +233,9 @@ l4_pct = 75
 
 | キー | 内容 |
 |---|---|
-| `session:{session_id}` | セッション本体: Core向けJSON、ナビゲーター知識、difficulty、bridge_id ⇔ device_id、状態(stage_index・remaining等の最新報告)、キャラクター割当、スコア(`defused` 時の残り時間) |
-| `session:{session_id}:log` | 会話・進行イベントのログ(リスト)。発話とイベントを**1本のタイムライン**に時系列で残す |
+| `session:{session_id}` | **進行中(バインド中)セッションのみ**の本体: Core向けJSON、ナビゲーター知識、difficulty、bridge_id ⇔ device_id、状態(stage_index・remaining等の最新報告)、キャラクター割当、スコア(`defused` 時の残り時間)。再起動時の復元・進行中ダッシュボード表示専用。**リセットのたびに(終了後の定型リセットも含め)無条件に消える** |
+| `history:{session_id}` | セッション終了(爆発・解除)の瞬間に一度だけ書く要約スナップショット。内容は `session:{session_id}` と同形の JSON。Web履歴一覧・詳細ページはこちらを読み、`session:{session_id}` が消えても残る(`game_session_design.md` §10 決定61) |
+| `session:{session_id}:log` | 会話・進行イベントのログ(リスト)。発話とイベントを**1本のタイムライン**に時系列で残す。中断でも消さない |
 | `binding:{bridge_id}` | 現在のバインド先 device_id |
 
 - サーバー再起動時は Valkey から復元し、Core からの `device_status` で

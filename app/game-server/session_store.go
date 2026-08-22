@@ -10,13 +10,23 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// SessionStore はセッション状態・会話ログ・バインドの永続化先。
+// SessionStore はセッション状態・履歴・会話ログ・バインドの永続化先。
+//
+// **`session:*` と `history:*` は役割が違う。**
+// `session:*` は「今バインド中のセッション」専用で、再起動時の復元と
+// 進行中ダッシュボード表示にしか使わない。マネージャーがリセットするたび
+// (終了後の定型リセットも含め) 無条件に消える (P-4b)。
+// `history:*` は Management Console の履歴一覧・詳細ページ専用で、
+// セッションが終了した瞬間に一度だけ書き、以後リセットされても消えない (§9)。
+// 両方に同じ `*GameSession` の JSON を保存する
+// (詳細ページが `Built.Stages` まで使うため)。
 //
 // キー設計 (docs/scenario_design.md §6):
 //
-//	session:{session_id}       … セッション本体 (Core向けJSON・ナビゲーター知識・
+//	session:{session_id}       … 進行中セッション本体 (Core向けJSON・ナビゲーター知識・
 //	                              difficulty・bridge_id ⇔ device_id・状態・
 //	                              キャラクター割当・スコア)
+//	history:{session_id}       … 終了時点のスナップショット (履歴閲覧用。内容は session と同形)
 //	session:{session_id}:log   … 会話・イベントのログ (リスト)
 //	binding:{bridge_id}        … 現在のバインド先 device_id
 type SessionStore interface {
@@ -24,10 +34,15 @@ type SessionStore interface {
 	LoadSessions(ctx context.Context) ([]*GameSession, error)
 	// DeleteSession はセッション本体とバインドを消す。**ログは残す**。
 	//
-	// **中断 (リセット) のときだけ呼ぶ** — 終了 (爆発・解除) したセッションは
-	// Management Console の履歴に残すため消さない (§9)。
-	// ログを残すのは「なぜ終わったか」を後から追えるようにするため。
+	// リセットのたびに (終了後の定型リセットも含め) 無条件に呼んでよい。
+	// 履歴は `SaveHistory` が別途 `history:{id}` へ残しているため、
+	// ここで消しても Management Console の履歴からは消えない (§9)。
 	DeleteSession(ctx context.Context, session *GameSession) error
+	// SaveHistory はセッション終了時点のスナップショットを `history:{id}` へ保存する。
+	// `session:{id}` とは独立したキーなので、その後のリセットで消えない。
+	SaveHistory(ctx context.Context, session *GameSession) error
+	// LoadHistories は保存済みの履歴を全件返す (Management Console の履歴一覧用)。
+	LoadHistories(ctx context.Context) ([]*GameSession, error)
 	AppendLog(sessionID string, entry ConversationEntry) error
 	LoadLog(ctx context.Context, sessionID string) ([]ConversationEntry, error)
 }
@@ -51,6 +66,7 @@ func NewValkeyStore(ctx context.Context, addr string) (*ValkeyStore, error) {
 func sessionKey(sessionID string) string    { return "session:" + sessionID }
 func sessionLogKey(sessionID string) string { return "session:" + sessionID + ":log" }
 func bindingKey(bridgeID string) string     { return "binding:" + bridgeID }
+func historyKey(sessionID string) string    { return "history:" + sessionID }
 
 func (s *ValkeyStore) SaveSession(ctx context.Context, session *GameSession) error {
 	session.mu.Lock()
@@ -134,6 +150,50 @@ func (s *ValkeyStore) LoadSessions(ctx context.Context) ([]*GameSession, error) 
 	return sessions, nil
 }
 
+// SaveHistory はセッション終了時点のスナップショットを `history:{id}` へ保存する。
+//
+// `session:{id}` とは独立したキーに書く。前者はリセットのたびに無条件で
+// 消える (DeleteSession) が、履歴はそれとは無関係に残す必要があるため (§9)。
+func (s *ValkeyStore) SaveHistory(ctx context.Context, session *GameSession) error {
+	session.mu.Lock()
+	data, err := json.Marshal(session)
+	sessionID := session.SessionID
+	session.mu.Unlock()
+
+	if err != nil {
+		return fmt.Errorf("marshal session: %w", err)
+	}
+	if err := s.client.Set(ctx, historyKey(sessionID), data, 0).Err(); err != nil {
+		return fmt.Errorf("set history: %w", err)
+	}
+	return nil
+}
+
+// LoadHistories は保存済みの履歴を全件読み出す (Management Console の履歴一覧・詳細用)。
+func (s *ValkeyStore) LoadHistories(ctx context.Context) ([]*GameSession, error) {
+	keys, err := s.client.Keys(ctx, "history:*").Result()
+	if err != nil {
+		return nil, fmt.Errorf("keys: %w", err)
+	}
+
+	var sessions []*GameSession
+	for _, key := range keys {
+		data, err := s.client.Get(ctx, key).Bytes()
+		if err != nil {
+			log.Printf("[store] get %s: %v", key, err)
+			continue
+		}
+
+		var session GameSession
+		if err := json.Unmarshal(data, &session); err != nil {
+			log.Printf("[store] unmarshal %s: %v", key, err)
+			continue
+		}
+		sessions = append(sessions, &session)
+	}
+	return sessions, nil
+}
+
 func (s *ValkeyStore) AppendLog(sessionID string, entry ConversationEntry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -162,15 +222,17 @@ func (s *ValkeyStore) LoadLog(ctx context.Context, sessionID string) ([]Conversa
 // MemoryStore は Valkey が使えない環境向けのメモリ実装。
 // 再起動での復帰はできないが、開発・単体動作を止めないためのフォールバック。
 type MemoryStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*GameSession
-	logs     map[string][]ConversationEntry
+	mu        sync.RWMutex
+	sessions  map[string]*GameSession
+	histories map[string]*GameSession
+	logs      map[string][]ConversationEntry
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions: make(map[string]*GameSession),
-		logs:     make(map[string][]ConversationEntry),
+		sessions:  make(map[string]*GameSession),
+		histories: make(map[string]*GameSession),
+		logs:      make(map[string][]ConversationEntry),
 	}
 }
 
@@ -187,6 +249,24 @@ func (s *MemoryStore) DeleteSession(ctx context.Context, session *GameSession) e
 	delete(s.sessions, session.SessionID)
 	// ログは残す (ValkeyStore と同じ理由)
 	return nil
+}
+
+func (s *MemoryStore) SaveHistory(ctx context.Context, session *GameSession) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.histories[session.SessionID] = session
+	return nil
+}
+
+func (s *MemoryStore) LoadHistories(ctx context.Context) ([]*GameSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	list := make([]*GameSession, 0, len(s.histories))
+	for _, session := range s.histories {
+		list = append(list, session)
+	}
+	return list, nil
 }
 
 func (s *MemoryStore) LoadSessions(ctx context.Context) ([]*GameSession, error) {
