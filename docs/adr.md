@@ -833,7 +833,7 @@ binder を外すだけだと、サーバー再起動時に `LoadSessions` が読
 
 メモリ上の bridge → device の紐付けは残す(再接続で継続できるようにする設計)。
 
-> 出典: GS 決定60・決定61 / 回帰 `TestAbortedSessionDoesNotSurviveRestart`・
+> 出典: GS 決定60・決定62 / 回帰 `TestAbortedSessionDoesNotSurviveRestart`・
 > `TestFinishedSessionSurvivesRestart`・`TestReleaseAfterFinishWritesHistory`
 
 ### P-4c. 履歴は `session:{id}` と別キーへ分離する
@@ -857,7 +857,7 @@ binder を外すだけだと、サーバー再起動時に `LoadSessions` が読
 ログ (`session:{id}:log`) は変更なし — 発話・進行イベントの記録という
 役割はそのまま。
 
-> 出典: GS 決定61 / 回帰 `TestReleaseAfterFinishWritesHistory`
+> 出典: GS 決定62 / 回帰 `TestReleaseAfterFinishWritesHistory`
 
 ### P-5. リセット対象はバインド優先で決める
 
@@ -993,6 +993,17 @@ LEDの出力ピンはこの5本がすべてなので、順序を問わない初�
 
 > 出典: NV 決定49
 
+### C-6c. 破裂の閃光はパルス幅の内側で完結させる
+
+ソレノイド駆動と**同時に**白 (255,255,255)・最高光度で 100ms 光らせ、赤点灯へ戻す。
+`FireSolenoid` は HIGH → 閃光 → 復帰 → 残り待機 → LOW の順で進み、
+**200ms のパルス幅は変わらない**。
+
+閃光を先に置いて駆動を後ろへずらすと、破裂音と光がずれるうえパルス幅が実質延びる。
+**駆動のタイミングと長さには手を入れないこと** (C-6 の安全ガードと同じ理由)。
+
+> 出典: GS 決定61
+
 ### C-7. 起動シーケンス
 
 - 起動演出は電源投入から約2.8秒。**WiFi接続より先**に流す
@@ -1058,7 +1069,7 @@ PLAYING開始から `kForbiddenRotaryHoldMs` (300ms) 経過しただけで無警
 この待機はパズルの難度に影響しない — どのみちプレイヤーはダイヤルを
 動かさなければ目標へ到達できない。
 
-> 出典: GS 決定62
+> 出典: GS 決定63
 
 ### C-10. 書き方の決まり
 

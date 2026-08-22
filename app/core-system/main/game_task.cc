@@ -10,6 +10,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "hardware_config.h"
@@ -797,7 +798,20 @@ void GameTask::FireSolenoid() {
 
   ESP_LOGI(TAG, "solenoid fire");
   gpio_set_level(Esp32Pin::kSolenoid, 1);
-  vTaskDelay(pdMS_TO_TICKS(kSolenoidPulseMs));
+
+  // 破裂の瞬間に白の最高光度を焚く (§4.1)。
+  // ソレノイドと**同時に**始め、閃光ぶん待ってから状態の色 (赤点灯) へ戻す。
+  // パルス幅の内側で完結させるため、残りを引いた時間だけ待って HIGH を落とす。
+  pl9823_task_->SendCommand(StatusIndicator::MakeBurstFlashCommand());
+
+  constexpr int32_t kFlashMs =
+      std::min<int32_t>(StatusIndicator::kBurstFlashMs, kSolenoidPulseMs);
+  vTaskDelay(pdMS_TO_TICKS(kFlashMs));
+  UpdateFullColorLed();
+
+  if (kFlashMs < kSolenoidPulseMs) {
+    vTaskDelay(pdMS_TO_TICKS(kSolenoidPulseMs - kFlashMs));
+  }
   gpio_set_level(Esp32Pin::kSolenoid, 0);
 }
 
