@@ -97,7 +97,9 @@ hint_l3  = "『速く点滅している方の色の線を切る』と手順を�
 | `{ pick = "morse_word", candidates = [...] }` | モールス語を選ぶ。頭文字→対照表の色が既に使われている語は候補から外れる |
 | `{ pick = "romaji_word", candidates = [...] }` | 色名のローマ字表記を選ぶ(308)。表記がそのまま色に対応するため、既に切られた線の語は候補から外れる |
 | `{ pick = "noise_leds", exclude = [...], on_ms_min = A, on_ms_max = B }` | 妨害用LEDの割り当てを生成する(304)。`exclude` 以外の全色へ「点灯 / 消灯 / **対称blink**」をランダムに割り当てる。点滅は `on_ms == off_ms` を保証する |
-| `{ derive = "...", from = "${x}" }` | 抽選ではなく他の変数から機械的に導出する(`morse_word_color` / `romaji_color` / `terminal_for_color` / `sheet_threshold` / `sheet_direction`) |
+| `{ pick = "codebook", cut = "${cut}" }` | 202 の対照表から **cut になる表示を1通り選ぶ**。返り値は `"1011"` のような4桁2進表記で、他の変数はこれを `codebook_field` で読み直す。**表示を先に抽選しない** — cut が表側で決まると他ステージとの色の重複を避けられない(ADR S-1・S-2) |
+| `{ derive = "codebook_field", from = "${pattern}", field = "..." }` | 選ばれた表示から1項目を取り出す(202)。`field` は `lit`(点灯色) / `dark`(消灯色) / `word`(キーワード) / `rotary`(ダイヤル位置) / `pattern`(4桁2進表記)。**点灯色とキーワードを別々に人手で書かない**ため(ADR S-1) |
+| `{ derive = "...", from = "${x}" }` | 抽選ではなく他の変数から機械的に導出する(`morse_word_color` / `romaji_color` / `terminal_for_color` / `nth` / `spoken_letter`) |
 
 - どの記法にも `exclude = ["${x}", ...]` を付けられる(その値を候補から外す)。
 - `${rest}` は暗黙変数で、「`cut` 以外の全色」に展開される

@@ -217,7 +217,7 @@ func TestKeepCutSecretStagesAreFlagged(t *testing.T) {
 	lib := loadTestLibrary(t)
 
 	// 色名を言うと**課題そのものが消える**ステージ。
-	//   205: 回路図シートを読む工程 / 202: 集計と判断 / 203: モールス解読
+	//   205: 回路図シートを読む工程 / 202: 資料3枚の読み解き / 203: モールス解読
 	want := map[string]bool{"205": true, "202": true, "203": true}
 
 	for id := range lib.stages {

@@ -14,8 +14,6 @@ import (
 // testMissionSheet は紙資料の物理定数のテスト値 (docs/puzzle_stage_ideas.md §7)。
 func testMissionSheet() MissionSheet {
 	return MissionSheet{
-		SymbolCount: 28,
-		NumberSum:   47,
 		TerminalMapX: map[string]string{
 			"X1": "A", "X2": "B", "X3": "C", "X4": "D", "X5": "E",
 		},
@@ -23,10 +21,9 @@ func testMissionSheet() MissionSheet {
 			"Y1": "C", "Y2": "E", "Y3": "A", "Y4": "B", "Y5": "D",
 		},
 		Documents: SheetDocuments{
-			Morse:   "資料1",
-			Symbol:  "資料2",
-			Number:  "資料3",
-			Circuit: "資料4",
+			Morse:    "資料1",
+			Codebook: "資料2",
+			Circuit:  "資料3",
 		},
 	}
 }
@@ -44,10 +41,9 @@ func TestSheetDocumentsValidate(t *testing.T) {
 
 	// 1件ずつ空にして、それぞれが検出されること
 	cases := map[string]func(*SheetDocuments){
-		"morse":   func(d *SheetDocuments) { d.Morse = "" },
-		"symbol":  func(d *SheetDocuments) { d.Symbol = "" },
-		"number":  func(d *SheetDocuments) { d.Number = "" },
-		"circuit": func(d *SheetDocuments) { d.Circuit = "" },
+		"morse":    func(d *SheetDocuments) { d.Morse = "" },
+		"codebook": func(d *SheetDocuments) { d.Codebook = "" },
+		"circuit":  func(d *SheetDocuments) { d.Circuit = "" },
 	}
 	for key, blank := range cases {
 		docs := full
@@ -1090,13 +1086,13 @@ func TestStagesAskForLampReportFirst(t *testing.T) {
 	}
 }
 
-// TestSheetSectionResolves は 202 の資料番号が両分岐で解決することを確かめる。
+// TestCodebookStageResolves は 202 の暗号チェーンが最後まで解決することを確かめる。
 //
-// 記号と数字は独立した資料として番号を持ち、ナビゲーターは「手元の資料2を見ろ」と
-// 一言で指示する (docs/printed_materials.md §1.3 / ADR D-2)。
-// 呼称は config.toml の [mission_sheet.documents] から引くため、
-// 期待値もハードコードせず設定値を参照する。
-func TestSheetSectionResolves(t *testing.T) {
+// 対照表 (scenario_codebook.go) は cut から逆引きするため、
+// **抽選された cut に対応する表示が必ず1通り以上ある**ことが前提になる
+// (ADR S-1)。対応が抜けている色があると、その色が正解になったセッションだけが
+// 組み立てに失敗する — 抽選次第でしか再現しないので、全色を明示的に回す。
+func TestCodebookStageResolves(t *testing.T) {
 	lib := loadTestLibrary(t)
 	stageTmpl, err := lib.Stage("202")
 	if err != nil {
@@ -1104,30 +1100,88 @@ func TestSheetSectionResolves(t *testing.T) {
 	}
 
 	sheet := testMissionSheet()
-	labels := []string{sheet.Documents.Symbol, sheet.Documents.Number}
+	seenCut := map[string]bool{}
+	seenRotary := map[string]bool{}
 
-	seen := map[string]bool{}
-	for seed := int64(0); seed < 60; seed++ {
+	for seed := int64(0); seed < 200; seed++ {
 		builder := NewScenarioBuilder(lib, sheet, rand.New(rand.NewSource(seed)))
 		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
-		procedure := built.Navigator["procedure"]
-		if varPattern.MatchString(procedure) {
-			t.Fatalf("seed=%d: procedure に未解決の変数: %s", seed, procedure)
-		}
-		for _, label := range labels {
-			if strings.Contains(procedure, label) {
-				seen[label] = true
+
+		// ナビゲーター知識に未解決の変数が残っていないこと
+		for key, text := range built.Navigator {
+			if varPattern.MatchString(text) {
+				t.Fatalf("seed=%d: navigator.%s に未解決の変数: %s", seed, key, text)
 			}
 		}
+
+		// 表示・ダイヤル・切断色が対照表と一致すること。
+		// **ここがずれると紙資料どおりに解いたプレイヤーが失敗する**。
+		leds, ok := built.Core["leds"].(map[string]any)
+		if !ok {
+			t.Fatalf("seed=%d: leds が無い", seed)
+		}
+		lit := make([]string, 0, len(leds))
+		for color := range leds {
+			lit = append(lit, color)
+		}
+		sort.Strings(lit)
+
+		entry, err := codebookEntryForLit(strings.Join(lit, ","))
+		if err != nil {
+			t.Fatalf("seed=%d: %v", seed, err)
+		}
+		if entry.cut != built.Cut {
+			t.Fatalf("seed=%d: 表示 %s は対照表では %s だが cut は %s",
+				seed, entry.patternText(), entry.cut, built.Cut)
+		}
+
+		precondition, ok := built.Core["precondition"].(map[string]any)
+		if !ok {
+			t.Fatalf("seed=%d: precondition が無い", seed)
+		}
+		gotRotary := fmt.Sprintf("%v", precondition["rotary"])
+		if gotRotary != strconv.Itoa(entry.rotary) {
+			t.Fatalf("seed=%d: %s のダイヤルは %d のはずが %s",
+				seed, entry.word, entry.rotary, gotRotary)
+		}
+
+		// **赤(A)は常時消灯のダミー**。点灯側に現れてはいけない。
+		if _, lit := leds["A"]; lit {
+			t.Fatalf("seed=%d: 赤(A)が点灯している (常時消灯のダミーのはず)", seed)
+		}
+
+		seenCut[built.Cut] = true
+		seenRotary[gotRotary] = true
 	}
 
-	for _, label := range labels {
-		if !seen[label] {
-			t.Errorf("%s が一度も出ていない (60シード) — 分岐が偏っている可能性", label)
+	for _, color := range allColors {
+		if !seenCut[color] {
+			t.Errorf("色 %s が一度も正解にならなかった (200シード) — 対照表の対応が足りない", color)
 		}
+	}
+	if len(seenRotary) < 2 {
+		t.Errorf("ダイヤル位置が %d 種類しか出ていない — 表示が偏っている", len(seenRotary))
+	}
+}
+
+// codebookEntryForLit は点灯色の並びから対照表の行を引く (テスト用の逆引き)。
+func codebookEntryForLit(lit string) (codebookEntry, error) {
+	for _, entry := range codebookTable {
+		if entry.litColors() == lit {
+			return entry, nil
+		}
+	}
+	return codebookEntry{}, fmt.Errorf("点灯色 %q が対照表に無い", lit)
+}
+
+// TestCodebookTableIsValid は対照表そのものが謎として成立するかを確かめる。
+// 起動時に main.go が呼ぶ検査と同じもの。
+func TestCodebookTableIsValid(t *testing.T) {
+	if err := validateCodebookTable(); err != nil {
+		t.Fatalf("validateCodebookTable: %v", err)
 	}
 }
 

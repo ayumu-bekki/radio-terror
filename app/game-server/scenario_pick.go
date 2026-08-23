@@ -165,6 +165,13 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		// NATOフォネティックコードの語を選ぶ。頭文字が対照表で色に対応する (203)
 		return b.pickWordByColor(def, vars, usedLines, excluded, morseWordColor, "morse word")
 
+	case "codebook":
+		// 202 LED照合: cut になる表示を対照表から1通り選ぶ (docs/printed_materials.md §4)。
+		//
+		// **cut から逆引きする**。表示を先に抽選すると cut が表側で決まってしまい、
+		// 他ステージとの色の重複 (usedLines) を避けられない (ADR S-1・S-2)。
+		return b.resolveCodebook(def, vars)
+
 	case "morse_letters":
 		// 5色へ割り当てる**互いに異なる1文字**を選ぶ (211 文字の一致)。
 		//
@@ -278,8 +285,15 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		//     slot 1 → A / slot 2 → B / slot 3 → D(cut) / slot 4 → C
 		return b.deriveRankSlot(def, vars)
 
+	case "codebook_field":
+		// 202 LED照合: 選ばれた表示 (pick = "codebook") から1項目を取り出す。
+		//
+		// `field` に "lit" (点灯色) / "dark" (消灯色) / "word" (キーワード) /
+		// "rotary" (ダイヤル位置) / "pattern" (4桁の2進表記) を指定する。
+		return b.deriveCodebookField(def, vars)
+
 	case "terminal_for_color":
-		// 配線色 → 資料4の端子番号 (205 ブループリント)。
+		// 配線色 → 資料3の端子番号 (205 ブループリント)。
 		//
 		// `series` に "x" / "y" を指定する。ナビゲーターは**両系統を並べて**
 		// 伝え、どちらを使うかはプレイヤーがシリアル銘板の下1桁 (奇数=X /
@@ -342,81 +356,8 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		}
 		return strings.TrimSpace(items[idx-1]), nil
 
-	case "sheet_threshold":
-		// 07. 運命の二択: シート実測値から閾値を決める。
-		// 実測値と大きく離した閾値にして、数え間違いで誤答しないようにする
-		// (docs/puzzle_stage_ideas.md §2.2)。
-		branch, err := expandAny(def["branch"], vars)
-		if err != nil {
-			return "", err
-		}
-		actual, err := b.sheetValue(branch)
-		if err != nil {
-			return "", err
-		}
-		// 実測値から2離した値を閾値にする (28個なら30)
-		return strconv.Itoa(actual + 2), nil
-
-	case "sheet_direction":
-		// 閾値との比較方向。実測値は必ず閾値未満になるよう組み立てるため "lt" 固定。
-		// (テンプレートが閾値を実測値+2に置くため、シート集計は常に未満側に落ちる)
-		branch, err := expandAny(def["branch"], vars)
-		if err != nil {
-			return "", err
-		}
-		if _, err := b.sheetValue(branch); err != nil {
-			return "", err
-		}
-		return "lt", nil
-
-	case "sheet_section":
-		// 202 運命の二択: 分岐に対応する資料の呼称。
-		//
-		// 記号と数字はそれぞれ独立した資料として番号を持ち、ナビゲーターは
-		// 「手元の資料2を見ろ」と**一言で**指示できる
-		// (docs/printed_materials.md §1.3)。「記号のほうを数えてください」と
-		// 説明的に言うと発話が伸び、どこを見るのかも曖昧になる。
-		branch, err := expandAny(def["branch"], vars)
-		if err != nil {
-			return "", err
-		}
-		return b.sheetSectionLabel(branch)
-
 	default:
 		return "", fmt.Errorf("unknown derive kind: %q", kind)
-	}
-}
-
-// sheetSectionLabel は分岐種別に対応する資料の呼称を返す。
-//
-// 呼称は `config.toml` の `[mission_sheet.documents]` から引く。
-// **分岐と別々に人手で書くと食い違う**ため、抽選値から機械的に導出する
-// (ADR D-2)。
-func (b *ScenarioBuilder) sheetSectionLabel(branch string) (string, error) {
-	if branch == "symbol" {
-		return b.sheet.Documents.Symbol, nil
-	}
-	if branch == "number" {
-		return b.sheet.Documents.Number, nil
-	}
-	return "", fmt.Errorf("unknown sheet branch: %q", branch)
-}
-
-// sheetValue は分岐種別に対応するミッションシートの実測値を返す。
-func (b *ScenarioBuilder) sheetValue(branch string) (int, error) {
-	switch branch {
-	case "symbol":
-		if b.sheet.SymbolCount <= 0 {
-			return 0, fmt.Errorf("[mission_sheet].symbol_count is not configured")
-		}
-		return b.sheet.SymbolCount, nil
-	case "number":
-		if b.sheet.NumberSum <= 0 {
-			return 0, fmt.Errorf("[mission_sheet].number_sum is not configured")
-		}
-		return b.sheet.NumberSum, nil
-	default:
-		return 0, fmt.Errorf("unknown sheet branch: %q", branch)
 	}
 }
 
@@ -637,4 +578,78 @@ func (b *ScenarioBuilder) pickWordByColor(
 		return "", fmt.Errorf("no %s available (all mapped colors used)", label)
 	}
 	return available[b.rng.Intn(len(available))], nil
+}
+
+// resolveCodebook は cut になる表示を対照表から1通り選び、pattern を返す
+// (202 LED照合。docs/printed_materials.md §4)。
+//
+// **cut から逆引きする**。表示を先に抽選して cut を導くと、
+// 他ステージで使用済みの色 (usedLines) を避けられなくなる (ADR S-1・S-2)。
+//
+// 返り値は "0101" のような4桁の2進表記で、他の変数はこれを
+// `derive = "codebook_field"` で読み直す。**表示そのものを変数にしない**のは、
+// 点灯色・消灯色・キーワード・ダイヤル位置を別々に人手で書くと
+// 食い違うため (ADR S-1)。
+func (b *ScenarioBuilder) resolveCodebook(def map[string]any, vars map[string]string) (string, error) {
+	cut, err := expandAny(def["cut"], vars)
+	if err != nil {
+		return "", fmt.Errorf("codebook.cut: %w", err)
+	}
+	cut = strings.TrimSpace(cut)
+
+	matched := codebookEntriesForCut(cut)
+	if len(matched) == 0 {
+		return "", fmt.Errorf("codebook: 色 %q になる表示が対照表に無い", cut)
+	}
+	return matched[b.rng.Intn(len(matched))].patternText(), nil
+}
+
+// deriveCodebookField は選ばれた表示から1項目を取り出す (202 LED照合)。
+func (b *ScenarioBuilder) deriveCodebookField(def map[string]any, vars map[string]string) (string, error) {
+	patternText, err := expandAny(def["from"], vars)
+	if err != nil {
+		return "", fmt.Errorf("codebook_field.from: %w", err)
+	}
+	field, err := expandAny(def["field"], vars)
+	if err != nil {
+		return "", fmt.Errorf("codebook_field.field: %w", err)
+	}
+
+	entry, err := codebookEntryByPattern(patternText)
+	if err != nil {
+		return "", err
+	}
+
+	field = strings.TrimSpace(field)
+	if field == "lit" {
+		return entry.litColors(), nil
+	}
+	if field == "dark" {
+		return entry.darkColors(), nil
+	}
+	if field == "word" {
+		return entry.word, nil
+	}
+	if field == "rotary" {
+		return strconv.Itoa(entry.rotary), nil
+	}
+	if field == "pattern" {
+		return entry.patternText(), nil
+	}
+	return "", fmt.Errorf("codebook_field.field が不正: %q (lit/dark/word/rotary/pattern)", field)
+}
+
+// codebookEntryByPattern は4桁の2進表記から対照表の行を引く。
+func codebookEntryByPattern(patternText string) (codebookEntry, error) {
+	patternText = strings.TrimSpace(patternText)
+	value, err := strconv.ParseInt(patternText, 2, 32)
+	if err != nil {
+		return codebookEntry{}, fmt.Errorf("codebook: pattern が2進表記ではない: %q", patternText)
+	}
+	for _, entry := range codebookTable {
+		if entry.pattern == int(value) {
+			return entry, nil
+		}
+	}
+	return codebookEntry{}, fmt.Errorf("codebook: pattern %q が対照表に無い", patternText)
 }

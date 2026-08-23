@@ -73,6 +73,11 @@ func main() {
 	if err := cfg.MissionSheet.ValidateTerminalMaps(); err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	// 202 の対照表も同じ性質 — 対応が足りない色は、その色が正解になった
+	// セッションだけが組み立てに失敗する。起動時に検査する。
+	if err := validateCodebookTable(); err != nil {
+		log.Fatalf("codebook: %v", err)
+	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	builder := NewScenarioBuilder(library, cfg.MissionSheet, rng)

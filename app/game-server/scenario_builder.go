@@ -15,14 +15,10 @@ var varPattern = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 // MissionSheet は紙資料の物理定数 (docs/puzzle_stage_ideas.md §7)。
 // シートの印刷内容は固定のため、サーバー設定に登録した値をテンプレートが参照する。
 type MissionSheet struct {
-	// SymbolCount はミッションシート上の記号(⚠等)の数
-	SymbolCount int `toml:"symbol_count"`
-	// NumberSum はシート上の数字の合計
-	NumberSum int `toml:"number_sum"`
-	// TerminalMapX は資料4の**X系統**の端子番号(X1-X5) → 配線色(A-E) の対応。
+	// TerminalMapX は資料3の**X系統**の端子番号(X1-X5) → 配線色(A-E) の対応。
 	// シリアル銘板の下1桁が**奇数**の個体が使う (ADR D-6)。
 	TerminalMapX map[string]string `toml:"terminal_map_x"`
-	// TerminalMapY は資料4の**Y系統**の端子番号(Y1-Y5) → 配線色(A-E) の対応。
+	// TerminalMapY は資料3の**Y系統**の端子番号(Y1-Y5) → 配線色(A-E) の対応。
 	// シリアル銘板の下1桁が**偶数**の個体が使う。
 	//
 	// **X とは完全に別の対応にする**。一部だけずらすと系統を取り違えても
@@ -42,11 +38,13 @@ type MissionSheet struct {
 type SheetDocuments struct {
 	// Morse はモールス対照表 (203/304/308)
 	Morse string `toml:"morse"`
-	// Symbol は記号を散りばめた資料 (202)
-	Symbol string `toml:"symbol"`
-	// Number は数字を並べた資料 (202)
-	Number string `toml:"number"`
-	// Circuit は回路図 (205)
+	// Codebook は 202 の暗号チェーンを載せた資料 (202)。
+	//
+	// **変換表 (並び → キーワード) とデコード表 (頭文字 → ダイヤル位置 /
+	// 末尾文字 → 基準色) の2つを1つの資料番号にまとめてある** (ADR D-2)。
+	// 202 は必ず両方を順にたどるため、片方だけ見る場面が無い。
+	Codebook string `toml:"codebook"`
+	// Circuit は回路図 (205) + 202 の最終分岐表
 	Circuit string `toml:"circuit"`
 }
 
@@ -61,8 +59,7 @@ func (d *SheetDocuments) Validate() error {
 		value string
 	}{
 		{"morse", d.Morse},
-		{"symbol", d.Symbol},
-		{"number", d.Number},
+		{"codebook", d.Codebook},
 		{"circuit", d.Circuit},
 	}
 	for _, f := range fields {
@@ -79,10 +76,9 @@ func (d *SheetDocuments) Validate() error {
 // 資料名は無線で読み上げられるナビゲーター知識にのみ現れる。
 func (d *SheetDocuments) sheetDocumentVars() map[string]string {
 	return map[string]string{
-		"sheet_morse":   d.Morse,
-		"sheet_symbol":  d.Symbol,
-		"sheet_number":  d.Number,
-		"sheet_circuit": d.Circuit,
+		"sheet_morse":    d.Morse,
+		"sheet_codebook": d.Codebook,
+		"sheet_circuit":  d.Circuit,
 	}
 }
 
@@ -366,9 +362,38 @@ func toJapaneseColorVars(vars map[string]string, keepLiteral map[string]bool) ma
 			converted[name] = japanese
 			continue
 		}
+		// **カンマ区切りの色リストも変換する** (202 の点灯色など)。
+		// 単一値だけを変換していたため「ランプはB,Cだ」と読み上げられていた。
+		// 全要素が色コードのときだけ置き換える — 一部でも色でなければ
+		// 色リストではないので、そのまま残す (ADR N-41 と同じ考え方)。
+		if japanese, ok := japaneseColorList(value); ok {
+			converted[name] = japanese
+			continue
+		}
 		converted[name] = value
 	}
 	return converted
+}
+
+// japaneseColorList はカンマ区切りの色コード列を日本語の色名列へ変換する。
+//
+// **全要素が色コードのときだけ**変換する。1つでも色でない要素が混じれば
+// 色リストではないため、呼び出し側は元の値を保つ。
+// 読み上げるため、区切りは「、」にする。
+func japaneseColorList(value string) (string, bool) {
+	items := strings.Split(value, ",")
+	if len(items) < 2 {
+		return "", false
+	}
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		japanese, ok := colorNameJA[strings.TrimSpace(item)]
+		if !ok {
+			return "", false
+		}
+		names = append(names, japanese)
+	}
+	return strings.Join(names, "、"), true
 }
 
 // buildStage は1ステージの抽選変数を解決し、Core向け要素とナビゲーター知識を生成する。

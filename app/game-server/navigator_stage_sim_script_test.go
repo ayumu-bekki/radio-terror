@@ -236,7 +236,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 202 運命の二択: 紙資料を数えさせる。集計値の報告に応じて分岐できるか。
+	// 202 LED照合: 資料2 (変換表 → デコード表) → 資料3 とたどらせる。
+	// **各段でプレイヤーに引かせられるか**を見る。キーワードもダイヤル位置も
+	// ナビが先に言ってしまうと、資料をたどる工程が丸ごと消える。
 	"202": {
 		StageID: "202",
 		Turns: []simTurn{
@@ -244,13 +246,13 @@ var simScripts = map[string]simScript{
 			{Trigger: "session_ready", HintLevel: HintL1},
 			{Trigger: "session_start", HintLevel: HintL1},
 			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "ランプが1つ点滅しています。シートを見ればいいですか。どうぞ"},
+				Player: "ランプは黄色と緑が点いています。赤は消えています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "シートを開きました。何を数えますか。どうぞ"},
+				Player: "資料2を見ました。キーワードはハンドルです。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "数え終わりました。28個ありました。どうぞ"},
+				Player: "資料3を引きました。ダイヤルは1、基準色は白です。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL4,
-				Player: "この数だとどちらの線ですか。どうぞ"},
+				Player: "基準色が白のときはどう見ればいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,
