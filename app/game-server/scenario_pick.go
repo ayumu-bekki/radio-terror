@@ -165,9 +165,79 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		// NATOフォネティックコードの語を選ぶ。頭文字が対照表で色に対応する (203)
 		return b.pickWordByColor(def, vars, usedLines, excluded, morseWordColor, "morse word")
 
+	case "morse_letters":
+		// 5色へ割り当てる**互いに異なる1文字**を選ぶ (211 文字の一致)。
+		//
+		// **符号の要素数がばらけるように**選ぶ。同じ要素数ばかりだと
+		// 長短を数え上げる作業になり、モールスの数字 (全て5要素) と
+		// 同じ見分けにくさが戻る (ADR N-41)。
+		return b.resolveMorseLetters(def, vars)
+
 	default:
 		return "", fmt.Errorf("unknown pick kind: %q", pickKind)
 	}
+}
+
+// deriveRankSlot は cut を rank 番目に差し込んだ並びの slot 番目を返す。
+//
+// 208 速さくらべが「N番目に速い色」を正解にするために使う。
+// 速度そのものは [core] 側で s1〜s4 に固定値を割り当てるため、
+// ここでは**並び順だけ**を決める。
+//
+// rank / slot はいずれも 1 始まり。並びの長さは len(others)+1 になる。
+func (b *ScenarioBuilder) deriveRankSlot(def map[string]any, vars map[string]string) (string, error) {
+	cut, err := expandAny(def["cut"], vars)
+	if err != nil {
+		return "", fmt.Errorf("rank_slot.cut: %w", err)
+	}
+	others, err := expandStringList(def["others"], vars)
+	if err != nil {
+		return "", fmt.Errorf("rank_slot.others: %w", err)
+	}
+
+	rank, err := rankSlotIndex(def["rank"], vars, "rank")
+	if err != nil {
+		return "", err
+	}
+	slot, err := rankSlotIndex(def["slot"], vars, "slot")
+	if err != nil {
+		return "", err
+	}
+
+	size := len(others) + 1
+	if rank < 1 || rank > size {
+		return "", fmt.Errorf("rank_slot.rank (%d) is out of range [1,%d]", rank, size)
+	}
+	if slot < 1 || slot > size {
+		return "", fmt.Errorf("rank_slot.slot (%d) is out of range [1,%d]", slot, size)
+	}
+
+	// cut を rank 番目へ置き、残りを others の順で前から詰める。
+	order := make([]string, 0, size)
+	next := 0
+	for i := 1; i <= size; i++ {
+		if i == rank {
+			order = append(order, cut)
+			continue
+		}
+		order = append(order, others[next])
+		next++
+	}
+	return order[slot-1], nil
+}
+
+// rankSlotIndex は rank_slot の rank / slot を整数として読む。
+// TOML の整数でも "${rank}" のような参照でも書けるようにする。
+func rankSlotIndex(value any, vars map[string]string, name string) (int, error) {
+	text, err := expandAny(value, vars)
+	if err != nil {
+		return 0, fmt.Errorf("rank_slot.%s: %w", name, err)
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil {
+		return 0, fmt.Errorf("rank_slot.%s is not a number: %q", name, text)
+	}
+	return n, nil
 }
 
 // deriveVar は他の変数から値を機械的に導出する。
@@ -197,17 +267,80 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		}
 		return color, nil
 
+	case "rank_slot":
+		// 順位付きの並びを組み立てる (208 速さくらべ)。
+		//
+		// cut を rank 番目に置き、残りを others の順で前から詰めた並びの
+		// slot 番目を返す。「N番目に速い色を切れ」という課題で、
+		// **どの順位を正解にするかを毎回抽選する**ために使う。
+		//
+		//   cut=D rank=3 others=[A,B,C] のとき
+		//     slot 1 → A / slot 2 → B / slot 3 → D(cut) / slot 4 → C
+		return b.deriveRankSlot(def, vars)
+
 	case "terminal_for_color":
-		// 配線色 → 回路図シートの端子番号 (E. ブループリント)
+		// 配線色 → 資料4の端子番号 (205 ブループリント)。
+		//
+		// `series` に "x" / "y" を指定する。ナビゲーターは**両系統を並べて**
+		// 伝え、どちらを使うかはプレイヤーがシリアル銘板の下1桁 (奇数=X /
+		// 偶数=Y) を見て選ぶ (ADR D-6)。サーバーは個体のシリアルを知らない。
 		color, err := expandAny(def["from"], vars)
 		if err != nil {
 			return "", err
 		}
-		terminal := b.sheet.TerminalForColor(color)
+		series, err := expandAny(def["series"], vars)
+		if err != nil {
+			return "", fmt.Errorf("terminal_for_color.series: %w", err)
+		}
+		series = strings.ToLower(strings.TrimSpace(series))
+		if series != "x" && series != "y" {
+			return "", fmt.Errorf("terminal_for_color.series は \"x\" か \"y\": %q", series)
+		}
+		terminal := b.sheet.TerminalForColor(series, color)
 		if terminal == "" {
-			return "", fmt.Errorf("no terminal mapped to color %q (check [mission_sheet].terminal_map)", color)
+			return "", fmt.Errorf(
+				"no terminal mapped to color %q (check [mission_sheet.terminal_map_%s])",
+				color, series)
 		}
 		return terminal, nil
+
+	case "spoken_letter":
+		// 1文字を**無線で読み上げる形**にする (211)。
+		//
+		// 探すものを**指定する**側なので曖昧さを残せない。
+		// フォネティックだけだと資料1のフォネティック列を引き直す手間が増え、
+		// 文字名だけだと無線で聞き取りにくい。**両方を並べる** (ADR N-41)。
+		//   "G" → 「ジー、ゴルフ」
+		letter, err := expandAny(def["from"], vars)
+		if err != nil {
+			return "", fmt.Errorf("spoken_letter.from: %w", err)
+		}
+		spoken, ok := spokenLetterJA[strings.ToUpper(strings.TrimSpace(letter))]
+		if !ok {
+			return "", fmt.Errorf("spoken_letter: 読み方が未定義の文字 %q", letter)
+		}
+		return spoken, nil
+
+	case "nth":
+		// カンマ区切りの値から N 番目 (1始まり) を取り出す。
+		// morse_letters がまとめて選んだ文字を各色へ配るのに使う (211)。
+		list, err := expandAny(def["from"], vars)
+		if err != nil {
+			return "", fmt.Errorf("nth.from: %w", err)
+		}
+		idxText, err := expandAny(def["index"], vars)
+		if err != nil {
+			return "", fmt.Errorf("nth.index: %w", err)
+		}
+		idx, err := strconv.Atoi(idxText)
+		if err != nil {
+			return "", fmt.Errorf("nth.index is not a number: %q", idxText)
+		}
+		items := strings.Split(list, ",")
+		if idx < 1 || idx > len(items) {
+			return "", fmt.Errorf("nth.index %d is out of range [1,%d]", idx, len(items))
+		}
+		return strings.TrimSpace(items[idx-1]), nil
 
 	case "sheet_threshold":
 		// 07. 運命の二択: シート実測値から閾値を決める。
@@ -237,34 +370,34 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		return "lt", nil
 
 	case "sheet_section":
-		// 202 運命の二択: 分岐に対応するシートの区画見出し。
+		// 202 運命の二択: 分岐に対応する資料の呼称。
 		//
-		// シートには「区画A」(記号) / 「区画B」(数字) を大きく印刷してあり、
-		// ナビゲーターは「区画Aを見ろ」と**一言で**指示できる
-		// (docs/printed_materials.md §3.2.1)。「記号のほうを数えてください」と
+		// 記号と数字はそれぞれ独立した資料として番号を持ち、ナビゲーターは
+		// 「手元の資料2を見ろ」と**一言で**指示できる
+		// (docs/printed_materials.md §1.3)。「記号のほうを数えてください」と
 		// 説明的に言うと発話が伸び、どこを見るのかも曖昧になる。
 		branch, err := expandAny(def["branch"], vars)
 		if err != nil {
 			return "", err
 		}
-		return sheetSectionLabel(branch)
+		return b.sheetSectionLabel(branch)
 
 	default:
 		return "", fmt.Errorf("unknown derive kind: %q", kind)
 	}
 }
 
-// sheetSectionLabel は分岐種別に対応するシートの区画見出しを返す。
+// sheetSectionLabel は分岐種別に対応する資料の呼称を返す。
 //
-// **配線色の記号 (A-E) とは別物**。色記号は紙に印刷しないため紙面上で
-// 衝突しないが、混同を避けるため必ず「区画」を付けて呼ぶ
-// (docs/printed_materials.md §1.1・§3.2.1)。
-func sheetSectionLabel(branch string) (string, error) {
+// 呼称は `config.toml` の `[mission_sheet.documents]` から引く。
+// **分岐と別々に人手で書くと食い違う**ため、抽選値から機械的に導出する
+// (ADR D-2)。
+func (b *ScenarioBuilder) sheetSectionLabel(branch string) (string, error) {
 	if branch == "symbol" {
-		return "区画A", nil
+		return b.sheet.Documents.Symbol, nil
 	}
 	if branch == "number" {
-		return "区画B", nil
+		return b.sheet.Documents.Number, nil
 	}
 	return "", fmt.Errorf("unknown sheet branch: %q", branch)
 }
@@ -316,6 +449,90 @@ func morseWordColor(word string) string {
 		return ""
 	}
 	return allColors[int(head-'A')%len(allColors)]
+}
+
+// spokenLetterJA は1文字を無線で読み上げる形。**文字名 + NATOフォネティック**。
+//
+// 211 でナビゲーターが探す文字を指定するのに使う。片方だけだと伝わらないため
+// 機械的に両方を並べる (ADR N-41)。morseLetterCodes の全文字を網羅すること。
+var spokenLetterJA = map[string]string{
+	"A": "エー、アルファ", "B": "ビー、ブラボー", "C": "シー、チャーリー",
+	"E": "イー、エコー", "G": "ジー、ゴルフ", "H": "エイチ、ホテル",
+	"I": "アイ、インディア", "K": "ケー、キロ", "M": "エム、マイク",
+	"N": "エヌ、ノベンバー", "O": "オー、オスカー", "R": "アール、ロメオ",
+	"S": "エス、シエラ", "T": "ティー、タンゴ", "X": "エックス、エックスレイ",
+	"Z": "ゼット、ズールー",
+}
+
+// morseLetterCodes は 211 で使う1文字の符号。要素数で選び分けるために持つ。
+//
+// 要素数がばらけるよう、**1〜4要素から均等に**候補を用意してある。
+// 数字 (0-9) は全て5要素で見分けにくいため使わない (ADR N-41)。
+var morseLetterCodes = map[string]string{
+	"E": ".", "T": "-", // 1要素
+	"I": "..", "M": "--", "A": ".-", "N": "-.", // 2要素
+	"S": "...", "O": "---", "G": "--.", "R": ".-.", "K": "-.-", // 3要素
+	"H": "....", "X": "-..-", "Z": "--..", "B": "-...", "C": "-.-.", // 4要素
+}
+
+// resolveMorseLetters は互いに異なる1文字を count 個選び、カンマ区切りで返す。
+//
+// **符号の要素数がばらけるように**選ぶ: 要素数ごとにグループへ分け、
+// 短いものから順に1つずつ拾う。同じ要素数ばかりだと長短を数え上げる作業になり、
+// 「形で見分けられる」という 211 の狙いが消える (ADR N-41)。
+func (b *ScenarioBuilder) resolveMorseLetters(def map[string]any, vars map[string]string) (string, error) {
+	countText, err := expandAny(def["count"], vars)
+	if err != nil {
+		return "", fmt.Errorf("morse_letters.count: %w", err)
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil {
+		return "", fmt.Errorf("morse_letters.count is not a number: %q", countText)
+	}
+	if count < 1 {
+		return "", fmt.Errorf("morse_letters.count must be >= 1: %d", count)
+	}
+
+	// 要素数ごとにグループ化する (map の反復順は非決定的なのでソートして安定させる)
+	byLen := map[int][]string{}
+	for letter, code := range morseLetterCodes {
+		byLen[len(code)] = append(byLen[len(code)], letter)
+	}
+	lengths := make([]int, 0, len(byLen))
+	for n := range byLen {
+		sort.Strings(byLen[n])
+		b.rng.Shuffle(len(byLen[n]), func(i, j int) {
+			byLen[n][i], byLen[n][j] = byLen[n][j], byLen[n][i]
+		})
+		lengths = append(lengths, n)
+	}
+	sort.Ints(lengths)
+
+	if count > len(morseLetterCodes) {
+		return "", fmt.Errorf("morse_letters.count %d exceeds available %d",
+			count, len(morseLetterCodes))
+	}
+
+	// 要素数グループを順に回り、1つずつ拾う (ラウンドロビン)。
+	// これで要素数が最大限ばらける。
+	picked := make([]string, 0, count)
+	for round := 0; len(picked) < count; round++ {
+		progressed := false
+		for _, n := range lengths {
+			if round >= len(byLen[n]) {
+				continue
+			}
+			picked = append(picked, byLen[n][round])
+			progressed = true
+			if len(picked) == count {
+				break
+			}
+		}
+		if !progressed {
+			return "", fmt.Errorf("morse_letters: 候補が足りない (count=%d)", count)
+		}
+	}
+	return strings.Join(picked, ","), nil
 }
 
 // noiseLedsPrefix は noise_leds の展開結果であることを示す目印。

@@ -369,8 +369,13 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 208 速さくらべ: 点灯1色を基準外と伝え、最速色を**プレイヤーに先に言わせる**。
-	// answer に「照合の材料として使え」と書いてある指示が効いているかを見る。
+	// 208 速さくらべ: 点灯1色を基準外と伝え、**${rank}番目の色**を
+	// プレイヤーに先に言わせる。answer に「照合の材料として使え」と
+	// 書いてある指示が効いているかを見る。
+	//
+	// 正解の順位は毎回変わる (ADR N-40) ため、台本は
+	// **順位に依存しない言い回し**にしてある。「一番速いのは〜」と書くと
+	// 順位が2〜4番のときに台本自体が的外れな報告になる。
 	"208": {
 		StageID: "208",
 		Turns: []simTurn{
@@ -383,9 +388,9 @@ var simScripts = map[string]simScript{
 				Player: "点滅している4つを見比べています。どうぞ"},
 			// **わざと間違った色を報告する**。色名を出さずに探し直させられるか。
 			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "一番速いのは${sim_wrong_color}色だと思います。どうぞ"},
+				Player: "数えてみました。${sim_wrong_color}色だと思います。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "もう一度見比べました。一番速いのは${cut}色でした。どうぞ"},
+				Player: "もう一度数え直しました。${cut}色でした。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,

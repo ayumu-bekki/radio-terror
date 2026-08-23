@@ -99,15 +99,30 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		// 「書いてあるが言うな」は守られないことがある — 目の前にある語は
 		// なぞられる。無い語は言いようがないので、これが最も確実。
 		// 併記の警告も残す (伏せ字から色を推測して言うのを防ぐ)。
+		//
+		// **`keep_cut_secret` のステージは L4 でも伏せ続ける** (決定64 / ADR N-38)。
+		// 色名を言うと課題そのものが消えるステージ (205 回路図・202 集計・
+		// 203 モールス解読) では、L4 に達しても色名をプロンプトへ入れない。
 		if answer := stage.Navigator["answer"]; answer != "" {
-			if in.HintLevel < HintL4 {
+			if in.HintLevel < HintL4 || stage.KeepCutSecret {
 				b.WriteString("- 正解(あなただけが知っている): " +
 					redactCutColor(answer, stage.Cut) + "\n")
-				fmt.Fprintf(&b, "  ⚠ **正解の色名は伏せてあります**(上の「%s」)。"+
-					"現在は L%d なので、色名・番号を直言してはいけません。"+
-					"伏せ字が何色かを推測して口に出すことも禁止です。"+
-					"上の「進め方」と下の「ヒントポリシー」に従って導いてください。\n",
-					redactedColorMark, in.HintLevel)
+				if stage.KeepCutSecret {
+					fmt.Fprintf(&b, "  ⚠ **この課題では切る線の色名を最後まで伏せます**"+
+						"(上の「%s」)。色名を言うと**この課題そのものが成立しなくなる**ため、"+
+						"ヒントレベルに関わらず口に出してはいけません。"+
+						"伏せ字が何色かを推測して言うことも禁止です。"+
+						"**色を確定させるのはプレイヤーの仕事**で、あなたは"+
+						"そこへ導く役です。プレイヤーが色名を報告してきたら、"+
+						"合っているかを照合して認めてかまいません。\n",
+						redactedColorMark)
+				} else {
+					fmt.Fprintf(&b, "  ⚠ **正解の色名は伏せてあります**(上の「%s」)。"+
+						"現在は L%d なので、色名・番号を直言してはいけません。"+
+						"伏せ字が何色かを推測して口に出すことも禁止です。"+
+						"上の「進め方」と下の「ヒントポリシー」に従って導いてください。\n",
+						redactedColorMark, in.HintLevel)
+				}
 			} else {
 				b.WriteString("- 正解(あなただけが知っている): " + answer + "\n")
 			}

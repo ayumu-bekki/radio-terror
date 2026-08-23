@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"regexp"
@@ -18,18 +19,120 @@ type MissionSheet struct {
 	SymbolCount int `toml:"symbol_count"`
 	// NumberSum はシート上の数字の合計
 	NumberSum int `toml:"number_sum"`
-	// TerminalMap は回路図シートの端子番号(T1-T5) → 配線色(A-E) の対応
-	TerminalMap map[string]string `toml:"terminal_map"`
+	// TerminalMapX は資料4の**X系統**の端子番号(X1-X5) → 配線色(A-E) の対応。
+	// シリアル銘板の下1桁が**奇数**の個体が使う (ADR D-6)。
+	TerminalMapX map[string]string `toml:"terminal_map_x"`
+	// TerminalMapY は資料4の**Y系統**の端子番号(Y1-Y5) → 配線色(A-E) の対応。
+	// シリアル銘板の下1桁が**偶数**の個体が使う。
+	//
+	// **X とは完全に別の対応にする**。一部だけずらすと系統を取り違えても
+	// 偶然当たる場合があり、銘板を見る意味が薄れる。
+	TerminalMapY map[string]string `toml:"terminal_map_y"`
+	// Documents は紙資料の呼称 (docs/printed_materials.md §1.3)。
+	// ナビゲーターが無線で読み上げる名前で、刷り直しで番号が変わったら更新する。
+	Documents SheetDocuments `toml:"documents"`
 }
 
-// TerminalForColor は配線色から端子番号を引く (E. ブループリント用)。
-func (m *MissionSheet) TerminalForColor(color string) string {
-	for terminal, c := range m.TerminalMap {
+// SheetDocuments は紙資料の呼称。A4裏表1枚に印刷した各資料を、
+// ナビゲーターが「資料1を見ろ」と**一言で**指せるようにするための番号
+// (docs/printed_materials.md §1.3 / ADR D-2)。
+//
+// **面 (表裏) は持たない**。ナビゲーターは面を指示せず番号だけを言うため、
+// 印刷レイアウトを変えてもサーバー設定は変わらない。
+type SheetDocuments struct {
+	// Morse はモールス対照表 (203/304/308)
+	Morse string `toml:"morse"`
+	// Symbol は記号を散りばめた資料 (202)
+	Symbol string `toml:"symbol"`
+	// Number は数字を並べた資料 (202)
+	Number string `toml:"number"`
+	// Circuit は回路図 (205)
+	Circuit string `toml:"circuit"`
+}
+
+// Validate は資料名がすべて設定されているかを確かめる。
+//
+// 空のまま `${sheet_morse}` を展開すると「を使って解読しろ」という
+// 意味の通らない発話になるため、**起動時に落とす**
+// (terminal_map の5色必須と同じ性質)。
+func (d *SheetDocuments) Validate() error {
+	fields := []struct {
+		key   string
+		value string
+	}{
+		{"morse", d.Morse},
+		{"symbol", d.Symbol},
+		{"number", d.Number},
+		{"circuit", d.Circuit},
+	}
+	for _, f := range fields {
+		if strings.TrimSpace(f.value) == "" {
+			return fmt.Errorf("[mission_sheet.documents].%s is not configured", f.key)
+		}
+	}
+	return nil
+}
+
+// sheetDocumentVars は資料名をナビゲーター向け変数として返す。
+//
+// **Core向けJSONには入れない** — デバイスは紙資料の存在を知る必要がなく、
+// 資料名は無線で読み上げられるナビゲーター知識にのみ現れる。
+func (d *SheetDocuments) sheetDocumentVars() map[string]string {
+	return map[string]string{
+		"sheet_morse":   d.Morse,
+		"sheet_symbol":  d.Symbol,
+		"sheet_number":  d.Number,
+		"sheet_circuit": d.Circuit,
+	}
+}
+
+// TerminalForColor は配線色から端子番号を引く (205 ブループリント用)。
+//
+// series は "x" (奇数系統) / "y" (偶数系統)。
+// ナビゲーターは**両系統の端子番号を並べて**伝え、どちらを使うかは
+// プレイヤーがシリアル銘板を見て選ぶ (ADR D-6)。
+func (m *MissionSheet) TerminalForColor(series, color string) string {
+	table := m.TerminalMapX
+	if series == "y" {
+		table = m.TerminalMapY
+	}
+	for terminal, c := range table {
 		if c == color {
 			return terminal
 		}
 	}
 	return ""
+}
+
+// ValidateTerminalMaps は両系統に5色すべてが登録されているかを確かめる。
+//
+// 登録漏れがあると、その色が正解になったセッションだけが組み立てに失敗する
+// (**抽選次第でしか再現しない**ため、起動時に落とす)。
+func (m *MissionSheet) ValidateTerminalMaps() error {
+	for _, series := range []string{"x", "y"} {
+		for _, color := range allColors {
+			if m.TerminalForColor(series, color) == "" {
+				return fmt.Errorf(
+					"[mission_sheet.terminal_map_%s] に色 %q の端子が無い (5色すべて必要)",
+					series, color)
+			}
+		}
+	}
+	// X と Y が同じ対応だと系統を取り違えても当たってしまう
+	same := 0
+	for _, color := range allColors {
+		x := m.TerminalForColor("x", color)
+		y := m.TerminalForColor("y", color)
+		if strings.TrimPrefix(x, "X") == strings.TrimPrefix(y, "Y") {
+			same++
+		}
+	}
+	if same == len(allColors) {
+		return errors.New(
+			"[mission_sheet] terminal_map_x と terminal_map_y が同じ対応になっている " +
+				"(系統を取り違えても当たるため、別の対応にすること)")
+	}
+	return nil
 }
 
 // BuiltStage は解決済みの1ステージ。Core向けJSONとナビゲーター知識の両方を持つ。
@@ -46,6 +149,10 @@ type BuiltStage struct {
 
 	// Navigator は解決済みのナビゲーター向けステージ知識
 	Navigator map[string]string `json:"navigator"`
+
+	// KeepCutSecret は L4 でも切る線の色名を伏せ続けるか (ADR N-38)。
+	// 色名を言うと課題そのものが消えるステージで true。
+	KeepCutSecret bool `json:"keep_cut_secret"`
 
 	// Hints はこのステージに適用するヒント閾値 (解決済み)。
 	//
@@ -243,9 +350,18 @@ func (b *ScenarioBuilder) composeStages(tmpl *DifficultyTemplate, difficulty str
 // ナビゲーターの発話はそのまま読み上げられるため、「A色の線」ではなく
 // 「赤色の線」にする必要がある。色以外の変数 (ロータリー位置・数値・語句) は
 // そのまま残す。
-func toJapaneseColorVars(vars map[string]string) map[string]string {
+func toJapaneseColorVars(vars map[string]string, keepLiteral map[string]bool) map[string]string {
 	converted := make(map[string]string, len(vars))
 	for name, value := range vars {
+		// **色コード以外の意味で A-E を持つ変数は変換しない** (ADR N-41)。
+		//
+		// 変換は**値**で判定するため、モールスで表示する1文字 (211 の "E" など)
+		// がそのまま色名「白」に化けていた。意味を持つのは変数側なので、
+		// 色として扱わない変数を明示的に除外する。
+		if keepLiteral[name] {
+			converted[name] = value
+			continue
+		}
 		if japanese, ok := colorNameJA[value]; ok {
 			converted[name] = japanese
 			continue
@@ -279,7 +395,16 @@ func (b *ScenarioBuilder) buildStage(
 
 	// ナビゲーター知識は**無線で読み上げられる**ため、色を日本語名で展開する。
 	// Core向けJSON (core) は A-E のままにする — デバイスはその表記で解釈するため。
-	naviVars := toJapaneseColorVars(vars)
+	naviVars := toJapaneseColorVars(vars, tmpl.LiteralVars())
+
+	// 紙資料の呼称を注入する (`${sheet_morse}` 等)。**ナビゲーター側だけ**に入れ、
+	// Core向けJSON (core) には含めない — デバイスは紙資料を知る必要がない。
+	// 抽選変数が同名で衝突しないよう、資料名は後から入れず既存値を尊重する。
+	for name, value := range b.sheet.Documents.sheetDocumentVars() {
+		if _, exists := naviVars[name]; !exists {
+			naviVars[name] = value
+		}
+	}
 
 	navigator := make(map[string]string, len(tmpl.Navigator))
 	for key, text := range tmpl.Navigator {
@@ -297,12 +422,13 @@ func (b *ScenarioBuilder) buildStage(
 	hints = tmpl.Hints.Apply(hints)
 
 	return &BuiltStage{
-		TemplateID: tmpl.ID,
-		Name:       tmpl.Name,
-		Core:       core,
-		Cut:        cut,
-		Navigator:  navigator,
-		Hints:      hints,
+		TemplateID:    tmpl.ID,
+		Name:          tmpl.Name,
+		Core:          core,
+		Cut:           cut,
+		Navigator:     navigator,
+		Hints:         hints,
+		KeepCutSecret: tmpl.KeepCutSecret,
 	}, nil
 }
 
@@ -364,7 +490,11 @@ type errUnresolvedRef struct{ name string }
 
 func (e *errUnresolvedRef) Error() string { return "unresolved reference: " + e.name }
 
+// **ラップされていても見つける。** 途中の導出処理が文脈を足して
+// `fmt.Errorf("...: %w", err)` で包むため、型アサーションだけだと
+// 未解決参照を取りこぼし、解決順の入れ替えが働かなくなる
+// (208 の rank_slot が others の参照を包んで発覚した)。
 func isUnresolvedRef(err error) bool {
-	_, ok := err.(*errUnresolvedRef)
-	return ok
+	var target *errUnresolvedRef
+	return errors.As(err, &target)
 }

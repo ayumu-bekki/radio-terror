@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -15,9 +16,219 @@ func testMissionSheet() MissionSheet {
 	return MissionSheet{
 		SymbolCount: 28,
 		NumberSum:   47,
-		TerminalMap: map[string]string{
-			"T1": "A", "T2": "B", "T3": "C", "T4": "D", "T5": "E",
+		TerminalMapX: map[string]string{
+			"X1": "A", "X2": "B", "X3": "C", "X4": "D", "X5": "E",
 		},
+		TerminalMapY: map[string]string{
+			"Y1": "C", "Y2": "E", "Y3": "A", "Y4": "B", "Y5": "D",
+		},
+		Documents: SheetDocuments{
+			Morse:   "資料1",
+			Symbol:  "資料2",
+			Number:  "資料3",
+			Circuit: "資料4",
+		},
+	}
+}
+
+// TestSheetDocumentsValidate は資料の呼称が欠けていたら起動時に落ちることを
+// 確かめる (ADR D-2)。
+//
+// 空のまま `${sheet_morse}` を展開すると「を使って解読しろ」という意味の
+// 通らない発話になり、**プレイ中に初めて気づく**ことになる。
+func TestSheetDocumentsValidate(t *testing.T) {
+	full := testMissionSheet().Documents
+	if err := full.Validate(); err != nil {
+		t.Fatalf("正常な設定が落ちた: %v", err)
+	}
+
+	// 1件ずつ空にして、それぞれが検出されること
+	cases := map[string]func(*SheetDocuments){
+		"morse":   func(d *SheetDocuments) { d.Morse = "" },
+		"symbol":  func(d *SheetDocuments) { d.Symbol = "" },
+		"number":  func(d *SheetDocuments) { d.Number = "" },
+		"circuit": func(d *SheetDocuments) { d.Circuit = "" },
+	}
+	for key, blank := range cases {
+		docs := full
+		blank(&docs)
+		err := docs.Validate()
+		if err == nil {
+			t.Errorf("%s が空でも通ってしまった", key)
+			continue
+		}
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("%s: エラーに欠けたキー名が出ていない: %v", key, err)
+		}
+	}
+
+	// 空白だけも未設定として扱う
+	docs := full
+	docs.Morse = "   "
+	if err := docs.Validate(); err == nil {
+		t.Error("空白だけの呼称が通ってしまった")
+	}
+}
+
+// TestBlueprintOffersBothTerminalSeries は 205 が**両系統の端子番号**を
+// ナビゲーター知識に含めることを確かめる (ADR D-6)。
+//
+// サーバーは個体のシリアルを知らないため、片方だけ渡すと**選びようがない**。
+// 「奇数ならX4、偶数ならY2」と並べて伝え、選ぶのはプレイヤーの仕事。
+func TestBlueprintOffersBothTerminalSeries(t *testing.T) {
+	lib := loadTestLibrary(t)
+	stageTmpl, err := lib.Stage("205")
+	if err != nil {
+		t.Fatalf("Stage(205): %v", err)
+	}
+	sheet := testMissionSheet()
+
+	for seed := int64(0); seed < 60; seed++ {
+		builder := NewScenarioBuilder(lib, sheet, rand.New(rand.NewSource(seed)))
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+		if err != nil {
+			t.Fatalf("seed=%d: buildStage: %v", seed, err)
+		}
+
+		wantX := sheet.TerminalForColor("x", built.Cut)
+		wantY := sheet.TerminalForColor("y", built.Cut)
+		if wantX == "" || wantY == "" {
+			t.Fatalf("seed=%d: cut %q の端子が引けない (x=%q y=%q)",
+				seed, built.Cut, wantX, wantY)
+		}
+		// X系統とY系統で別の端子になっていること (取り違えが失敗につながる)
+		if strings.TrimPrefix(wantX, "X") == strings.TrimPrefix(wantY, "Y") {
+			t.Fatalf("seed=%d: cut %q で X と Y が同じ番号 (%s/%s)",
+				seed, built.Cut, wantX, wantY)
+		}
+
+		// procedure / hint_l2 / answer に両系統の端子番号が出ること
+		for _, key := range []string{"procedure", "hint_l2", "answer"} {
+			text := built.Navigator[key]
+			if !strings.Contains(text, wantX) {
+				t.Errorf("seed=%d: navigator.%s に X系統 %q が無い:\n%s",
+					seed, key, wantX, text)
+			}
+			if !strings.Contains(text, wantY) {
+				t.Errorf("seed=%d: navigator.%s に Y系統 %q が無い:\n%s",
+					seed, key, wantY, text)
+			}
+		}
+	}
+}
+
+// TestTerminalMapsValidate は端子対応の検証が働くことを確かめる (ADR D-6)。
+//
+// 登録漏れは**その色が正解になったセッションだけ**が失敗するため、
+// 抽選次第でしか再現しない。起動時に落とす必要がある。
+func TestTerminalMapsValidate(t *testing.T) {
+	base := testMissionSheet()
+	if err := base.ValidateTerminalMaps(); err != nil {
+		t.Fatalf("正常な設定が落ちた: %v", err)
+	}
+
+	// 1色抜けを検出する
+	missing := testMissionSheet()
+	delete(missing.TerminalMapY, "Y3")
+	if err := missing.ValidateTerminalMaps(); err == nil {
+		t.Error("Y系統の登録漏れが通ってしまった")
+	}
+
+	// X と Y が同じ対応なら落とす (取り違えても当たってしまうため)
+	sameMap := testMissionSheet()
+	sameMap.TerminalMapY = map[string]string{
+		"Y1": "A", "Y2": "B", "Y3": "C", "Y4": "D", "Y5": "E",
+	}
+	if err := sameMap.ValidateTerminalMaps(); err == nil {
+		t.Error("X と Y が同じ対応でも通ってしまった")
+	}
+}
+
+// TestLetterMatchStageIsReadable は 211 文字の一致が「形で見分けられる」
+// 状態を保つことを確かめる (ADR N-41)。
+//
+//   - 5色に**互いに異なる**文字が出ること (重複すると絞り込みが成立しない)
+//   - 符号の**要素数がばらける**こと (同じ長さばかりだと長短の数え上げになり、
+//     モールスの数字を避けた意味が消える)
+//   - 表示文字が**色名に化けない**こと ("E" が「白」になる事故があった)
+func TestLetterMatchStageIsReadable(t *testing.T) {
+	lib := loadTestLibrary(t)
+	stageTmpl, err := lib.Stage("211")
+	if err != nil {
+		t.Fatalf("Stage(211): %v", err)
+	}
+
+	for seed := int64(0); seed < 200; seed++ {
+		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+		if err != nil {
+			t.Fatalf("seed=%d: buildStage: %v", seed, err)
+		}
+
+		leds, ok := built.Core["leds"].(map[string]any)
+		if !ok || len(leds) != len(allColors) {
+			t.Fatalf("seed=%d: leds が5色ぶん無い: %v", seed, built.Core["leds"])
+		}
+
+		seen := map[string]bool{}
+		byLen := map[int]int{}
+		for color, raw := range leds {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("seed=%d: leds[%s] がテーブルでない", seed, color)
+			}
+			word, _ := entry["word"].(string)
+			code, known := morseLetterCodes[word]
+			if !known {
+				t.Fatalf("seed=%d: 未知の表示文字 %q (morseLetterCodes に無い)", seed, word)
+			}
+			if seen[word] {
+				t.Fatalf("seed=%d: 文字 %q が複数の色に出ている", seed, word)
+			}
+			seen[word] = true
+			byLen[len(code)]++
+		}
+
+		// 同じ要素数に偏りすぎない (5色すべてが同じ長さだと数え上げになる)
+		for n, count := range byLen {
+			if count > 3 {
+				t.Errorf("seed=%d: %d要素の符号が%d色に集中している (形で見分けられない)",
+					seed, n, count)
+			}
+		}
+
+		// 表示文字が色名へ化けていないこと。
+		// answer には「切るのは<文字>を表示している<色>色の線」が入る。
+		target := built.Navigator["answer"]
+		for _, ja := range colorNameJA {
+			if strings.Contains(target, "切るのは"+ja+"を表示") {
+				t.Errorf("seed=%d: 表示文字が色名 %q に化けている:\n%s", seed, ja, target)
+			}
+		}
+
+		// ナビゲーターは文字名+フォネティックで指定する
+		if p := built.Navigator["procedure"]; !strings.Contains(p, "、") {
+			t.Errorf("seed=%d: procedure に読み上げ形が入っていない:\n%s", seed, p)
+		}
+	}
+}
+
+// TestSpokenLetterCoversAllCandidates は 211 で出る全文字に読み方が
+// 定義されていることを確かめる (ADR N-41)。
+//
+// 抜けがあると**その文字が当たったセッションだけ**が組み立てに失敗する。
+func TestSpokenLetterCoversAllCandidates(t *testing.T) {
+	for letter := range morseLetterCodes {
+		spoken, ok := spokenLetterJA[letter]
+		if !ok {
+			t.Errorf("文字 %q の読み方が spokenLetterJA に無い", letter)
+			continue
+		}
+		// 文字名とフォネティックを並べた形になっていること
+		if !strings.Contains(spoken, "、") {
+			t.Errorf("文字 %q の読み方が文字名+フォネティックになっていない: %q",
+				letter, spoken)
+		}
 	}
 }
 
@@ -370,6 +581,11 @@ func TestSpeedRankingConsistency(t *testing.T) {
 		`速い順は (.)\(最速\) → (.) → (.) → (.)\(最遅\)`)
 	// 点灯しっぱなしの基準色 (数に入れない色)
 	steadyRe := regexp.MustCompile(`点灯しっぱなしなのは(.)色`)
+	// 切る順位 (「**N番目に速く点滅している**」)
+	rankRe := regexp.MustCompile(`\*\*(\d+)番目に速く点滅している\*\*`)
+
+	// 順位の出現を数える。1つの値に偏っていないかを最後に確かめる。
+	seenRanks := map[int]int{}
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
@@ -433,14 +649,39 @@ func TestSpeedRankingConsistency(t *testing.T) {
 			prev = onMS
 		}
 
-		// **正解は必ず最速**であること (中間順位に置くと色名で救済できなくなる)
-		if built.Cut != order[0] {
-			t.Fatalf("seed=%d: cut %q が最速 %q でない — ナビゲーターが色名を言えなくなる",
-				seed, built.Cut, order[0])
+		// **cut が answer の言う順位に実際に置かれている**こと (ADR N-40)。
+		//
+		// 正解は 1〜4 番目のどこにも来る。answer が「N番目に速い」と言いながら
+		// 実際は別の位置にあると、プレイヤーが正しく数えても切る線が合わない。
+		rm := rankRe.FindStringSubmatch(built.Navigator["answer"])
+		if rm == nil {
+			t.Fatalf("seed=%d: answer から順位を読み取れない: %s",
+				seed, built.Navigator["answer"])
 		}
+		wantRank, err := strconv.Atoi(rm[1])
+		if err != nil {
+			t.Fatalf("seed=%d: 順位が数値でない: %q", seed, rm[1])
+		}
+		if wantRank < 1 || wantRank > len(order) {
+			t.Fatalf("seed=%d: 順位 %d が範囲外", seed, wantRank)
+		}
+		if got := order[wantRank-1]; got != built.Cut {
+			t.Fatalf("seed=%d: answer は%d番目=%q と言うが cut は %q — "+
+				"数えても切る線が合わない", seed, wantRank, got, built.Cut)
+		}
+		seenRanks[wantRank]++
 		// 基準色を正解にしない (点灯 = 正解 とプレイヤーが誤学習する)
 		if built.Cut == steady {
 			t.Errorf("seed=%d: 基準色 %q が正解になった", seed, built.Cut)
+		}
+	}
+
+	// **1〜4 の順位が全て出ること** (ADR N-40)。
+	// 固定に戻ると指示が毎回同じになり、単調さが復活する。
+	for rank := 1; rank <= 4; rank++ {
+		if seenRanks[rank] == 0 {
+			t.Errorf("順位 %d が100回中1度も出ていない — 抽選が偏っている: %v",
+				rank, seenRanks)
 		}
 	}
 }
@@ -849,11 +1090,12 @@ func TestStagesAskForLampReportFirst(t *testing.T) {
 	}
 }
 
-// TestSheetSectionResolves は 202 の区画見出しが両分岐で解決することを確かめる。
+// TestSheetSectionResolves は 202 の資料番号が両分岐で解決することを確かめる。
 //
-// シートには「区画A」(記号) /「区画B」(数字) を印刷してあり、ナビゲーターは
-// 「区画Aを見ろ」と一言で指示する (docs/printed_materials.md §3.2.1)。
-// 配線色の記号 (A-E) とは別物なので、必ず「区画」を伴う。
+// 記号と数字は独立した資料として番号を持ち、ナビゲーターは「手元の資料2を見ろ」と
+// 一言で指示する (docs/printed_materials.md §1.3 / ADR D-2)。
+// 呼称は config.toml の [mission_sheet.documents] から引くため、
+// 期待値もハードコードせず設定値を参照する。
 func TestSheetSectionResolves(t *testing.T) {
 	lib := loadTestLibrary(t)
 	stageTmpl, err := lib.Stage("202")
@@ -861,9 +1103,12 @@ func TestSheetSectionResolves(t *testing.T) {
 		t.Fatalf("Stage(202): %v", err)
 	}
 
+	sheet := testMissionSheet()
+	labels := []string{sheet.Documents.Symbol, sheet.Documents.Number}
+
 	seen := map[string]bool{}
 	for seed := int64(0); seed < 60; seed++ {
-		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		builder := NewScenarioBuilder(lib, sheet, rand.New(rand.NewSource(seed)))
 		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
@@ -872,14 +1117,14 @@ func TestSheetSectionResolves(t *testing.T) {
 		if varPattern.MatchString(procedure) {
 			t.Fatalf("seed=%d: procedure に未解決の変数: %s", seed, procedure)
 		}
-		for _, label := range []string{"区画A", "区画B"} {
+		for _, label := range labels {
 			if strings.Contains(procedure, label) {
 				seen[label] = true
 			}
 		}
 	}
 
-	for _, label := range []string{"区画A", "区画B"} {
+	for _, label := range labels {
 		if !seen[label] {
 			t.Errorf("%s が一度も出ていない (60シード) — 分岐が偏っている可能性", label)
 		}

@@ -151,31 +151,83 @@ func TestStageProgressReset(t *testing.T) {
 	}
 }
 
-// TestL4RespectsStageLevelRestriction は L4 (直言) のプロンプトが
-// **ステージ側の「これは言うな」という但し書きを優先する**よう
-// 指示していることを確かめる (docs/navigator_design.md §5 決定19・決定20)。
+// TestL4KeepCutSecretNeverEmbedsAnswer は `keep_cut_secret` のステージで
+// **L4 でも正解文がプロンプトへ埋め込まれない**ことを確かめる (ADR N-38)。
 //
-// 205 ブループリントは色名を言うとシートを読む工程が消えてしまうため、
-// L4 でも端子番号しか言えない。L4 のブロックは「正解をそのまま伝えてよい」と
-// 書くため、但し書きの優先を明示しないと **そのまま読み上げて色が漏れる**。
-func TestL4RespectsStageLevelRestriction(t *testing.T) {
+// 以前は「正解文に『これは言うな』と但し書きがあれば優先」という**散文の指示**で
+// 守らせていた。しかし L4 では正解文が生の色名込みで載り、ヒントポリシーが
+// 「そのまま伝えてください」と指示するため**但し書きが負ける**
+// (目の前にある語はなぞられる — N-1)。フラグで機械的に分岐させる。
+func TestL4KeepCutSecretNeverEmbedsAnswer(t *testing.T) {
+	answer := "正解は端子T5の線 = 白色。プレイヤーに伝えてよいのは端子番号だけ。"
 	stage := &BuiltStage{
-		TemplateID: "205",
+		TemplateID:    "205",
+		KeepCutSecret: true,
 		Navigator: map[string]string{
-			"answer": "正解は端子T5の線 = 白色。プレイヤーに伝えてよいのは端子番号だけ。",
+			"answer":  answer,
+			"hint_l3": "対応表の読み方を説明してよい",
 		},
 	}
 
 	text := HintPolicyText(HintL4, stage)
 
-	// 正解文そのものは渡っていること (照合に必要)
-	if !strings.Contains(text, stage.Navigator["answer"]) {
-		t.Fatalf("L4 に answer が含まれていない:\n%s", text)
+	// 正解文そのものを載せない (載せると読み上げられる)
+	if strings.Contains(text, answer) {
+		t.Errorf("keep_cut_secret なのに L4 へ answer が埋め込まれた:\n%s", text)
 	}
-	// 但し書きが優先される旨が書かれていること
-	if !strings.Contains(text, "但し書きが優先") {
-		t.Errorf("L4 が「但し書きの優先」を指示していない — "+
-			"ステージ側の『言うな』が無視されて漏れる:\n%s", text)
+	// 「そのまま伝えてよい」と指示しない
+	if strings.Contains(text, "正解をそのまま伝えてよい段階です") {
+		t.Errorf("keep_cut_secret なのに「そのまま伝えてよい」と指示している:\n%s", text)
+	}
+	// 色名を伏せる旨が明示されていること
+	if !strings.Contains(text, "切る線の色名") {
+		t.Errorf("L4 が色名を伏せる指示になっていない:\n%s", text)
+	}
+	// 手順は L3 の指針で導く
+	if !strings.Contains(text, stage.Navigator["hint_l3"]) {
+		t.Errorf("L4 に hint_l3 の指針が含まれていない:\n%s", text)
+	}
+}
+
+// TestL4WithoutKeepCutSecretStillDirects は、フラグを立てていない
+// 通常のステージでは L4 が従来どおり正解を直言することを確かめる。
+//
+// 塞ぎすぎると「全滅よりも成功体験を優先する」という L4 の趣旨 (N-23) が
+// 失われるため、対象を限定していることをテストで固定する。
+func TestL4WithoutKeepCutSecretStillDirects(t *testing.T) {
+	answer := "正解は赤色の線。"
+	stage := &BuiltStage{
+		TemplateID: "105",
+		Navigator:  map[string]string{"answer": answer},
+	}
+
+	text := HintPolicyText(HintL4, stage)
+	if !strings.Contains(text, answer) {
+		t.Errorf("通常ステージの L4 に answer が含まれていない:\n%s", text)
+	}
+}
+
+// TestKeepCutSecretStagesAreFlagged は、色名を言うと課題が消えるステージに
+// `keep_cut_secret` が立っていることを確かめる (ADR N-38)。
+//
+// **散文の但し書きは L4 で負ける。** 205 は L4 を名指しした但し書きで
+// 個別に守っていたが、同じ性質の 202・203 は守られていなかった
+// (203 に至っては但し書きすら無かった)。フラグで揃える。
+func TestKeepCutSecretStagesAreFlagged(t *testing.T) {
+	lib := loadTestLibrary(t)
+
+	// 色名を言うと**課題そのものが消える**ステージ。
+	//   205: 回路図シートを読む工程 / 202: 集計と判断 / 203: モールス解読
+	want := map[string]bool{"205": true, "202": true, "203": true}
+
+	for id := range lib.stages {
+		stageTmpl, err := lib.Stage(id)
+		if err != nil {
+			t.Fatalf("Stage(%q): %v", id, err)
+		}
+		if got := stageTmpl.KeepCutSecret; got != want[id] {
+			t.Errorf("%s: keep_cut_secret = %v, want %v", id, got, want[id])
+		}
 	}
 }
 

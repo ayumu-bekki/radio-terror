@@ -38,6 +38,37 @@ var colorNameJA = map[string]string{
 }
 
 // StageTemplate は1ステージの定義ファイル (scenarios/stages/*.toml)。
+// LiteralVars は**色として変換してはいけない**抽選変数の名前を返す。
+//
+// ナビゲーター向けの展開は値が A-E なら色名へ置き換えるが (toJapaneseColorVars)、
+// モールスで表示する1文字のように**色以外の意味で A-E を持つ**変数がある。
+// 211 で "E" が色名「白」に化けて「白を探せ」と言い出した (ADR N-41)。
+//
+// 判定は**抽選の種類**から機械的に行う。TOML に書かせる方式にすると
+// 書き忘れた時に同じ事故が静かに再発するため。
+func (t *StageTemplate) LiteralVars() map[string]bool {
+	literal := map[string]bool{}
+	for name, def := range t.Random {
+		kind, _ := def["pick"].(string)
+		if kind == "morse_letters" {
+			literal[name] = true
+		}
+		// nth は元の変数の性質を継ぐ (letters から取り出した1文字も色ではない)
+		if derive, _ := def["derive"].(string); derive == "nth" {
+			if from, ok := def["from"].(string); ok {
+				if src := varPattern.FindStringSubmatch(from); len(src) == 2 {
+					if srcDef, ok := t.Random[src[1]]; ok {
+						if k, _ := srcDef["pick"].(string); k == "morse_letters" {
+							literal[name] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	return literal
+}
+
 type StageTemplate struct {
 	ID         string `toml:"id"`
 	Name       string `toml:"name"`
@@ -54,6 +85,19 @@ type StageTemplate struct {
 
 	// Navigator はナビゲーター向けステージ知識 (${...} を含む)。
 	Navigator map[string]string `toml:"navigator"`
+
+	// KeepCutSecret は**L4 (直言) でも切る線の色名を伏せ続ける**指定 (ADR N-38)。
+	//
+	// 色名を言うと**課題そのものが消える**ステージに付ける。
+	// 205 ブループリント (回路図シートを読む工程)、202 運命の二択 (集計と判断)、
+	// 203 暗号電文 (モールス解読) が該当する。
+	//
+	// **散文の但し書きに頼らない。** これらのステージは answer に
+	// 「こちらからは言わない」と書いてあったが、L4 では answer が
+	// 生の色名込みでプロンプトに載り、ヒントポリシーが
+	// 「正解をそのまま伝えてよい」と指示するため**但し書きが負ける**。
+	// 目の前にある語はなぞられる (N-1)。フラグで機械的に伏せる。
+	KeepCutSecret bool `toml:"keep_cut_secret"`
 
 	// Hints は難易度テンプレートのヒント閾値に対する**ステージ単位の上書き**。
 	//

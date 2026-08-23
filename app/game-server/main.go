@@ -63,6 +63,17 @@ func main() {
 	}
 	log.Printf("[scenario] loaded %d stages from %s", library.StageCount(), scenarioDir)
 
+	// 資料名が空だと `${sheet_morse}` が空文字に展開され、「を使って解読しろ」
+	// という意味の通らない発話になる。**起動時に落とす** (ADR D-2)。
+	if err := cfg.MissionSheet.Documents.Validate(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	// 端子の登録漏れは**その色が正解になったセッションだけ**が失敗するため、
+	// 抽選次第でしか再現しない。起動時に両系統を検査する (ADR D-6)。
+	if err := cfg.MissionSheet.ValidateTerminalMaps(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	builder := NewScenarioBuilder(library, cfg.MissionSheet, rng)
 
