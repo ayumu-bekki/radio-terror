@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -931,4 +934,122 @@ func TestPanelStageRotaryLeds(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestDocExtensionTableMatchesStages は `puzzle_stage_ideas.md` §4 の
+// **拡張表が実装と一致している**ことを確かめる。
+//
+// この表は「どの拡張をどのステージが使うか」の索引で、**IDだけを書くと
+// 番号を振り直したときに静かに古くなる**。実際 2026-08-25 の点検で
+// 7行中6行が旧IDのまま取り残されていた
+// (`forbidden_rotary` が 101 を指しているなど、実在しない対応)。
+//
+// ステージ定義を直接読んで突き合わせるので、**表を直し忘れると落ちる**。
+func TestDocExtensionTableMatchesStages(t *testing.T) {
+	const docPath = "../../docs/puzzle_stage_ideas.md"
+	raw, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Skipf("%s を読めない: %v", docPath, err)
+	}
+	doc := string(raw)
+
+	start := strings.Index(doc, "## 4. 事前条件")
+	end := strings.Index(doc, "## 5. ")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatalf("%s: §4 の範囲を特定できない", docPath)
+	}
+	section := doc[start:end]
+
+	// 表に載せている拡張キーワード
+	keys := []string{
+		"push_seq", "forbidden_rotary", "timer_digit", "last_matches_cut",
+		"rotary_leds", "leds_all_off", "morse_word", "romaji_word", "noise_leds",
+		"terminal_for_color", "codebook", "rank_slot", "color_seq",
+		"rotary_layout", "choice_value",
+	}
+
+	// ステージ定義を読み込む
+	files, err := filepath.Glob("scenarios/stages/*.toml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("ステージ定義が見つからない: %v", err)
+	}
+	bodies := make(map[string]string, len(files))
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		bodies[filepath.Base(f)[:3]] = string(b)
+	}
+
+	idPattern := regexp.MustCompile(`(?:^|[^0-9])([123]\d\d)(?:[^0-9]|$)`)
+
+	for _, key := range keys {
+		// 実際に使っているステージ
+		actual := make([]string, 0, 4)
+		for id, body := range bodies {
+			if strings.Contains(body, key) {
+				actual = append(actual, id)
+			}
+		}
+		sort.Strings(actual)
+
+		// 表の該当行を探す
+		var cell string
+		found := false
+		for _, line := range strings.Split(section, "\n") {
+			cols := strings.Split(line, "|")
+			if len(cols) < 3 || !strings.Contains(cols[1], "`"+key+"`") {
+				continue
+			}
+			cell = cols[len(cols)-2]
+			found = true
+			break
+		}
+		if !found {
+			t.Errorf("§4 の表に %q の行が無い — 実際は %v が使っている", key, actual)
+			continue
+		}
+
+		if len(actual) == 0 {
+			if !strings.Contains(cell, "利用なし") {
+				t.Errorf("%s: 利用ステージが無いのに表が %q と書いている", key, strings.TrimSpace(cell))
+			}
+			continue
+		}
+
+		listed := make([]string, 0, 4)
+		for _, m := range idPattern.FindAllStringSubmatch(cell, -1) {
+			listed = append(listed, m[1])
+		}
+		sort.Strings(listed)
+		listed = dedupeStrings(listed)
+
+		if !equalStrings(listed, actual) {
+			t.Errorf("%s: 表は %v と書いているが、実際に使っているのは %v",
+				key, listed, actual)
+		}
+	}
+}
+
+func dedupeStrings(in []string) []string {
+	out := in[:0:0]
+	for i, v := range in {
+		if i == 0 || in[i-1] != v {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
