@@ -359,6 +359,14 @@ void GameTask::HandleRotaryChanged(int8_t position) {
   // 実際に動いたことが確定した。forbidden_rotary の判定はこれ以降でよい
   rotary_touched_since_reset_ = true;
 
+  // **位置ごとに表示が変わるステージ**では、回した瞬間に表示を差し替える
+  // (209 配電盤照合)。パターン再生を先頭へ戻さないと、前の位置の途中から
+  // 流れて別の見え方になってしまう。
+  if (state_ == STATE_PLAYING && session_.stages[stage_index_].has_rotary_leds) {
+    leds_.ResetPatterns();
+    ApplyLedOutputs();
+  }
+
   ESP_LOGI(TAG, "rotary -> %d", static_cast<int>(position));
 }
 
@@ -526,7 +534,7 @@ void GameTask::TickCountdown() {
 }
 
 void GameTask::TickLeds() {
-  leds_.TickPatterns(session_.stages[stage_index_]);
+  leds_.TickPatterns(CurrentLedPatterns());
   ApplyLedOutputs();
 }
 
@@ -767,6 +775,24 @@ void GameTask::ApplyLedOutputs() {
   // Ready / Pending / Detonating / Exploded / Defused は全消灯 (§4.1)
   // (Pending はカウントダウン前なので kLED は触らない)
   leds_.ApplyAllOff();
+}
+
+/// 今表示すべきLEDテーブルを返す。
+///
+/// **ロータリー位置ごとに表示が変わるステージ** (209 配電盤照合) では
+/// 現在位置の表示を使う。それ以外は従来どおりステージ共通の `leds`。
+///
+/// 位置が変わると `HandleRotaryChanged` がパターン再生をリセットするので、
+/// 切り替わった瞬間から新しい表示が先頭から流れる。
+const LedPattern* GameTask::CurrentLedPatterns() const {
+  const StageConfig& stage = session_.stages[stage_index_];
+  if (!stage.has_rotary_leds) {
+    return stage.leds;
+  }
+  if (rotary_position_ < 0 || kRotaryPositionNum <= rotary_position_) {
+    return stage.leds;
+  }
+  return stage.rotary_leds[rotary_position_];
 }
 
 void GameTask::ClearLedOverrides() {

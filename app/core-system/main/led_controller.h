@@ -35,10 +35,26 @@ class LedController final {
     override_active_ = false;
   }
 
-  /// プリコンパイル済みLEDパターンを1tick分進める (§6.1)
-  void TickPatterns(const StageConfig& stage) {
+  /// **パターン再生位置だけ**を先頭へ戻す (上書き表示は保つ)。
+  ///
+  /// ロータリーを回して表示テーブルが差し替わったときに使う
+  /// (209 配電盤照合)。`Reset()` は上書き表示も消してしまうため、
+  /// ステージ途中では使えない。
+  void ResetPatterns() {
     for (int i = 0; i < kColorNum; ++i) {
-      const LedPattern& pattern = stage.leds[i];
+      step_index_[i] = 0;
+      step_elapsed_[i] = 0;
+      pattern_on_[i] = false;
+    }
+  }
+
+  /// プリコンパイル済みLEDパターンを1tick分進める (§6.1)
+  ///
+  /// **どのテーブルを使うかは呼び出し側が決める**。ロータリー位置ごとに
+  /// 表示が変わるステージ (209 配電盤照合) は位置に応じた配列を渡す。
+  void TickPatterns(const LedPattern* patterns) {
+    for (int i = 0; i < kColorNum; ++i) {
+      const LedPattern& pattern = patterns[i];
       if (pattern.steps.empty()) {
         pattern_on_[i] = false;
         continue;

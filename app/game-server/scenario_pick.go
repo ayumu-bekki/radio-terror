@@ -183,6 +183,16 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		// 他ステージとの色の重複 (usedLines) を避けられない (ADR S-1・S-2)。
 		return b.resolveCodebook(def, vars)
 
+	case "panel":
+		// 209 配電盤照合: 現在位置を抽選し "位置,危険,解除" を返す。
+		// 各値は `derive = "panel_field"` で取り出す。
+		return b.resolvePanel(def, vars)
+
+	case "rotary_leds":
+		// 209 配電盤照合: ロータリー位置ごとのLED表示を組み立てる。
+		// **解除位置の表示は対照表に載っていない** — 回して初めて分かる。
+		return b.resolveRotaryLeds(def, vars)
+
 	case "rotary_layout":
 		// 206 綱渡り: 目的位置と禁止位置の**配置ごと**抽選する。
 		//
@@ -192,7 +202,8 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		return b.resolveRotaryLayout(def, vars)
 
 	case "morse_letters":
-		// 5色へ割り当てる**互いに異なる1文字**を選ぶ (302 文字の一致)。
+		// 5色へ割り当てる**互いに異なる1文字**を選ぶ。
+		// **現在の利用ステージは無い**(実装は残してある)。
 		//
 		// **符号の要素数がばらけるように**選ぶ。同じ要素数ばかりだと
 		// 長短を数え上げる作業になり、モールスの数字 (全て5要素) と
@@ -305,7 +316,7 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		return b.deriveRankSlot(def, vars)
 
 	case "choice_value":
-		// choice の抽選結果から対応する値を引く (295 仲間はずれ)。
+		// choice の抽選結果から対応する値を引く。
 		//
 		//   odd     = { pick = "choice", candidates = ["fast", "slow"] }
 		//   odd_ms  = { derive = "choice_value", from = "${odd}", fast = "300", slow = "650" }
@@ -315,6 +326,11 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		// 207 なら片方だけ直し忘れると「5色とも同じ速さ」になり、
 		// 謎が成立しないまま組み立てが通ってしまう。
 		return b.deriveChoiceValue(def, vars)
+
+	case "panel_field":
+		// 209 配電盤照合: 選ばれた行から1項目を取り出す。
+		// `field` は position / forbidden / release / lit / blink / appearance。
+		return b.derivePanelField(def, vars)
 
 	case "codebook_field":
 		// 301 LED照合: 選ばれた表示 (pick = "codebook") から1項目を取り出す。
@@ -397,7 +413,7 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 
 	case "nth":
 		// カンマ区切りの値から N 番目 (1始まり) を取り出す。
-		// morse_letters がまとめて選んだ文字を各色へ配るのに使う (302)。
+		// morse_letters がまとめて選んだ文字を各色へ配るのに使う。
 		list, err := expandAny(def["from"], vars)
 		if err != nil {
 			return "", fmt.Errorf("nth.from: %w", err)
@@ -454,7 +470,7 @@ func morseWordColor(word string) string {
 
 // spokenLetterJA は1文字を無線で読み上げる形。**文字名 + NATOフォネティック**。
 //
-// 302 でナビゲーターが探す文字を指定するのに使う。片方だけだと伝わらないため
+// モールスで探す文字を指定するのに使う。片方だけだと伝わらないため
 // 機械的に両方を並べる (ADR N-41)。morseLetterCodes の全文字を網羅すること。
 var spokenLetterJA = map[string]string{
 	"A": "エー、アルファ", "B": "ビー、ブラボー", "C": "シー、チャーリー",
@@ -465,7 +481,7 @@ var spokenLetterJA = map[string]string{
 	"Z": "ゼット、ズールー",
 }
 
-// morseLetterCodes は 302 で使う1文字の符号。要素数で選び分けるために持つ。
+// morseLetterCodes は1文字の符号。要素数で選び分けるために持つ。
 //
 // 要素数がばらけるよう、**1〜4要素から均等に**候補を用意してある。
 // 数字 (0-9) は全て5要素で見分けにくいため使わない (ADR N-41)。

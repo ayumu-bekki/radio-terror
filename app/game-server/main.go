@@ -78,6 +78,11 @@ func main() {
 	if err := validateCodebookTable(); err != nil {
 		log.Fatalf("codebook: %v", err)
 	}
+	// 209 配電盤照合 の対照表も同じ性質 — 見え方が重複していると
+	// その行が抽選された回だけ現在位置を特定できなくなる。
+	if err := validatePanelTable(); err != nil {
+		log.Fatalf("panel: %v", err)
+	}
 	// 難易度ごとの入力量。未設定だと「押す回数0回」の成立しないステージになる。
 	for _, name := range []string{difficultyEasy, difficultyNormal, difficultyHard} {
 		diff, err := library.Difficulty(name)

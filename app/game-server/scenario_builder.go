@@ -45,8 +45,11 @@ type SheetDocuments struct {
 	// 末尾文字 → 基準色) の2つを1つの資料番号にまとめてある** (ADR D-2)。
 	// 202 は必ず両方を順にたどるため、片方だけ見る場面が無い。
 	Codebook string `toml:"codebook"`
-	// Circuit は回路図 (205) + 202 の最終分岐表
+	// Circuit は回路図 (203 ブループリント) + 301 LED照合 の最終分岐表
 	Circuit string `toml:"circuit"`
+	// Panel はロータリー対照表 (209 配電盤照合)。
+	// 見え方 → 現在位置 / 危険位置 / 解除位置 を引く6行の表。
+	Panel string `toml:"panel"`
 }
 
 // Validate は資料名がすべて設定されているかを確かめる。
@@ -62,6 +65,7 @@ func (d *SheetDocuments) Validate() error {
 		{"morse", d.Morse},
 		{"codebook", d.Codebook},
 		{"circuit", d.Circuit},
+		{"panel", d.Panel},
 	}
 	for _, f := range fields {
 		if strings.TrimSpace(f.value) == "" {
@@ -80,6 +84,7 @@ func (d *SheetDocuments) sheetDocumentVars() map[string]string {
 		"sheet_morse":    d.Morse,
 		"sheet_codebook": d.Codebook,
 		"sheet_circuit":  d.Circuit,
+		"sheet_panel":    d.Panel,
 	}
 }
 

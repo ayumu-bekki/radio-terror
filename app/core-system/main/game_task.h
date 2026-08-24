@@ -151,6 +151,9 @@ class GameTask final : public Task {
   void ApplyLedOutputs();
   /// 上書き表示を解除する。色合わせ進行中は点灯中の色を復元する (§5.1)
   void ClearLedOverrides();
+
+  /// 今表示すべきLEDテーブル (ロータリー位置ごとに変わるステージ用)
+  const LedPattern* CurrentLedPatterns() const;
   void UpdateFullColorLed();
   void FireSolenoid();
 

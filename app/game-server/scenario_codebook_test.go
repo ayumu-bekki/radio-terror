@@ -317,7 +317,6 @@ func TestDifficultyPoolsHaveEnoughStages(t *testing.T) {
 // (ADR S-9)。
 //
 //	easy    101-105   normal  201-209   hard  301-305
-//	無効化中は同じ帯の90番台 (191 / 291-294 / 391-394)
 //
 // **有効なステージは隙間なく詰める。** 欠番が残ると「なぜ204だけ無いのか」を
 // 毎回調べ直すことになる。無効化を90番台へ寄せれば、
@@ -801,5 +800,135 @@ func TestSpeedRanksFollowDifficulty(t *testing.T) {
 	if worstRatio[difficultyHard] >= worstRatio[difficultyNormal] {
 		t.Errorf("ハードの隣接比 %.2f がノーマル %.2f より詰まっていない",
 			worstRatio[difficultyHard], worstRatio[difficultyNormal])
+	}
+}
+
+// TestPanelTableIsValid は 209 配電盤照合 の対照表が成立するかを確かめる。
+// 起動時に main.go が呼ぶ検査と同じもの。
+func TestPanelTableIsValid(t *testing.T) {
+	if err := validatePanelTable(); err != nil {
+		t.Fatalf("validatePanelTable: %v", err)
+	}
+}
+
+// TestPanelStageRotaryLeds は 209 配電盤照合 の**位置ごとの見え方**が
+// 設計どおりかを確かめる (ADR C-14)。
+//
+//	現在位置 … 対照表どおり (点灯 + 点滅)
+//	解除位置 … **cut だけが点滅**
+//	危険位置 … **赤だけ点灯** (1色のみ)
+//	その他   … ダミー。**1色だけにしない** (危険位置の合図と紛れる)
+//
+// **解除位置の表示は対照表に載っていない**ことが要点 — 載せると
+// 回す前に切る線が分かってしまい、回す工程が消える。
+func TestPanelStageRotaryLeds(t *testing.T) {
+	lib := loadTestLibrary(t)
+	stageTmpl, err := lib.Stage("209")
+	if err != nil {
+		t.Fatalf("Stage(209): %v", err)
+	}
+
+	for seed := int64(0); seed < 120; seed++ {
+		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		if err != nil {
+			t.Fatalf("seed=%d: buildStage: %v", seed, err)
+		}
+
+		table, ok := built.Core["rotary_leds"].(map[string]any)
+		if !ok {
+			t.Fatalf("seed=%d: rotary_leds が無い", seed)
+		}
+		if len(table) != rotaryPositionNum {
+			t.Fatalf("seed=%d: rotary_leds が %d 通り (%d のはず)",
+				seed, len(table), rotaryPositionNum)
+		}
+
+		release, err := strconv.Atoi(fmt.Sprintf("%v",
+			built.Core["precondition"].(map[string]any)["rotary"]))
+		if err != nil {
+			t.Fatalf("seed=%d: 解除位置が数値でない", seed)
+		}
+		positions := built.Core["forbidden_rotary"].(map[string]any)["positions"].([]any)
+		forbidden, err := strconv.Atoi(fmt.Sprintf("%v", positions[0]))
+		if err != nil {
+			t.Fatalf("seed=%d: 危険位置が数値でない", seed)
+		}
+		if release == forbidden {
+			t.Fatalf("seed=%d: 解除位置と危険位置が同じ (%d) — 到達できない", seed, release)
+		}
+
+		// **危険位置は現在位置と解除位置の「間」にあること。**
+		// 経路の外だと素通りでき、「止まらずに通り抜ける」緊張が消える。
+		//
+		// 現在位置は対照表から引く (危険位置と解除位置の組で一意に決まる)。
+		position := -1
+		for _, row := range panelTable {
+			if row.forbidden == forbidden && row.release == release {
+				position = row.position
+				break
+			}
+		}
+		if position < 0 {
+			t.Fatalf("seed=%d: 危険%d/解除%d の組が対照表に無い", seed, forbidden, release)
+		}
+		lo, hi := position, release
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+		if forbidden <= lo || hi <= forbidden {
+			t.Errorf("seed=%d: 危険位置 %d が経路 (%d〜%d) の外 — 素通りできる",
+				seed, forbidden, lo, hi)
+		}
+
+		for key, raw := range table {
+			pos, err := strconv.Atoi(key)
+			if err != nil || pos < 0 || rotaryPositionNum <= pos {
+				t.Fatalf("seed=%d: 位置キーが不正: %q", seed, key)
+			}
+			leds, ok := raw.(map[string]any)
+			if !ok {
+				t.Fatalf("seed=%d: 位置 %d の表示がテーブルでない", seed, pos)
+			}
+
+			blinking := make([]string, 0, 2)
+			for color, spec := range leds {
+				if obj, isObj := spec.(map[string]any); isObj && obj["pattern"] == "blink" {
+					blinking = append(blinking, color)
+				}
+			}
+
+			switch pos {
+			case release:
+				// **cut だけが点滅**していること
+				if len(blinking) != 1 || blinking[0] != built.Cut {
+					t.Errorf("seed=%d: 解除位置 %d で点滅しているのが %v (cut=%s のみのはず)",
+						seed, pos, blinking, built.Cut)
+				}
+			case forbidden:
+				// **1色だけ点灯**。危険位置に止まっている合図
+				if len(leds) != 1 {
+					t.Errorf("seed=%d: 危険位置 %d の表示が %d 色 (1色のはず)",
+						seed, pos, len(leds))
+				}
+				if _, lit := leds[panelDangerLit]; !lit {
+					t.Errorf("seed=%d: 危険位置 %d が %s 単独点灯になっていない: %v",
+						seed, pos, panelDangerLit, leds)
+				}
+			default:
+				// ダミーと現在位置。**1色だけにしない** — 危険位置の合図と紛れる
+				if len(leds) == 1 {
+					t.Errorf("seed=%d: 位置 %d の表示が1色だけ — "+
+						"危険位置の合図 (%s 単独点灯) と紛れる", seed, pos, panelDangerLit)
+				}
+				// **cut が点滅していてはいけない** — 解除位置以外で答えが見える
+				for _, c := range blinking {
+					if c == built.Cut {
+						t.Errorf("seed=%d: 位置 %d で cut (%s) が点滅している — "+
+							"解除位置へ回す前に答えが分かる", seed, pos, built.Cut)
+					}
+				}
+			}
+		}
 	}
 }

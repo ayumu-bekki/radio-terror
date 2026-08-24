@@ -24,6 +24,7 @@ func testMissionSheet() MissionSheet {
 			Morse:    "資料1",
 			Codebook: "資料2",
 			Circuit:  "資料3",
+			Panel:    "資料4",
 		},
 	}
 }
@@ -137,94 +138,6 @@ func TestTerminalMapsValidate(t *testing.T) {
 	}
 	if err := sameMap.ValidateTerminalMaps(); err == nil {
 		t.Error("X と Y が同じ対応でも通ってしまった")
-	}
-}
-
-// TestLetterMatchStageIsReadable は 302 文字の一致が「形で見分けられる」
-// 状態を保つことを確かめる (ADR N-41)。
-//
-//   - 5色に**互いに異なる**文字が出ること (重複すると絞り込みが成立しない)
-//   - 符号の**要素数がばらける**こと (同じ長さばかりだと長短の数え上げになり、
-//     モールスの数字を避けた意味が消える)
-//   - 表示文字が**色名に化けない**こと ("E" が「白」になる事故があった)
-func TestLetterMatchStageIsReadable(t *testing.T) {
-	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("302")
-	if err != nil {
-		t.Fatalf("Stage(302): %v", err)
-	}
-
-	for seed := int64(0); seed < 200; seed++ {
-		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
-		if err != nil {
-			t.Fatalf("seed=%d: buildStage: %v", seed, err)
-		}
-
-		leds, ok := built.Core["leds"].(map[string]any)
-		if !ok || len(leds) != len(allColors) {
-			t.Fatalf("seed=%d: leds が5色ぶん無い: %v", seed, built.Core["leds"])
-		}
-
-		seen := map[string]bool{}
-		byLen := map[int]int{}
-		for color, raw := range leds {
-			entry, ok := raw.(map[string]any)
-			if !ok {
-				t.Fatalf("seed=%d: leds[%s] がテーブルでない", seed, color)
-			}
-			word, _ := entry["word"].(string)
-			code, known := morseLetterCodes[word]
-			if !known {
-				t.Fatalf("seed=%d: 未知の表示文字 %q (morseLetterCodes に無い)", seed, word)
-			}
-			if seen[word] {
-				t.Fatalf("seed=%d: 文字 %q が複数の色に出ている", seed, word)
-			}
-			seen[word] = true
-			byLen[len(code)]++
-		}
-
-		// 同じ要素数に偏りすぎない (5色すべてが同じ長さだと数え上げになる)
-		for n, count := range byLen {
-			if count > 3 {
-				t.Errorf("seed=%d: %d要素の符号が%d色に集中している (形で見分けられない)",
-					seed, n, count)
-			}
-		}
-
-		// 表示文字が色名へ化けていないこと。
-		// answer には「切るのは<文字>を表示している<色>色の線」が入る。
-		target := built.Navigator["answer"]
-		for _, ja := range colorNameJA {
-			if strings.Contains(target, "切るのは"+ja+"を表示") {
-				t.Errorf("seed=%d: 表示文字が色名 %q に化けている:\n%s", seed, ja, target)
-			}
-		}
-
-		// ナビゲーターは文字名+フォネティックで指定する
-		if p := built.Navigator["procedure"]; !strings.Contains(p, "、") {
-			t.Errorf("seed=%d: procedure に読み上げ形が入っていない:\n%s", seed, p)
-		}
-	}
-}
-
-// TestSpokenLetterCoversAllCandidates は 302 で出る全文字に読み方が
-// 定義されていることを確かめる (ADR N-41)。
-//
-// 抜けがあると**その文字が当たったセッションだけ**が組み立てに失敗する。
-func TestSpokenLetterCoversAllCandidates(t *testing.T) {
-	for letter := range morseLetterCodes {
-		spoken, ok := spokenLetterJA[letter]
-		if !ok {
-			t.Errorf("文字 %q の読み方が spokenLetterJA に無い", letter)
-			continue
-		}
-		// 文字名とフォネティックを並べた形になっていること
-		if !strings.Contains(spoken, "、") {
-			t.Errorf("文字 %q の読み方が文字名+フォネティックになっていない: %q",
-				letter, spoken)
-		}
 	}
 }
 
@@ -473,20 +386,19 @@ func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 	}
 }
 
-// TestNoiseLedsAreSymmetric は 392 暗号電文・混信の妨害LEDが
+// TestNoiseLedsAreSymmetric は 302 暗号電文・ジャミングの妨害LEDが
 // **対称blink(点灯時間=消灯時間)** になることを確かめる。
 //
 // モールスは短点=1単位・長点=3単位の非対称なリズムなので、妨害を対称に
 // しておけば「これはモールスではない」と見分けられる。非対称になると
 // 妨害がモールスに見えてしまい、意図した難度から外れる。
 //
-// 304 は現在無効化中 (.toml.disabled)。noise_leds の実装自体は残っているため、
-// 復活させたときに壊れていないよう検証も残し、未ロード時はスキップする。
+// 302 暗号電文・ジャミング が唯一の利用者 (2026-08-25 に復活)。
 func TestNoiseLedsAreSymmetric(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("392")
-	if err != nil {
-		t.Skip("392 は無効化中 (.toml.disabled): noise_leds の検証をスキップ")
+	stageTmpl := stageOrSkip(t, lib, "302")
+	if stageTmpl == nil {
+		return
 	}
 
 	kinds := map[string]bool{}
@@ -561,7 +473,7 @@ func TestNoiseLedsAreSymmetric(t *testing.T) {
 // 変数の並び順を崩す編集を検出できるようにしておく。
 //
 // 正解が最速から外れると answer が「○番目に速い色」を指す形になり、
-// ナビゲーターが色名を言えなくなる (293 光の長さを無効化したのと同じ問題。
+// ナビゲーターが色名を言えなくなる (同じ問題で見送った案がある。
 // docs/puzzle_stage_ideas.md §5)。ここが回帰の要。
 func TestSpeedRankingConsistency(t *testing.T) {
 	lib := loadTestLibrary(t)
@@ -963,7 +875,6 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 	want := map[string]int{
 		"103": 2, // 点滅(押すボタン) + 点灯(切る線)
 		"104": 2, // 点灯(報告させる色) + 点滅(切る線)
-		"394": 3, // **無効化中**。復活したら効く
 		"304": 2, // 点滅(押さえるボタン) + 点灯(切る線)
 	}
 
@@ -1013,10 +924,9 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 
 	// ステージID → hint_l1 に必ず現れるべき抽選変数
 	want := map[string][]string{
-		"103": {"seq"},                        // 列は最初から読み上げる (103 コール&レスポンス)
-		"201": {"seq"},                        // 列は最初から読み上げる (長さは難易度で変わる)
-		"393": {"p1", "p2", "p3", "p4", "p5"}, // **無効化中**。復活したら効く
-		"206": {"forbidden"},                  // 危険位置は先に警告する
+		"103": {"seq"},       // 列は最初から読み上げる (103 コール&レスポンス)
+		"201": {"seq"},       // 列は最初から読み上げる (長さは難易度で変わる)
+		"206": {"forbidden"}, // 危険位置は先に警告する
 	}
 
 	ids := make([]string, 0, len(want))

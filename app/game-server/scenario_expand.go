@@ -99,7 +99,35 @@ func (b *ScenarioBuilder) expandCore(core map[string]any, vars map[string]string
 	if err := expandPushSeqColors(result); err != nil {
 		return nil, err
 	}
+
+	// rotary_leds = "${panel_leds}" は位置ごとのLED表示を展開する専用キー。
+	// ロータリーを回すたびに表示が変わるステージ (209 配電盤照合) で使う。
+	if err := expandRotaryLeds(result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+// expandRotaryLeds は core の rotary_leds を位置ごとのテーブルへ展開する。
+//
+// `pick = "rotary_leds"` が JSON へ畳んだ結果を受け取り、
+// Core向けJSONの `rotary_leds` キーへ戻す (209 配電盤照合)。
+func expandRotaryLeds(core map[string]any) error {
+	raw, ok := core["rotary_leds"]
+	if !ok {
+		return nil
+	}
+	text, ok := raw.(string)
+	if !ok || !strings.HasPrefix(text, rotaryLedsPrefix) {
+		return fmt.Errorf("rotary_leds must reference a rotary_leds variable")
+	}
+
+	var table map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(text, rotaryLedsPrefix)), &table); err != nil {
+		return fmt.Errorf("rotary_leds: %w", err)
+	}
+	core["rotary_leds"] = table
+	return nil
 }
 
 // expandPushSeqColors は precondition.push_seq.colors を entries へ展開する。

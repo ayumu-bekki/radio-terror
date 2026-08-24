@@ -174,6 +174,19 @@ struct StageConfig {
   Precondition precondition;
   ForbiddenRotary forbidden_rotary;
   ColorId cut = COLOR_NONE;
+
+  /// **ロータリー位置ごとのLED表示** (省略可)。
+  ///
+  /// 指定すると、ロータリーを回すたびに `leds` の代わりに
+  /// その位置の表示へ差し替わる。位置0-5 の6通りを持つ。
+  ///
+  /// 209 配電盤照合で使う — プレイヤーは見え方から現在位置を割り出し、
+  /// 紙資料で危険位置と解除位置を引く。**解除位置の表示は表に載っていない**
+  /// ので、回して初めて切る線が分かる。
+  ///
+  /// 未指定 (has_rotary_leds = false) なら従来どおり `leds` を使い続ける。
+  bool has_rotary_leds = false;
+  LedPattern rotary_leds[kRotaryPositionNum][kColorNum];
 };
 
 /// セッション定義一式 (session_start のペイロード)

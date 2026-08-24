@@ -84,36 +84,6 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 192 シグナル
-	// **192 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
-	// ステージだけを回すので、この台本は復活させたときに使う。: ボタンの並びは装置に現れない。第一声で1色目を言うのが要件。
-	// 第一声で1色目が色名で伝わっているかを見る。「ボタン」という単語の
-	// 有無ではなく**色が伝わったか**が要件 (決定22)。
-	"192": {
-		StageID: "192",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			// **まずランプを報告する**。押してから報告すると、
-			// 報告→照合→列 の往復を飛ばしてしまう (決定44)。
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "ランプが1つ光っています。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "1つ目のボタンを押しました。次は何色ですか。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "2つ目も押しました。次はどうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "3つ目まで押し終わりました。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "ランプが1つだけ点いています。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
 	// 102 ホールド&カット: まずランプ状態を報告させる誘導ができているか。
 	"102": {
 		StageID: "102",
@@ -176,31 +146,6 @@ var simScripts = map[string]simScript{
 				Player: "速いほうと遅いほうが分かりました。どちらを切りますか。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL4,
 				Player: "速いほうの色を切ればいいですか。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
-	// 191 いくつ光ってる?: 点灯数を数えさせ、ダイヤルへ結び付けさせる。
-	// **現在は無効化されている** (.toml.disabled)。再開に備えて台本は残す。
-	// 再開する場合は simColorToldByDesign への登録も必要
-	// (切る線の色が装置から読み取れないため)。
-	"191": {
-		StageID: "191",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "ランプが何個か光っています。数えればいいですか。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "数えました。この数はどう使いますか。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "ダイヤルをその数に合わせました。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL4,
-				Player: "どの線を切りますか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,
@@ -285,30 +230,6 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 291 切るな危険: 消灯している線を切らせない警告ができているか。
-	// **291 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
-	// ステージだけを回すので、この台本は復活させたときに使う。
-	"291": {
-		StageID: "291",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "2つのランプが点滅していて、3つは消えています。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "消えている線は切らないほうがいいですか。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "点滅している2つを見比べました。速さが違います。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL4,
-				Player: "遅いほうを切ればいいですか。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
 	// 203 ブループリント: **L4 でも色名を言ってはいけない**ステージ。
 	// 端子番号だけで指示できているかが最大の確認点。
 	"203": {
@@ -347,29 +268,6 @@ var simScripts = map[string]simScript{
 				Player: "最後に押した色は覚えています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL4,
 				Player: "その色の線を切ればいいですか。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
-	// 295 仲間はずれ: 5色から周期の違う1色を探させる。
-	// **295 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
-	// ステージだけを回すので、この台本は復活させたときに使う。
-	"295": {
-		StageID: "295",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "5つとも点滅しています。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "よく見ると速さが同じではない気がします。どうぞ"},
-			{Trigger: "silence", HintLevel: HintL3},
-			{Trigger: "player_message", HintLevel: HintL4,
-				Player: "1つだけ速いのが見つかりました。これを切りますか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,
@@ -431,30 +329,6 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 292 暗算ダイヤル: 「今切れ」とリアルタイム指示をしていないかを見る。
-	// **292 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
-	// ステージだけを回すので、この台本は復活させたときに使う。
-	"292": {
-		StageID: "292",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "ランプが光っています。タイマーも動いています。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "ランプの数は数えました。タイマーとどう関係しますか。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "足すんですね。でも6以上になる時間があります。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL4,
-				Player: "合わせました。いつ切ればいいですか。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
 	// 207 息が合わない: 「速さ」ではなく「揃っているか」へ観点を切り替えさせる。
 	"207": {
 		StageID: "207",
@@ -470,6 +344,29 @@ var simScripts = map[string]simScript{
 				Player: "1つだけ光る長さが短いものがあります。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL4,
 				Player: "それを切ればいいですか。どうぞ"},
+			// 台本の最後。課題を解いたあとの遷移で、次の課題も
+			// 「ランプはどうなっている?」から入るかを見る (決定32)。
+			{Trigger: "stage_cleared", HintLevel: HintL1,
+				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+		},
+	},
+
+	// 209 配電盤照合: 見え方から現在位置を当て、資料4へ誘導できるか。
+	// **第一声で解き方を説明していないか**、危険位置を伝えているかを見る。
+	// 危険位置 (${sim_forbidden}) は踏むと即爆発なので必ず伝わる必要がある。
+	"209": {
+		StageID:     "209",
+		MustMention: []string{"${sim_forbidden}"},
+		Turns: []simTurn{
+			// マネージャーへの応答 (カウントダウン開始前)。決定36。
+			{Trigger: "session_ready", HintLevel: HintL1},
+			{Trigger: "session_start", HintLevel: HintL1},
+			{Trigger: "player_message", HintLevel: HintL1,
+				Player: "赤が点いていて、青が点滅しています。どうぞ"},
+			{Trigger: "player_message", HintLevel: HintL2,
+				Player: "はい、その位置です。資料を見ればいいですか。どうぞ"},
+			{Trigger: "player_message", HintLevel: HintL3,
+				Player: "回しました。今度は別の色が点滅しています。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,
@@ -523,84 +420,6 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 391 暗転: 全消灯の瞬間を待たせる。
-	// **現在は無効化されている** (.toml.disabled)。再開に備えて台本は残す。
-	// 再開する場合は simColorToldByDesign への登録も必要
-	// (切る線の色が装置から読み取れないため)。
-	"391": {
-		StageID: "391",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "5つのランプがバラバラに点滅しています。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "たまに全部消える瞬間がある気がします。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "そのタイミングで切ればいいんですね。どの線ですか。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "ニッパーを構えました。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
-	// 393 二重復唱: 1周目は読み上げ、2周目は伏せる。切り分けができているか。
-	// **393 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
-	// ステージだけを回すので、この台本は復活させたときに使う。
-	// 第一声で1周目の列の1色目が伝わっているかを見る。
-	"393": {
-		StageID: "393",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			// **まずランプを報告する** (決定44)。
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "ランプが1つ光っています。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "もう一度、順番を言ってください。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "5個目まで押しました。次はどうしますか。どうぞ"},
-			// **2周目は伏せる**のが仕様。ここで読み上げたら所見。
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "2周目の順番を忘れました。教えてください。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "やっぱり分かりません。順番をお願いします。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
-	// 394 三点確保: ボタン2つを押さえたまま切らせる。
-	// **394 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
-	// ステージだけを回すので、この台本は復活させたときに使う。
-	"394": {
-		StageID: "394",
-		Turns: []simTurn{
-			// マネージャーへの応答 (カウントダウン開始前)。決定36。
-			{Trigger: "session_ready", HintLevel: HintL1},
-			{Trigger: "session_start", HintLevel: HintL1},
-			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "点滅しているランプが2つ、点灯しているランプが1つあります。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "点滅している2つのボタンを押さえるんですね。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "2つとも押さえました。指が届きにくいです。どうぞ"},
-			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "このまま切る線はどれですか。どうぞ"},
-			// 台本の最後。課題を解いたあとの遷移で、次の課題も
-			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
-		},
-	},
-
 	// 304 我慢比べ: 保持 + タイミング。ここでも「今だ」と言わないことが要件。
 	"304": {
 		StageID: "304",
@@ -639,6 +458,28 @@ var simScripts = map[string]simScript{
 				Player: "2文字目まで読めました。続きが読めません。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL3,
 				Player: "全部読めました。色の名前になっています。どうぞ"},
+			// 台本の最後。課題を解いたあとの遷移で、次の課題も
+			// 「ランプはどうなっている?」から入るかを見る (決定32)。
+			{Trigger: "stage_cleared", HintLevel: HintL1,
+				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+		},
+	},
+
+	// 302 暗号電文・ジャミング: 妨害の中からモールスを見つけさせる。
+	// **第一声で探し方を指示していないか**、切る線の色を直言していないかを見る。
+	// 解き方は 202 暗号電文と同じなので、妨害の扱いだけが違いになる。
+	"302": {
+		StageID: "302",
+		Turns: []simTurn{
+			// マネージャーへの応答 (カウントダウン開始前)。決定36。
+			{Trigger: "session_ready", HintLevel: HintL1},
+			{Trigger: "session_start", HintLevel: HintL1},
+			{Trigger: "player_message", HintLevel: HintL1,
+				Player: "ランプがばらばらに光っています。点きっぱなしのものもあります。どうぞ"},
+			{Trigger: "player_message", HintLevel: HintL2,
+				Player: "長短が混ざっているランプが1つありました。どうぞ"},
+			{Trigger: "player_message", HintLevel: HintL3,
+				Player: "読めました。デルタです。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,

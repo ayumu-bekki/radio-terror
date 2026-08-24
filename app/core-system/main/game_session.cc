@@ -6,6 +6,7 @@
 
 #include <cJSON.h>
 
+#include <cstdlib>
 #include <cstring>
 
 #include "led_pattern.h"
@@ -387,6 +388,43 @@ bool ParseStage(const cJSON* obj, StageConfig* out, std::string* error_detail) {
   if (cJSON_IsObject(precondition)) {
     if (!ParsePrecondition(precondition, &out->precondition, error_detail)) {
       return false;
+    }
+  }
+
+  // ロータリー位置ごとのLED表示 (209 配電盤照合)。
+  // "rotary_leds": { "0": {...}, "1": {...}, ... } の形。
+  // 位置0-5 のうち**指定が無い位置は全消灯**になる。
+  const cJSON* rotary_leds = cJSON_GetObjectItemCaseSensitive(obj, "rotary_leds");
+  if (cJSON_IsObject(rotary_leds)) {
+    const cJSON* slot = nullptr;
+    cJSON_ArrayForEach(slot, rotary_leds) {
+      if (!slot->string) {
+        *error_detail = "rotary_leds key must be a position number";
+        return false;
+      }
+      char* end = nullptr;
+      const long pos = strtol(slot->string, &end, 10);
+      if (end == slot->string || *end != '\0' || pos < 0 || kRotaryPositionNum <= pos) {
+        *error_detail = std::string("rotary_leds position out of range: ") + slot->string;
+        return false;
+      }
+      if (!cJSON_IsObject(slot)) {
+        *error_detail = std::string("rotary_leds[") + slot->string + "] must be an object";
+        return false;
+      }
+      const cJSON* element = nullptr;
+      cJSON_ArrayForEach(element, slot) {
+        const ColorId color = ColorFromChar(element->string ? element->string[0] : '\0');
+        if (color == COLOR_NONE) {
+          *error_detail = std::string("unknown led key in rotary_leds: ") +
+                          (element->string ? element->string : "");
+          return false;
+        }
+        if (!ParseLedValue(element, led_blink_ms, &out->rotary_leds[pos][color], error_detail)) {
+          return false;
+        }
+      }
+      out->has_rotary_leds = true;
     }
   }
 
