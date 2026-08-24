@@ -73,7 +73,7 @@ func TestSheetDocumentsValidate(t *testing.T) {
 // 「奇数ならX4、偶数ならY2」と並べて伝え、選ぶのはプレイヤーの仕事。
 func TestBlueprintOffersBothTerminalSeries(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("205")
+	stageTmpl, err := lib.Stage("203")
 	if err != nil {
 		t.Fatalf("Stage(205): %v", err)
 	}
@@ -81,7 +81,7 @@ func TestBlueprintOffersBothTerminalSeries(t *testing.T) {
 
 	for seed := int64(0); seed < 60; seed++ {
 		builder := NewScenarioBuilder(lib, sheet, rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -140,7 +140,7 @@ func TestTerminalMapsValidate(t *testing.T) {
 	}
 }
 
-// TestLetterMatchStageIsReadable は 211 文字の一致が「形で見分けられる」
+// TestLetterMatchStageIsReadable は 302 文字の一致が「形で見分けられる」
 // 状態を保つことを確かめる (ADR N-41)。
 //
 //   - 5色に**互いに異なる**文字が出ること (重複すると絞り込みが成立しない)
@@ -149,14 +149,14 @@ func TestTerminalMapsValidate(t *testing.T) {
 //   - 表示文字が**色名に化けない**こと ("E" が「白」になる事故があった)
 func TestLetterMatchStageIsReadable(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("211")
+	stageTmpl, err := lib.Stage("302")
 	if err != nil {
-		t.Fatalf("Stage(211): %v", err)
+		t.Fatalf("Stage(302): %v", err)
 	}
 
 	for seed := int64(0); seed < 200; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -209,7 +209,7 @@ func TestLetterMatchStageIsReadable(t *testing.T) {
 	}
 }
 
-// TestSpokenLetterCoversAllCandidates は 211 で出る全文字に読み方が
+// TestSpokenLetterCoversAllCandidates は 302 で出る全文字に読み方が
 // 定義されていることを確かめる (ADR N-41)。
 //
 // 抜けがあると**その文字が当たったセッションだけ**が組み立てに失敗する。
@@ -330,7 +330,7 @@ func TestNavigatorKnowledgeMatchesCore(t *testing.T) {
 		for seed := int64(0); seed < 60; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
 
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 			if err != nil {
 				t.Fatalf("stage %s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -374,7 +374,7 @@ func TestMorseWordColorMapping(t *testing.T) {
 }
 
 // TestLedKeyExpansion は ${rest} のような複数色キーが各色へ展開されることを確かめる
-// (207 仲間はずれの leds 指定)。
+// (207 息が合わない の leds 指定)。
 func TestLedKeyExpansion(t *testing.T) {
 	lib := loadTestLibrary(t)
 	stageTmpl, err := lib.Stage("207")
@@ -383,7 +383,7 @@ func TestLedKeyExpansion(t *testing.T) {
 	}
 
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 	if err != nil {
 		t.Fatalf("buildStage: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestLedKeyExpansion(t *testing.T) {
 // かつ**必ず1色以上余る**ことを確かめる。
 //
 // 全色を使い切ると切断線の抽選に余地が無くなり、色の制約を持つステージ
-// (203 暗号電文) が組み立て不能になるため、余りを保証する
+// (202 暗号電文) が組み立て不能になるため、余りを保証する
 // (docs/puzzle_stage_ideas.md §5)。
 func TestCutLineNotReusedAcrossStages(t *testing.T) {
 	lib := loadTestLibrary(t)
@@ -440,7 +440,7 @@ func TestCutLineNotReusedAcrossStages(t *testing.T) {
 	}
 }
 
-// TestMorseStageWorksWithAnyRemainingColor は 203 暗号電文が、
+// TestMorseStageWorksWithAnyRemainingColor は 202 暗号電文が、
 // どの色が1つだけ残っている状況でも組み立てられることを確かめる。
 //
 // 候補語が5色すべてをカバーしているため、割り当て順を特別扱いしなくても
@@ -448,7 +448,7 @@ func TestCutLineNotReusedAcrossStages(t *testing.T) {
 func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 	lib := loadTestLibrary(t)
 
-	stageTmpl, err := lib.Stage("203")
+	stageTmpl, err := lib.Stage("202")
 	if err != nil {
 		t.Fatalf("Stage(203): %v", err)
 	}
@@ -463,7 +463,7 @@ func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 		}
 
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-		built, err := builder.buildStage(stageTmpl, usedLines, stdHints)
+		built, err := builder.buildStage(stageTmpl, usedLines, stdHints, stdLoad)
 		if err != nil {
 			t.Fatalf("remaining=%s: buildStage: %v", remaining, err)
 		}
@@ -473,7 +473,7 @@ func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 	}
 }
 
-// TestNoiseLedsAreSymmetric は 304 暗号電文・混信の妨害LEDが
+// TestNoiseLedsAreSymmetric は 392 暗号電文・混信の妨害LEDが
 // **対称blink(点灯時間=消灯時間)** になることを確かめる。
 //
 // モールスは短点=1単位・長点=3単位の非対称なリズムなので、妨害を対称に
@@ -484,16 +484,16 @@ func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 // 復活させたときに壊れていないよう検証も残し、未ロード時はスキップする。
 func TestNoiseLedsAreSymmetric(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("304")
+	stageTmpl, err := lib.Stage("392")
 	if err != nil {
-		t.Skip("304 は無効化中 (.toml.disabled): noise_leds の検証をスキップ")
+		t.Skip("392 は無効化中 (.toml.disabled): noise_leds の検証をスキップ")
 	}
 
 	kinds := map[string]bool{}
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -552,7 +552,7 @@ func TestNoiseLedsAreSymmetric(t *testing.T) {
 	}
 }
 
-// TestSpeedRankingConsistency は 208 速さくらべで、
+// TestSpeedRankingConsistency は 205 速さくらべで、
 // **ナビゲーター知識の「速い順」の並びが実際のLED速度と一致する**ことと、
 // **正解が必ず最速である**ことを確かめる。
 //
@@ -561,11 +561,11 @@ func TestNoiseLedsAreSymmetric(t *testing.T) {
 // 変数の並び順を崩す編集を検出できるようにしておく。
 //
 // 正解が最速から外れると answer が「○番目に速い色」を指す形になり、
-// ナビゲーターが色名を言えなくなる (213 光の長さを無効化したのと同じ問題。
+// ナビゲーターが色名を言えなくなる (293 光の長さを無効化したのと同じ問題。
 // docs/puzzle_stage_ideas.md §5)。ここが回帰の要。
 func TestSpeedRankingConsistency(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("208")
+	stageTmpl, err := lib.Stage("205")
 	if err != nil {
 		t.Fatalf("Stage(208): %v", err)
 	}
@@ -585,7 +585,7 @@ func TestSpeedRankingConsistency(t *testing.T) {
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -696,7 +696,7 @@ func toInt(v any) (int, error) {
 	}
 }
 
-// TestAsLineExcludesUsedLines は 208 速さくらべで、
+// TestAsLineExcludesUsedLines は 205 速さくらべで、
 // **既に切られた線が正解に選ばれない**ことを確かめる。
 //
 // 208 は5色すべてを表示に使う (基準1色 + 点滅4色) ため、正解だけは
@@ -708,7 +708,7 @@ func toInt(v any) (int, error) {
 // 失敗した (セッション後半で実際に再現)。cut を先に引く形はこの失敗が起きない。
 func TestAsLineExcludesUsedLines(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("208")
+	stageTmpl, err := lib.Stage("205")
 	if err != nil {
 		t.Fatalf("Stage(208): %v", err)
 	}
@@ -718,7 +718,7 @@ func TestAsLineExcludesUsedLines(t *testing.T) {
 
 	for seed := int64(0); seed < 50; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, used, stdHints)
+		built, err := builder.buildStage(stageTmpl, used, stdHints, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -737,7 +737,7 @@ func TestAsLineExcludesUsedLines(t *testing.T) {
 	// 残り1色でも組み立てられること
 	only := map[string]bool{"A": true, "B": true, "C": true, "D": true}
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-	built, err := builder.buildStage(stageTmpl, only, stdHints)
+	built, err := builder.buildStage(stageTmpl, only, stdHints, stdLoad)
 	if err != nil {
 		t.Fatalf("残り1色: buildStage: %v", err)
 	}
@@ -750,7 +750,7 @@ func TestAsLineExcludesUsedLines(t *testing.T) {
 //
 // 抽選変数の展開では数字だけの文字列が数値へ変換される (rotary などの数値
 // フィールドのため)。しかし Core 側は morse の word に `cJSON_IsString` を
-// 要求するため (§6.1)、数字を表示するステージ (211) で数値のまま渡すと
+// 要求するため (§6.1)、数字を表示するステージ (302) で数値のまま渡すと
 // 実機が session_rejected を返す。ビルドもサーバー側検証も通ってしまい、
 // 実機で初めて発覚する類の不具合なのでテストで固定する。
 func TestMorseWordIsAlwaysString(t *testing.T) {
@@ -763,7 +763,7 @@ func TestMorseWordIsAlwaysString(t *testing.T) {
 		}
 		for seed := int64(0); seed < 30; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 			if err != nil {
 				t.Fatalf("stage %s seed=%d: %v", id, seed, err)
 			}
@@ -786,7 +786,7 @@ func TestMorseWordIsAlwaysString(t *testing.T) {
 	}
 }
 
-// TestPickWordByColorRespectsExclude は「語→色」の抽選 (203/308) が
+// TestPickWordByColorRespectsExclude は「語→色」の抽選 (203/305) が
 // exclude 指定と使用済みの線の**両方**を尊重することを確かめる。
 //
 // 統合前は morse_word だけ exclude を見ておらず、片方だけ効かない状態だった。
@@ -854,7 +854,7 @@ func colorCodeFromJA(name string) (string, bool) {
 //
 // 101 は「無線で報告し、指示を受けて操作する」交信の型を覚えるステージ。
 // 罠を仕込むと最初の一手で失敗して萎縮させるため、禁止位置は置かない
-// (禁止位置の緊張感は 209 綱渡りが担う)。
+// (禁止位置の緊張感は 206 綱渡りが担う)。
 func TestTutorialStageHasNoForbiddenRotary(t *testing.T) {
 	lib := loadTestLibrary(t)
 
@@ -936,11 +936,26 @@ func TestTutorialProcedureUsesDrawnPath(t *testing.T) {
 // ステージで、**抽選次第で同色になって表示が潰れない**ことを確かめる。
 //
 // leds はテーブルなので同じ色を2回指定すると1エントリに畳まれ、後勝ちで
-// 上書きされる (点灯が点滅で潰れる)。103 ホールド&カットで hold と cut が
+// 上書きされる (点灯が点滅で潰れる)。102 ホールド&カットで hold と cut が
 // 同色になると「点滅=押すボタン / 点灯=切る線」の対応が画面に現れず、
-// 104 コール&レスポンスで lit と cut が同色になると
+// 103 コール&レスポンスで lit と cut が同色になると
 // 「点灯を報告 → 点滅を切る」という対話そのものが成立しない。
 // どちらも**抽選の2割前後で発生**していた (実プレイで発覚)。
+// stageOrSkip はステージ定義を引く。**無効化中なら nil を返す** (.toml.disabled)。
+//
+// ステージIDを直に持つ検査表は、ステージを1つ無効化するたびに
+// 関係の無いテストが落ちる。表のエントリは残しておけば復活時にそのまま効くので、
+// 引けなかったものは飛ばす。
+func stageOrSkip(t *testing.T, lib *ScenarioLibrary, id string) *StageTemplate {
+	t.Helper()
+	stageTmpl, err := lib.Stage(id)
+	if err != nil {
+		t.Logf("%s: 無効化中のため飛ばす (%v)", id, err)
+		return nil
+	}
+	return stageTmpl
+}
+
 func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 	lib := loadTestLibrary(t)
 
@@ -948,8 +963,8 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 	want := map[string]int{
 		"103": 2, // 点滅(押すボタン) + 点灯(切る線)
 		"104": 2, // 点灯(報告させる色) + 点滅(切る線)
-		"306": 3, // 点滅2(押さえる2色) + 点灯1(切る線)
-		"307": 2, // 点滅(押さえるボタン) + 点灯(切る線)
+		"394": 3, // **無効化中**。復活したら効く
+		"304": 2, // 点滅(押さえるボタン) + 点灯(切る線)
 	}
 
 	ids := make([]string, 0, len(want))
@@ -959,13 +974,13 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 	sort.Strings(ids)
 
 	for _, id := range ids {
-		stageTmpl, err := lib.Stage(id)
-		if err != nil {
-			t.Fatalf("Stage(%s): %v", id, err)
+		stageTmpl := stageOrSkip(t, lib, id)
+		if stageTmpl == nil {
+			continue
 		}
 		for seed := int64(0); seed < 300; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -985,7 +1000,7 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 // TestUnobservableInfoRevealedAtL1 は「**装置を見ても分からない情報**」を持つ
 // ステージが、L1 の時点でそれを伝えるようになっていることを確かめる。
 //
-// ボタンを押す順番 (102/201/305) や危険なダイヤル位置 (209) は装置に一切現れず、
+// ボタンを押す順番 (102/201) や危険なダイヤル位置 (209) は装置に一切現れず、
 // ナビゲーターしか知らない。これを伏せるとプレイヤーは観察でも推理でも
 // たどり着けず、無線が「順番を教えて」の往復で浪費されるだけになる
 // (102 の実プレイで発生。開始から約1分間、色が一切伝わらなかった)。
@@ -998,10 +1013,10 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 
 	// ステージID → hint_l1 に必ず現れるべき抽選変数
 	want := map[string][]string{
-		"102": {"p1"},                         // 1色目は必ず伝える
-		"201": {"p1", "p2", "p3", "p4", "p5"}, // 列は最初から読み上げる
-		"305": {"p1", "p2", "p3", "p4", "p5"}, // 1周目は読み上げる (2周目は伏せてよい)
-		"209": {"forbidden"},                  // 危険位置は先に警告する
+		"103": {"seq"},                        // 列は最初から読み上げる (103 コール&レスポンス)
+		"201": {"seq"},                        // 列は最初から読み上げる (長さは難易度で変わる)
+		"393": {"p1", "p2", "p3", "p4", "p5"}, // **無効化中**。復活したら効く
+		"206": {"forbidden"},                  // 危険位置は先に警告する
 	}
 
 	ids := make([]string, 0, len(want))
@@ -1011,9 +1026,9 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 	sort.Strings(ids)
 
 	for _, id := range ids {
-		stageTmpl, err := lib.Stage(id)
-		if err != nil {
-			t.Fatalf("Stage(%s): %v", id, err)
+		stageTmpl := stageOrSkip(t, lib, id)
+		if stageTmpl == nil {
+			continue
 		}
 		// テンプレート段階で ${変数} が hint_l1 に書かれているかを見る
 		// (展開後の値は他の語と紛れるため、定義そのものを検証する)
@@ -1030,7 +1045,7 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 		// 展開しても未解決の変数が残らないこと
 		for seed := int64(0); seed < 20; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -1052,7 +1067,7 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 // 解釈していたこと。「報告させる」と**動作**で書く必要がある
 // (docs/navigator_design.md 決定32)。
 //
-// 装置を見ても分からない情報を先出しするステージ (102/201/209/305) も、
+// 装置を見ても分からない情報を先出しするステージ (102/201/209) も、
 // ランプの確認自体は省かない。
 func TestStagesAskForLampReportFirst(t *testing.T) {
 	lib := loadTestLibrary(t)
@@ -1094,7 +1109,7 @@ func TestStagesAskForLampReportFirst(t *testing.T) {
 // 組み立てに失敗する — 抽選次第でしか再現しないので、全色を明示的に回す。
 func TestCodebookStageResolves(t *testing.T) {
 	lib := loadTestLibrary(t)
-	stageTmpl, err := lib.Stage("202")
+	stageTmpl, err := lib.Stage("301")
 	if err != nil {
 		t.Fatalf("Stage(202): %v", err)
 	}
@@ -1105,7 +1120,7 @@ func TestCodebookStageResolves(t *testing.T) {
 
 	for seed := int64(0); seed < 200; seed++ {
 		builder := NewScenarioBuilder(lib, sheet, rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -1189,10 +1204,10 @@ func TestCodebookTableIsValid(t *testing.T) {
 // 確かめる (docs/navigator_design.md §3.2 / ADR N-35)。
 //
 // observation はプレイヤーが報告すべき観察の定義で、これが無いステージは
-// ヒントレベルの前倒しが働かない。実運用で 105 早い者勝ち を完璧に報告したのに
+// ヒントレベルの前倒しが働かない。実運用で 104 早い者勝ち を完璧に報告したのに
 // 経過22秒では L1 のままとなり、「よく見比べてください」と空振りが返った。
 //
-// 報告そのものが答えの決め手になる観察系ステージ (105/204/207/212 など) で
+// 報告そのものが答えの決め手になる観察系ステージ (105/204/207/208 など) で
 // 特に効くが、**全ステージが第一声でランプの報告を求める**設計
 // (TestStagesAskForLampReportFirst) なので、定義も全ステージに要る。
 func TestStagesDefineObservation(t *testing.T) {

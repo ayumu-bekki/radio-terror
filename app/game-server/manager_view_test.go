@@ -313,8 +313,8 @@ func TestColorLabel(t *testing.T) {
 // セッション詳細の切断線も色名で表示する。
 func TestBuildStageViewsUsesColorName(t *testing.T) {
 	views := buildStageViews([]*BuiltStage{
-		{TemplateID: "102", Name: "シグナル", Cut: "A"},
-		{TemplateID: "203", Name: "暗号電文", Cut: "C"},
+		{TemplateID: "102", Name: "ホールド&カット", Cut: "A"},
+		{TemplateID: "202", Name: "暗号電文", Cut: "C"},
 	}, 0, deviceStatePlaying)
 
 	if views[0].Cut != "赤" {

@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -36,7 +37,7 @@ type MissionSheet struct {
 // **面 (表裏) は持たない**。ナビゲーターは面を指示せず番号だけを言うため、
 // 印刷レイアウトを変えてもサーバー設定は変わらない。
 type SheetDocuments struct {
-	// Morse はモールス対照表 (203/304/308)
+	// Morse はモールス対照表 (203/304/305)
 	Morse string `toml:"morse"`
 	// Codebook は 202 の暗号チェーンを載せた資料 (202)。
 	//
@@ -82,7 +83,7 @@ func (d *SheetDocuments) sheetDocumentVars() map[string]string {
 	}
 }
 
-// TerminalForColor は配線色から端子番号を引く (205 ブループリント用)。
+// TerminalForColor は配線色から端子番号を引く (203 ブループリント用)。
 //
 // series は "x" (奇数系統) / "y" (偶数系統)。
 // ナビゲーターは**両系統の端子番号を並べて**伝え、どちらを使うかは
@@ -232,7 +233,7 @@ func (b *ScenarioBuilder) Build(sessionID, difficulty string) (*BuiltSession, er
 	// (配線は5本で物理的に1本ずつしか切れないため。docs/scenario_design.md §4)
 	//
 	// ステージ数は最大4に抑えてあり、色が1本以上余る。加えて色の制約を持つ
-	// ステージ (203 暗号電文) も候補語で5色すべてをカバーしているため、
+	// ステージ (202 暗号電文) も候補語で5色すべてをカバーしているため、
 	// 再生順どおりに素直に解決してよい。
 	usedLines := make(map[string]bool)
 
@@ -241,7 +242,7 @@ func (b *ScenarioBuilder) Build(sessionID, difficulty string) (*BuiltSession, er
 		if err != nil {
 			return nil, err
 		}
-		stage, err := b.buildStage(stageTmpl, usedLines, tmpl.Hints)
+		stage, err := b.buildStage(stageTmpl, usedLines, tmpl.Hints, tmpl.Load)
 		if err != nil {
 			return nil, fmt.Errorf("stage %s: %w", id, err)
 		}
@@ -351,7 +352,7 @@ func toJapaneseColorVars(vars map[string]string, keepLiteral map[string]bool) ma
 	for name, value := range vars {
 		// **色コード以外の意味で A-E を持つ変数は変換しない** (ADR N-41)。
 		//
-		// 変換は**値**で判定するため、モールスで表示する1文字 (211 の "E" など)
+		// 変換は**値**で判定するため、モールスで表示する1文字 (302 の "E" など)
 		// がそのまま色名「白」に化けていた。意味を持つのは変数側なので、
 		// 色として扱わない変数を明示的に除外する。
 		if keepLiteral[name] {
@@ -370,9 +371,41 @@ func toJapaneseColorVars(vars map[string]string, keepLiteral map[string]bool) ma
 			converted[name] = japanese
 			continue
 		}
+		// **カンマ区切りの数値列も読み上げられる形へ**
+		// (206 綱渡り の禁止位置が複数あるときなど)。
+		// 「3,5」のままだと TTS が小数や記号として読む。
+		if spoken, ok := spokenNumberList(value); ok {
+			converted[name] = spoken
+			continue
+		}
 		converted[name] = value
 	}
 	return converted
+}
+
+// spokenNumberList はカンマ区切りの数値列を読み上げられる形へ変換する。
+//
+// 「3,5」→「3と5」。**全要素が数値のときだけ**変換する。
+// 206 綱渡り の禁止位置は難易度で1個にも2個にもなるため、
+// 1個のときは元の値のまま (変換不要)。
+//
+// カンマのまま読み上げると TTS が小数や記号として扱い、
+// **危険位置が正しく伝わらない** — このステージは踏むと即爆発するので
+// 聞き間違いが直接事故になる。
+func spokenNumberList(value string) (string, bool) {
+	items := strings.Split(value, ",")
+	if len(items) < 2 {
+		return "", false
+	}
+	nums := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if _, err := strconv.Atoi(item); err != nil {
+			return "", false
+		}
+		nums = append(nums, item)
+	}
+	return strings.Join(nums, "と"), true
 }
 
 // japaneseColorList はカンマ区切りの色コード列を日本語の色名列へ変換する。
@@ -401,9 +434,9 @@ func japaneseColorList(value string) (string, bool) {
 // hints は難易度テンプレートのヒント閾値。ステージ定義に `[hints]` があれば
 // それで上書きする (ADR N-36)。
 func (b *ScenarioBuilder) buildStage(
-	tmpl *StageTemplate, usedLines map[string]bool, hints HintRule,
+	tmpl *StageTemplate, usedLines map[string]bool, hints HintRule, load LoadRule,
 ) (*BuiltStage, error) {
-	vars, err := b.resolveVars(tmpl, usedLines)
+	vars, err := b.resolveVars(tmpl, usedLines, load)
 	if err != nil {
 		return nil, err
 	}
@@ -461,8 +494,17 @@ func (b *ScenarioBuilder) buildStage(
 //
 // 定義同士が ${...} で参照し合うため (exclude など)、解決済みの変数を使って
 // 参照を展開しながら進める。参照先が未解決の場合は解決順を入れ替えて再試行する。
-func (b *ScenarioBuilder) resolveVars(tmpl *StageTemplate, usedLines map[string]bool) (map[string]string, error) {
+func (b *ScenarioBuilder) resolveVars(
+	tmpl *StageTemplate, usedLines map[string]bool, load LoadRule,
+) (map[string]string, error) {
 	vars := make(map[string]string)
+
+	// **難易度の入力量を先に置く**。抽選より前に入れることで
+	// `{ pick = "int", min = "${load_color_match_min}" }` のように参照できる。
+	// 抽選変数と同名の定義があればそちらが後から上書きする。
+	for name, value := range load.loadVars() {
+		vars[name] = value
+	}
 
 	// 定義名を安定した順序にする
 	names := make([]string, 0, len(tmpl.Random))

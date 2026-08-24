@@ -238,6 +238,14 @@ bool ParsePrecondition(const cJSON* obj, Precondition* out, std::string* error_d
       }
     }
 
+    // 押し切ったら切る線だけを点灯させるか (103 コール&レスポンス)。
+    // 省略時は false — 他のステージの見え方は変わらない。
+    const cJSON* reveal =
+        cJSON_GetObjectItemCaseSensitive(push_seq_item, "reveal_cut_on_complete");
+    if (cJSON_IsBool(reveal)) {
+      push_seq.reveal_cut_on_complete = cJSON_IsTrue(reveal);
+    }
+
     out->has_push_seq = true;
     out->push_seq = std::move(push_seq);
   }

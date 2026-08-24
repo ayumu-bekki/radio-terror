@@ -116,6 +116,14 @@ struct PushSeqSpec {
   std::vector<PushSeqEntry> entries;
   /// ミス時の挙動 (既定 retry)
   ActionSpec on_wrong_press{ACTION_RETRY, 0};
+  /// 押し切ったら**切る線の色だけを点灯**させ、他は消灯するか (既定 false)。
+  ///
+  /// 103 コール&レスポンスで使う。押下中は「報告用の点灯」と
+  /// 「切る線の点滅」が両方見えており、押し終わると切る線だけが残る。
+  /// 押下フェーズの終わりが視覚的に区切られ、次に何をするかが一目で分かる。
+  ///
+  /// 既定は false なので、他のボタン列ステージ (201 復唱 など) の見え方は変わらない。
+  bool reveal_cut_on_complete = false;
 };
 
 /// 事前条件: 切断の瞬間のタイマー桁条件

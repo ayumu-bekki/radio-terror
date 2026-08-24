@@ -84,11 +84,13 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 102 シグナル: ボタンの並びは装置に現れない。第一声で1色目を言うのが要件。
+	// 192 シグナル
+	// **192 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
+	// ステージだけを回すので、この台本は復活させたときに使う。: ボタンの並びは装置に現れない。第一声で1色目を言うのが要件。
 	// 第一声で1色目が色名で伝わっているかを見る。「ボタン」という単語の
 	// 有無ではなく**色が伝わったか**が要件 (決定22)。
-	"102": {
-		StageID: "102",
+	"192": {
+		StageID: "192",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -112,9 +114,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 103 ホールド&カット: まずランプ状態を報告させる誘導ができているか。
-	"103": {
-		StageID: "103",
+	// 102 ホールド&カット: まずランプ状態を報告させる誘導ができているか。
+	"102": {
+		StageID: "102",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -137,9 +139,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 104 コール&レスポンス: 点灯色の報告から対話が始まる。
-	"104": {
-		StageID: "104",
+	// 103 コール&レスポンス: 点灯色の報告から対話が始まる。
+	"103": {
+		StageID: "103",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -159,9 +161,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 105 早い者勝ち: procedure が無いステージ。hint_* だけで誘導できるかを見る。
-	"105": {
-		StageID: "105",
+	// 104 早い者勝ち: procedure が無いステージ。hint_* だけで誘導できるかを見る。
+	"104": {
+		StageID: "104",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -181,12 +183,12 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 106 いくつ光ってる?: 点灯数を数えさせ、ダイヤルへ結び付けさせる。
+	// 191 いくつ光ってる?: 点灯数を数えさせ、ダイヤルへ結び付けさせる。
 	// **現在は無効化されている** (.toml.disabled)。再開に備えて台本は残す。
 	// 再開する場合は simColorToldByDesign への登録も必要
 	// (切る線の色が装置から読み取れないため)。
-	"106": {
-		StageID: "106",
+	"191": {
+		StageID: "191",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -236,11 +238,11 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 202 LED照合: 資料2 (変換表 → デコード表) → 資料3 とたどらせる。
+	// 301 LED照合: 資料2 (変換表 → デコード表) → 資料3 とたどらせる。
 	// **各段でプレイヤーに引かせられるか**を見る。キーワードもダイヤル位置も
 	// ナビが先に言ってしまうと、資料をたどる工程が丸ごと消える。
-	"202": {
-		StageID: "202",
+	"301": {
+		StageID: "301",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -260,10 +262,10 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 203 暗号電文: モールス → 語 → 頭文字 → 対照表の色。
+	// 202 暗号電文: モールス → 語 → 頭文字 → 対照表の色。
 	// 音声認識の誤変換 (「三毛」等) を吸収できるかも見る。
-	"203": {
-		StageID: "203",
+	"202": {
+		StageID: "202",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -283,9 +285,11 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 204 切るな危険: 消灯している線を切らせない警告ができているか。
-	"204": {
-		StageID: "204",
+	// 291 切るな危険: 消灯している線を切らせない警告ができているか。
+	// **291 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
+	// ステージだけを回すので、この台本は復活させたときに使う。
+	"291": {
+		StageID: "291",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -305,10 +309,10 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 205 ブループリント: **L4 でも色名を言ってはいけない**ステージ。
+	// 203 ブループリント: **L4 でも色名を言ってはいけない**ステージ。
 	// 端子番号だけで指示できているかが最大の確認点。
-	"205": {
-		StageID: "205",
+	"203": {
+		StageID: "203",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -328,9 +332,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 206 色合わせ: color_match_completed の後に「最後に押した色」を思い出させる。
-	"206": {
-		StageID: "206",
+	// 204 色合わせ: color_match_completed の後に「最後に押した色」を思い出させる。
+	"204": {
+		StageID: "204",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -350,9 +354,11 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 207 仲間はずれ: 5色から周期の違う1色を探させる。
-	"207": {
-		StageID: "207",
+	// 295 仲間はずれ: 5色から周期の違う1色を探させる。
+	// **295 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
+	// ステージだけを回すので、この台本は復活させたときに使う。
+	"295": {
+		StageID: "295",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -371,15 +377,15 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 208 速さくらべ: 点灯1色を基準外と伝え、**${rank}番目の色**を
+	// 205 速さくらべ: 点灯1色を基準外と伝え、**${rank}番目の色**を
 	// プレイヤーに先に言わせる。answer に「照合の材料として使え」と
 	// 書いてある指示が効いているかを見る。
 	//
 	// 正解の順位は毎回変わる (ADR N-40) ため、台本は
 	// **順位に依存しない言い回し**にしてある。「一番速いのは〜」と書くと
 	// 順位が2〜4番のときに台本自体が的外れな報告になる。
-	"208": {
-		StageID: "208",
+	"205": {
+		StageID: "205",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -400,11 +406,11 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 209 綱渡り: 危険位置は L1 で必ず伝える必要がある (伏せると事故になる)。
+	// 206 綱渡り: 危険位置は L1 で必ず伝える必要がある (伏せると事故になる)。
 	// 危険位置 (${sim_forbidden}) が第一声に出ているかを直接見る。
 	// 訊かれるまで伝わらないと即爆発の事故になるため。
-	"209": {
-		StageID:     "209",
+	"206": {
+		StageID:     "206",
 		MustMention: []string{"${sim_forbidden}"},
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
@@ -425,9 +431,11 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 210 暗算ダイヤル: 「今切れ」とリアルタイム指示をしていないかを見る。
-	"210": {
-		StageID: "210",
+	// 292 暗算ダイヤル: 「今切れ」とリアルタイム指示をしていないかを見る。
+	// **292 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
+	// ステージだけを回すので、この台本は復活させたときに使う。
+	"292": {
+		StageID: "292",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -447,9 +455,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 212 息が合わない: 「速さ」ではなく「揃っているか」へ観点を切り替えさせる。
-	"212": {
-		StageID: "212",
+	// 207 息が合わない: 「速さ」ではなく「揃っているか」へ観点を切り替えさせる。
+	"207": {
+		StageID: "207",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -471,9 +479,9 @@ var simScripts = map[string]simScript{
 
 	// --- ハード (L4 は無効。L3 止まりで誘導しきれるかを見る) ---
 
-	// 301 ジャストカット: 「今だ」とリアルタイム指示をしないことが要件。
-	"301": {
-		StageID: "301",
+	// 208 ジャストカット: 「今だ」とリアルタイム指示をしないことが要件。
+	"208": {
+		StageID: "208",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -493,9 +501,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 302 追いかけダイヤル: 十の位に追従させる。届かない時間帯の待ちを伝えるか。
-	"302": {
-		StageID: "302",
+	// 303 追いかけダイヤル: 十の位に追従させる。届かない時間帯の待ちを伝えるか。
+	"303": {
+		StageID: "303",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -515,12 +523,12 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 303 暗転: 全消灯の瞬間を待たせる。
+	// 391 暗転: 全消灯の瞬間を待たせる。
 	// **現在は無効化されている** (.toml.disabled)。再開に備えて台本は残す。
 	// 再開する場合は simColorToldByDesign への登録も必要
 	// (切る線の色が装置から読み取れないため)。
-	"303": {
-		StageID: "303",
+	"391": {
+		StageID: "391",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -540,10 +548,12 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 305 二重復唱: 1周目は読み上げ、2周目は伏せる。切り分けができているか。
+	// 393 二重復唱: 1周目は読み上げ、2周目は伏せる。切り分けができているか。
+	// **393 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
+	// ステージだけを回すので、この台本は復活させたときに使う。
 	// 第一声で1周目の列の1色目が伝わっているかを見る。
-	"305": {
-		StageID: "305",
+	"393": {
+		StageID: "393",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -567,9 +577,11 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 306 三点確保: ボタン2つを押さえたまま切らせる。
-	"306": {
-		StageID: "306",
+	// 394 三点確保: ボタン2つを押さえたまま切らせる。
+	// **394 は無効化中** (.toml.disabled)。シミュレーターは読み込まれた
+	// ステージだけを回すので、この台本は復活させたときに使う。
+	"394": {
+		StageID: "394",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -589,9 +601,9 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 307 我慢比べ: 保持 + タイミング。ここでも「今だ」と言わないことが要件。
-	"307": {
-		StageID: "307",
+	// 304 我慢比べ: 保持 + タイミング。ここでも「今だ」と言わないことが要件。
+	"304": {
+		StageID: "304",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -611,10 +623,10 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 308 ローマ字電文: 途中まで読めた報告を補って解読を急がせられるか。
+	// 305 ローマ字電文: 途中まで読めた報告を補って解読を急がせられるか。
 	// L3 でも「色名そのものは言わず、その読みで合っていると確認する」のが仕様。
-	"308": {
-		StageID: "308",
+	"305": {
+		StageID: "305",
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -638,7 +650,7 @@ var simScripts = map[string]simScript{
 // TestScriptsReportLampsFirst は、各台本の**最初のプレイヤー発話**が
 // ランプの状態報告になっていることを確かめる (決定44)。
 //
-// 101・102・201・305 で、報告を飛ばして「ダイヤルを0に戻しました」
+// 101・102・201 で、報告を飛ばして「ダイヤルを0に戻しました」
 // 「順番を言ってください」から始まる台本になっていた (決定22 時代の名残)。
 // これだと**報告 → 照合 → 指示**の往復が検証されない。
 // ナビゲーター側は正しく尋ねているのに、台本が答えていない状態だった。
@@ -649,10 +661,10 @@ func TestScriptsReportLampsFirst(t *testing.T) {
 	// ランプの状態に言及していると見なす語
 	observed := []string{"ランプ", "光", "点滅", "点灯", "消え"}
 
-	// 209 は危険位置を第一声で警告する設計 (決定22) なので、
+	// 206 綱渡り は危険位置を第一声で警告する設計 (決定22) なので、
 	// プレイヤーがそれを聞き返すところから始まるのが自然。
 	exempt := map[string]string{
-		"209": "危険位置の警告を聞き返す形が自然なため",
+		"206": "危険位置の警告を聞き返す形が自然なため",
 	}
 
 	for id, script := range simScripts {

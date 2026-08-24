@@ -91,6 +91,17 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		sort.Strings(picked)
 		return strings.Join(picked, ","), nil
 
+	case "color_seq":
+		// **順番に意味がある色の列**を引く (201 復唱 のボタン列)。
+		//
+		// `colors` との違い:
+		//   colors    → 互いに異なる色を選び、**ソートして**返す (表示用)
+		//   color_seq → **重複を許し、引いた順のまま**返す (押す順)
+		//
+		// 「赤赤黄黄赤」のような繰り返しはこのステージの持ち味なので、
+		// 重複を避けてはいけない。長さは難易度から引く (ADR S-11)。
+		return b.resolveColorSeq(def, vars, excluded)
+
 	case "int":
 		minText, err := expandAny(def["min"], vars)
 		if err != nil {
@@ -158,7 +169,7 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		return b.resolveNoiseLeds(def, vars, excluded)
 
 	case "romaji_word":
-		// 色名のローマ字表記を選ぶ。表記がそのまま色に対応する (308)
+		// 色名のローマ字表記を選ぶ。表記がそのまま色に対応する (305)
 		return b.pickWordByColor(def, vars, usedLines, excluded, romajiColor, "romaji color word")
 
 	case "morse_word":
@@ -166,14 +177,22 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		return b.pickWordByColor(def, vars, usedLines, excluded, morseWordColor, "morse word")
 
 	case "codebook":
-		// 202 LED照合: cut になる表示を対照表から1通り選ぶ (docs/printed_materials.md §4)。
+		// 301 LED照合: cut になる表示を対照表から1通り選ぶ (docs/printed_materials.md §4)。
 		//
 		// **cut から逆引きする**。表示を先に抽選すると cut が表側で決まってしまい、
 		// 他ステージとの色の重複 (usedLines) を避けられない (ADR S-1・S-2)。
 		return b.resolveCodebook(def, vars)
 
+	case "rotary_layout":
+		// 206 綱渡り: 目的位置と禁止位置の**配置ごと**抽選する。
+		//
+		// 禁止位置が2つになると「どこに置くか」で難しさの質が変わるため、
+		// 位置を個別に引かず**配置として**決める (ADR S-10)。
+		// 返り値は "target,f1[,f2]" 形式で、`nth` で各値を取り出す。
+		return b.resolveRotaryLayout(def, vars)
+
 	case "morse_letters":
-		// 5色へ割り当てる**互いに異なる1文字**を選ぶ (211 文字の一致)。
+		// 5色へ割り当てる**互いに異なる1文字**を選ぶ (302 文字の一致)。
 		//
 		// **符号の要素数がばらけるように**選ぶ。同じ要素数ばかりだと
 		// 長短を数え上げる作業になり、モールスの数字 (全て5要素) と
@@ -187,7 +206,7 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 
 // deriveRankSlot は cut を rank 番目に差し込んだ並びの slot 番目を返す。
 //
-// 208 速さくらべが「N番目に速い色」を正解にするために使う。
+// 205 速さくらべが「N番目に速い色」を正解にするために使う。
 // 速度そのものは [core] 側で s1〜s4 に固定値を割り当てるため、
 // ここでは**並び順だけ**を決める。
 //
@@ -263,7 +282,7 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		return color, nil
 
 	case "romaji_color":
-		// 色名のローマ字表記 → 色 (308 ローマ字電文)
+		// 色名のローマ字表記 → 色 (305 ローマ字電文)
 		word, err := expandAny(def["from"], vars)
 		if err != nil {
 			return "", err
@@ -275,7 +294,7 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		return color, nil
 
 	case "rank_slot":
-		// 順位付きの並びを組み立てる (208 速さくらべ)。
+		// 順位付きの並びを組み立てる (205 速さくらべ)。
 		//
 		// cut を rank 番目に置き、残りを others の順で前から詰めた並びの
 		// slot 番目を返す。「N番目に速い色を切れ」という課題で、
@@ -285,15 +304,27 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		//     slot 1 → A / slot 2 → B / slot 3 → D(cut) / slot 4 → C
 		return b.deriveRankSlot(def, vars)
 
+	case "choice_value":
+		// choice の抽選結果から対応する値を引く (295 仲間はずれ)。
+		//
+		//   odd     = { pick = "choice", candidates = ["fast", "slow"] }
+		//   odd_ms  = { derive = "choice_value", from = "${odd}", fast = "300", slow = "650" }
+		//   rest_ms = { derive = "choice_value", from = "${odd}", fast = "650", slow = "300" }
+		//
+		// **抽選結果に応じて変わる値を別々に人手で書かない** (ADR S-1)。
+		// 207 なら片方だけ直し忘れると「5色とも同じ速さ」になり、
+		// 謎が成立しないまま組み立てが通ってしまう。
+		return b.deriveChoiceValue(def, vars)
+
 	case "codebook_field":
-		// 202 LED照合: 選ばれた表示 (pick = "codebook") から1項目を取り出す。
+		// 301 LED照合: 選ばれた表示 (pick = "codebook") から1項目を取り出す。
 		//
 		// `field` に "lit" (点灯色) / "dark" (消灯色) / "word" (キーワード) /
 		// "rotary" (ダイヤル位置) / "pattern" (4桁の2進表記) を指定する。
 		return b.deriveCodebookField(def, vars)
 
 	case "terminal_for_color":
-		// 配線色 → 資料3の端子番号 (205 ブループリント)。
+		// 配線色 → 資料3の端子番号 (203 ブループリント)。
 		//
 		// `series` に "x" / "y" を指定する。ナビゲーターは**両系統を並べて**
 		// 伝え、どちらを使うかはプレイヤーがシリアル銘板の下1桁 (奇数=X /
@@ -319,7 +350,7 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		return terminal, nil
 
 	case "spoken_letter":
-		// 1文字を**無線で読み上げる形**にする (211)。
+		// 1文字を**無線で読み上げる形**にする (302)。
 		//
 		// 探すものを**指定する**側なので曖昧さを残せない。
 		// フォネティックだけだと資料1のフォネティック列を引き直す手間が増え、
@@ -335,9 +366,38 @@ func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[st
 		}
 		return spoken, nil
 
+	case "tail":
+		// カンマ区切りの値から index 番目 (1始まり) 以降を**まとめて**返す。
+		//
+		// 206 綱渡り の禁止位置に使う。数が難易度で変わる (1個 or 2個) ため、
+		// `nth` で1つずつ取り出すと**count=1 のときに2つ目が範囲外**になる。
+		// 残り全部を返せば `positions = ["${forbidden}"]` がそのまま
+		// 1要素にも2要素にも展開される (expandValue がカンマを展開する)。
+		list, err := expandAny(def["from"], vars)
+		if err != nil {
+			return "", fmt.Errorf("tail.from: %w", err)
+		}
+		idxText, err := expandAny(def["index"], vars)
+		if err != nil {
+			return "", fmt.Errorf("tail.index: %w", err)
+		}
+		idx, err := strconv.Atoi(idxText)
+		if err != nil {
+			return "", fmt.Errorf("tail.index is not a number: %q", idxText)
+		}
+		items := strings.Split(list, ",")
+		if idx < 1 || idx > len(items) {
+			return "", fmt.Errorf("tail.index %d is out of range [1,%d]", idx, len(items))
+		}
+		rest := make([]string, 0, len(items)-idx+1)
+		for _, item := range items[idx-1:] {
+			rest = append(rest, strings.TrimSpace(item))
+		}
+		return strings.Join(rest, ","), nil
+
 	case "nth":
 		// カンマ区切りの値から N 番目 (1始まり) を取り出す。
-		// morse_letters がまとめて選んだ文字を各色へ配るのに使う (211)。
+		// morse_letters がまとめて選んだ文字を各色へ配るのに使う (302)。
 		list, err := expandAny(def["from"], vars)
 		if err != nil {
 			return "", fmt.Errorf("nth.from: %w", err)
@@ -394,7 +454,7 @@ func morseWordColor(word string) string {
 
 // spokenLetterJA は1文字を無線で読み上げる形。**文字名 + NATOフォネティック**。
 //
-// 211 でナビゲーターが探す文字を指定するのに使う。片方だけだと伝わらないため
+// 302 でナビゲーターが探す文字を指定するのに使う。片方だけだと伝わらないため
 // 機械的に両方を並べる (ADR N-41)。morseLetterCodes の全文字を網羅すること。
 var spokenLetterJA = map[string]string{
 	"A": "エー、アルファ", "B": "ビー、ブラボー", "C": "シー、チャーリー",
@@ -405,7 +465,7 @@ var spokenLetterJA = map[string]string{
 	"Z": "ゼット、ズールー",
 }
 
-// morseLetterCodes は 211 で使う1文字の符号。要素数で選び分けるために持つ。
+// morseLetterCodes は 302 で使う1文字の符号。要素数で選び分けるために持つ。
 //
 // 要素数がばらけるよう、**1〜4要素から均等に**候補を用意してある。
 // 数字 (0-9) は全て5要素で見分けにくいため使わない (ADR N-41)。
@@ -420,7 +480,7 @@ var morseLetterCodes = map[string]string{
 //
 // **符号の要素数がばらけるように**選ぶ: 要素数ごとにグループへ分け、
 // 短いものから順に1つずつ拾う。同じ要素数ばかりだと長短を数え上げる作業になり、
-// 「形で見分けられる」という 211 の狙いが消える (ADR N-41)。
+// 「形で見分けられる」という 302 の狙いが消える (ADR N-41)。
 func (b *ScenarioBuilder) resolveMorseLetters(def map[string]any, vars map[string]string) (string, error) {
 	countText, err := expandAny(def["count"], vars)
 	if err != nil {
@@ -551,7 +611,7 @@ func intFromDef(def map[string]any, key string, fallback int, vars map[string]st
 
 // pickWordByColor は「語 → 色」の対応を持つ候補から1つ選ぶ。
 //
-// 203 暗号電文 (頭文字→対照表の色) と 308 ローマ字電文 (色名表記→色) は
+// 202 暗号電文 (頭文字→対照表の色) と 305 ローマ字電文 (色名表記→色) は
 // どちらも「選んだ語がそのまま切断線の色を決める」構造なので、
 // 色を導く関数だけを差し替えて共通化している。
 //
@@ -581,7 +641,7 @@ func (b *ScenarioBuilder) pickWordByColor(
 }
 
 // resolveCodebook は cut になる表示を対照表から1通り選び、pattern を返す
-// (202 LED照合。docs/printed_materials.md §4)。
+// (301 LED照合。docs/printed_materials.md §4)。
 //
 // **cut から逆引きする**。表示を先に抽選して cut を導くと、
 // 他ステージで使用済みの色 (usedLines) を避けられなくなる (ADR S-1・S-2)。
@@ -604,7 +664,7 @@ func (b *ScenarioBuilder) resolveCodebook(def map[string]any, vars map[string]st
 	return matched[b.rng.Intn(len(matched))].patternText(), nil
 }
 
-// deriveCodebookField は選ばれた表示から1項目を取り出す (202 LED照合)。
+// deriveCodebookField は選ばれた表示から1項目を取り出す (301 LED照合)。
 func (b *ScenarioBuilder) deriveCodebookField(def map[string]any, vars map[string]string) (string, error) {
 	patternText, err := expandAny(def["from"], vars)
 	if err != nil {
@@ -652,4 +712,167 @@ func codebookEntryByPattern(patternText string) (codebookEntry, error) {
 		}
 	}
 	return codebookEntry{}, fmt.Errorf("codebook: pattern %q が対照表に無い", patternText)
+}
+
+// deriveChoiceValue は choice の抽選結果をキーにして値を引く (207)。
+//
+// `from` が展開された文字列をそのままキーとして def から読む。
+// 対応するキーが無ければエラーにする — 候補を増やしたのに値を
+// 足し忘れた場合、**その候補が当たった回だけ**失敗するため
+// (抽選次第でしか再現しない) 静かに通してはいけない。
+func (b *ScenarioBuilder) deriveChoiceValue(def map[string]any, vars map[string]string) (string, error) {
+	key, err := expandAny(def["from"], vars)
+	if err != nil {
+		return "", fmt.Errorf("choice_value.from: %w", err)
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", fmt.Errorf("choice_value.from が空")
+	}
+
+	// "derive" / "from" は指定そのものなので候補から除く
+	if key == "derive" || key == "from" {
+		return "", fmt.Errorf("choice_value: %q はキーに使えない", key)
+	}
+	raw, ok := def[key]
+	if !ok {
+		return "", fmt.Errorf("choice_value: 抽選結果 %q に対応する値が無い", key)
+	}
+	value, err := expandAny(raw, vars)
+	if err != nil {
+		return "", fmt.Errorf("choice_value.%s: %w", key, err)
+	}
+	return value, nil
+}
+
+// rotaryLayout は綱渡りのダイヤル配置 (206)。
+type rotaryLayout struct {
+	target    int
+	forbidden []int
+}
+
+// resolveRotaryLayout は目的位置と禁止位置の配置を抽選する (206 綱渡り)。
+//
+// `count` に禁止位置の数を指定する (難易度テンプレートの `[load]` から引く)。
+// 返り値は "target,f1[,f2]" のカンマ区切りで、ステージ定義は
+// `derive = "nth"` で個別に取り出す。
+//
+// **位置を個別に抽選しない。** 禁止位置が2つになると、
+// 隣接 / 離れている / 目的地を挟む で難しさの質がまったく変わる。
+// 個別に引くと配置が偏り、**組み合わせによっては成立しない**
+// (両隣が禁止だと手が滑った瞬間に即爆発する) ため、
+// **成立する配置を全て列挙してから等確率で引く** (ADR S-10)。
+func (b *ScenarioBuilder) resolveRotaryLayout(def map[string]any, vars map[string]string) (string, error) {
+	countText, err := expandAny(def["count"], vars)
+	if err != nil {
+		return "", fmt.Errorf("rotary_layout.count: %w", err)
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil {
+		return "", fmt.Errorf("rotary_layout.count is not a number: %q", countText)
+	}
+
+	layouts := validRotaryLayouts(count)
+	if len(layouts) == 0 {
+		return "", fmt.Errorf("rotary_layout: 禁止位置 %d 個で成立する配置が無い", count)
+	}
+	picked := layouts[b.rng.Intn(len(layouts))]
+
+	parts := make([]string, 0, 1+len(picked.forbidden))
+	parts = append(parts, strconv.Itoa(picked.target))
+	for _, f := range picked.forbidden {
+		parts = append(parts, strconv.Itoa(f))
+	}
+	return strings.Join(parts, ","), nil
+}
+
+// validRotaryLayouts は禁止位置 count 個で**成立する配置**を全て返す。
+//
+// ロータリーは 0-5 の直線配置 (ストッパー付き・連続回転なし)。
+// 通過はセーフで、止まると違反 (docs/game_session_design.md §5)。
+//
+// **目的位置の両隣が禁止になる配置は除く。** 到達自体はできるが、
+// 合わせたあと手が滑って1つ動かすと即爆発する。難度ではなく運になる。
+func validRotaryLayouts(count int) []rotaryLayout {
+	const positions = 6
+	layouts := make([]rotaryLayout, 0, 64)
+
+	if count == 1 {
+		for target := 0; target < positions; target++ {
+			for f := 0; f < positions; f++ {
+				if f == target {
+					continue
+				}
+				layouts = append(layouts, rotaryLayout{target: target, forbidden: []int{f}})
+			}
+		}
+		return layouts
+	}
+
+	if count != 2 {
+		return nil
+	}
+	for target := 0; target < positions; target++ {
+		for f1 := 0; f1 < positions; f1++ {
+			for f2 := f1 + 1; f2 < positions; f2++ {
+				if target == f1 || target == f2 {
+					continue
+				}
+				// 両隣が禁止 = 逃げ場が無い
+				trapped := (target-1 == f1 || target-1 == f2) &&
+					(target+1 == f1 || target+1 == f2)
+				if trapped {
+					continue
+				}
+				layouts = append(layouts, rotaryLayout{
+					target: target, forbidden: []int{f1, f2}})
+			}
+		}
+	}
+	return layouts
+}
+
+// resolveColorSeq は順番に意味がある色の列を引く (201 復唱)。
+//
+// **重複を許し、引いた順のまま返す。** 押す順そのものなので、
+// `colors` のように並べ替えてはいけない。
+//
+// **同じ色が3回以上続くのは避ける。** 無線で「赤赤赤」と読み上げると
+// 何個言われたのか数えられず、記憶ではなく聞き取りの問題になる。
+func (b *ScenarioBuilder) resolveColorSeq(
+	def map[string]any, vars map[string]string, excluded map[string]bool,
+) (string, error) {
+	countText, err := expandAny(def["count"], vars)
+	if err != nil {
+		return "", fmt.Errorf("color_seq.count: %w", err)
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil {
+		return "", fmt.Errorf("color_seq.count is not a number: %q", countText)
+	}
+	if count < 1 {
+		return "", fmt.Errorf("color_seq.count は1以上 (現在 %d)", count)
+	}
+
+	candidates := make([]string, 0, len(allColors))
+	for _, color := range allColors {
+		if !excluded[color] {
+			candidates = append(candidates, color)
+		}
+	}
+	if len(candidates) < 2 {
+		return "", fmt.Errorf("color_seq: 候補が %d 色しかない (2色以上必要)", len(candidates))
+	}
+
+	seq := make([]string, 0, count)
+	for len(seq) < count {
+		color := candidates[b.rng.Intn(len(candidates))]
+		// 3連続を避ける
+		n := len(seq)
+		if n >= 2 && seq[n-1] == color && seq[n-2] == color {
+			continue
+		}
+		seq = append(seq, color)
+	}
+	return strings.Join(seq, ","), nil
 }

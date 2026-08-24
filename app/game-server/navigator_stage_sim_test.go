@@ -334,7 +334,7 @@ func simStageVars(lib *ScenarioLibrary, stage *BuiltStage) map[string]string {
 		}
 	}
 
-	// モールス系ステージ (203/308) はプレイヤーが読み上げる語を台本で使う。
+	// モールス系ステージ (203/305) はプレイヤーが読み上げる語を台本で使う。
 	// 展開済みの answer から語を拾う (テンプレートは word/color_word を
 	// answer の中でそのまま展開しているため)。
 	vars["navi_word_guess"] = simMorseWordFrom(stage)
@@ -344,7 +344,7 @@ func simStageVars(lib *ScenarioLibrary, stage *BuiltStage) map[string]string {
 		vars["sim_forbidden"] = m[1]
 	}
 
-	// 押下列の1色目 (102/201/305)。第一声で列が伝わっているかの照合に使う。
+	// 押下列の1色目 (102/201)。第一声で列が伝わっているかの照合に使う。
 	// Core の push_seq から直接取るので、文面の書き方に依存しない。
 	if first := simFirstPushColor(stage); first != "" {
 		vars["sim_p1"] = colorNameJA[first]
@@ -415,7 +415,7 @@ var simTagPattern = regexp.MustCompile(`\[([a-zA-Z_]+)\]`)
 // simColorToldByDesign は「切る線の色を伝えるのが仕様」のステージ。
 // 装置から色を読み取れないため、伏せるとプレイヤーが手詰まりになる。
 //
-// 現在は該当なし。106 いくつ光ってる? と 303 暗転がこれに当たったが、
+// 現在は該当なし。191 いくつ光ってる? と 391 暗転がこれに当たったが、
 // **色を教えるだけの工程になる**として無効化した (.toml.disabled)。
 // 再開する場合はここへ戻す — 登録しないと、仕様どおりに色を伝えた発話が
 // 「色漏れ」として検出される。
@@ -425,7 +425,7 @@ var simColorToldByDesign = map[string]bool{}
 //
 // playerSaidCut は、プレイヤーがこのステージで既に正解色を口にしているか。
 // 正解色を**先に言ったのがプレイヤー**なら、ナビゲーターの復唱は漏洩ではない
-// (208 速さくらべは「報告を照合して復唱する」のが正規の手順)。
+// (205 速さくらべは「報告を照合して復唱する」のが正規の手順)。
 func simCheckTurn(
 	id string, stage *BuiltStage, turn simTurn, reply string,
 	script simScript, vars map[string]string, playerSaidCut, revealedAtL4 bool,
@@ -435,24 +435,24 @@ func simCheckTurn(
 
 	// 1. 正解色の漏れ (L4 未満)
 	//
-	// 205 ブループリントは L4 でも色名を言ってはいけないため、L4 も検査する。
+	// 203 ブループリントは L4 でも色名を言ってはいけないため、L4 も検査する。
 	// 逆に切る線の色が装置に現れないステージは検査しない
 	// (simColorToldByDesign。現在は該当なし)。
 	cutJA := colorNameJA[stage.Cut]
-	checkLeak := turn.HintLevel < HintL4 || id == "205"
+	checkLeak := turn.HintLevel < HintL4 || id == "203"
 	if simColorToldByDesign[id] {
 		checkLeak = false
 	}
 	// プレイヤーが先に言った色の復唱は漏洩ではない (205 だけは例外で、
 	// 復唱すること自体が禁止されている)。
-	if playerSaidCut && id != "205" {
+	if playerSaidCut && id != "203" {
 		checkLeak = false
 	}
 	// **L4 で正当に明かしたあとは漏洩ではない。**
 	// 課題突破後の stage_cleared は L1 に戻るが、直前の L4 で
 	// 「赤色の線を切ってください」と伝えた以上、
 	// 「赤色の線を切断しましたね」は完了報告であって漏洩ではない。
-	if revealedAtL4 && id != "205" {
+	if revealedAtL4 && id != "203" {
 		checkLeak = false
 	}
 	if checkLeak && cutJA != "" && strings.Contains(body, cutJA) {
@@ -523,7 +523,7 @@ func simCheckTurn(
 	// 5.5 指針をそのまま書き出していないか
 	//
 	// 「切る線の色名は言わない」「出力例:」のように、**従うべき指示を
-	// 読み上げてしまう**ことがある (306 で136字の実例)。無線に流れると
+	// 読み上げてしまう**ことがある (394 で136字の実例)。無線に流れると
 	// ナビゲーターが内部の指示を音読することになる。
 	for _, form := range metaOutputForms {
 		if strings.Contains(body, form) {

@@ -93,7 +93,58 @@ func (b *ScenarioBuilder) expandCore(core map[string]any, vars map[string]string
 	if err := mergeNoiseLeds(result); err != nil {
 		return nil, err
 	}
+
+	// push_seq_colors = "${seq}" は entries を組み立てる専用キー。
+	// 列の長さが難易度で変わるステージ (201 復唱) で使う。
+	if err := expandPushSeqColors(result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+// expandPushSeqColors は precondition.push_seq.colors を entries へ展開する。
+//
+// **列の長さが難易度で変わる**ステージ (201 復唱) のための記法。
+// entries を TOML へ直接書くと個数が固定されてしまい、
+// `p1`〜`p5` のように変数を並べる形では 8個へ伸ばせない。
+//
+//	push_seq = { colors = "${seq}", on_wrong_press = {...} }
+//
+// `colors` はカンマ区切りの色コード列 (pick = "colors" などが返す)。
+// 各色が `{ push = "<色>" }` の1エントリになる。
+func expandPushSeqColors(core map[string]any) error {
+	precondition, ok := core["precondition"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	pushSeq, ok := precondition["push_seq"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := pushSeq["colors"]
+	if !ok {
+		return nil
+	}
+	delete(pushSeq, "colors")
+
+	text, ok := raw.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return fmt.Errorf("push_seq.colors must be a non-empty color list")
+	}
+	if _, exists := pushSeq["entries"]; exists {
+		return fmt.Errorf("push_seq: colors and entries cannot be combined")
+	}
+
+	entries := make([]any, 0, 8)
+	for _, color := range strings.Split(text, ",") {
+		color = strings.TrimSpace(color)
+		if color == "" {
+			return fmt.Errorf("push_seq.colors に空の要素がある: %q", text)
+		}
+		entries = append(entries, map[string]any{"push": color})
+	}
+	pushSeq["entries"] = entries
+	return nil
 }
 
 // mergeNoiseLeds は core の noise_leds を leds へ畳み込んで削除する。

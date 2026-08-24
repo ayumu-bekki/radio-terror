@@ -78,6 +78,16 @@ func main() {
 	if err := validateCodebookTable(); err != nil {
 		log.Fatalf("codebook: %v", err)
 	}
+	// 難易度ごとの入力量。未設定だと「押す回数0回」の成立しないステージになる。
+	for _, name := range []string{difficultyEasy, difficultyNormal, difficultyHard} {
+		diff, err := library.Difficulty(name)
+		if err != nil {
+			log.Fatalf("difficulty %s: %v", name, err)
+		}
+		if err := diff.Load.Validate(name); err != nil {
+			log.Fatalf("config: %v", err)
+		}
+	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	builder := NewScenarioBuilder(library, cfg.MissionSheet, rng)

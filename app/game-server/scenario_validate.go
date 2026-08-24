@@ -157,7 +157,7 @@ func answerMentionsCut(answer, cut string) bool {
 // 抽選変数の展開時、数字だけの文字列は数値へ変換される (rotary などの
 // 数値フィールドのため)。しかし morse の word は**必ず文字列**である
 // 必要があり (Core側は cJSON_IsString を要求する。§6.1)、数字を表示する
-// ステージ (211) で数値になると実機が session_rejected を返してしまう。
+// ステージ (302) で数値になると実機が session_rejected を返してしまう。
 func normalizeLedWords(core map[string]any) {
 	leds, ok := core["leds"].(map[string]any)
 	if !ok {

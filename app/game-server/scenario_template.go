@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -42,7 +43,7 @@ var colorNameJA = map[string]string{
 //
 // ナビゲーター向けの展開は値が A-E なら色名へ置き換えるが (toJapaneseColorVars)、
 // モールスで表示する1文字のように**色以外の意味で A-E を持つ**変数がある。
-// 211 で "E" が色名「白」に化けて「白を探せ」と言い出した (ADR N-41)。
+// 302 で "E" が色名「白」に化けて「白を探せ」と言い出した (ADR N-41)。
 //
 // 判定は**抽選の種類**から機械的に行う。TOML に書かせる方式にすると
 // 書き忘れた時に同じ事故が静かに再発するため。
@@ -89,8 +90,8 @@ type StageTemplate struct {
 	// KeepCutSecret は**L4 (直言) でも切る線の色名を伏せ続ける**指定 (ADR N-38)。
 	//
 	// 色名を言うと**課題そのものが消える**ステージに付ける。
-	// 205 ブループリント (回路図シートを読む工程)、202 LED照合 (資料3枚の読み解き)、
-	// 203 暗号電文 (モールス解読) が該当する。
+	// 203 ブループリント (回路図シートを読む工程)、301 LED照合 (資料3枚の読み解き)、
+	// 202 暗号電文 (モールス解読) が該当する。
 	//
 	// **散文の但し書きに頼らない。** これらのステージは answer に
 	// 「こちらからは言わない」と書いてあったが、L4 では answer が
@@ -103,7 +104,7 @@ type StageTemplate struct {
 	//
 	// 既定 (未指定) は難易度テンプレートの値をそのまま使う。
 	// 上書きが要るのは「そのレベルがステージを壊す」場合だけ (ADR N-36)。
-	// 206 色合わせは**正解がプレイヤーの記憶の中にしかない**ため、
+	// 204 色合わせは**正解がプレイヤーの記憶の中にしかない**ため、
 	// L4 (正解の直言) が課題そのものを消してしまう。`l4_pct = 0` で塞ぐ。
 	Hints StageHintOverride `toml:"hints"`
 }
@@ -144,6 +145,126 @@ type DifficultyTemplate struct {
 	Compose   ComposeRule   `toml:"compose"`
 	Crosstalk CrosstalkRule `toml:"crosstalk"`
 	Hints     HintRule      `toml:"hints"`
+	Load      LoadRule      `toml:"load"`
+}
+
+// LoadRule は**難易度で変えたい入力量**。
+//
+// ステージ定義は `${load_color_match_min}` のように参照する
+// (docs/scenario_design.md §3.1)。**ステージ側に数値を直書きしない** —
+// 直書きすると難易度を跨いで同じ負荷になり、イージーとハードで
+// 同じ回数を押させることになる。
+//
+// 0 のままだと「未設定」と区別できないため、参照された時点で
+// **0 は組み立てエラーにする**。難易度テンプレートに書き忘れたまま
+// 抽選が通ってしまうのを防ぐ。
+type LoadRule struct {
+	// ColorMatchMin / ColorMatchMax は色合わせ (206) で押す回数の範囲。
+	//
+	// **無線で口頭確認できない量**にはしない。押し終えるまで手がかりが
+	// 増えないため、多すぎると「まだ終わらない」だけの時間になる。
+	ColorMatchMin int `toml:"color_match_min"`
+	ColorMatchMax int `toml:"color_match_max"`
+
+	// ForbiddenRotaryCount は 206 綱渡り の禁止位置の数。
+	//
+	// 1つなら「関門を1回通過する」、2つなら**配置によって質が変わる**
+	// (隣接=連続通過 / 離れている=2段構え / 目的地を挟む=行き過ぎ厳禁)。
+	// 配置は `pick = "rotary_layout"` が成立するものだけを列挙して引く。
+	ForbiddenRotaryCount int `toml:"forbidden_rotary_count"`
+
+	// PushSeqLen は 201 復唱 のボタン列の長さ。
+	//
+	// **無線で1回聞いて覚えられる長さ**が基準 (ノーマル5個)。
+	// ハードは8個まで伸ばす。伸ばしすぎると記憶ではなく
+	// 「読み上げを何度も聞き直す」時間になる。
+	PushSeqLen int `toml:"push_seq_len"`
+
+	// SpeedRankMS は 205 速さくらべ の点滅速度 (速い順に4段階)。
+	//
+	// **隣接比を詰めるほど難しい**。ノーマルは 150/300/550/1000
+	// (隣接1.82〜2.0倍)、ハードは 150/210/294/412 (隣接1.4倍均一)。
+	//
+	// ハードは 104 早い者勝ち で決めた下限 (1.5倍) を**意図的に下回る**。
+	// 104 は2択だが 205 は4色を並べ替えるため、同じ隣接比でも難しい。
+	// **実機で見え方を確認してから確定させること**。
+	SpeedRankMS []int `toml:"speed_rank_ms"`
+}
+
+// Validate は入力量が設定済みかを確かめる。
+//
+// **0 のまま参照されると「押す回数0回」という成立しないステージになる**。
+// 難易度テンプレートへの書き忘れは抽選次第でしか現れないため、
+// 起動時に落とす (terminal_map の5色必須と同じ性質)。
+func (l LoadRule) Validate(difficulty string) error {
+	if l.ColorMatchMin <= 0 || l.ColorMatchMax <= 0 {
+		return fmt.Errorf(
+			"difficulty %q: [load] color_match_min/max が未設定 (どちらも1以上が必要)",
+			difficulty)
+	}
+	if l.ColorMatchMax < l.ColorMatchMin {
+		return fmt.Errorf(
+			"difficulty %q: [load] color_match_max (%d) < color_match_min (%d)",
+			difficulty, l.ColorMatchMax, l.ColorMatchMin)
+	}
+	// 禁止位置は 1 か 2 のみ。3つ以上にすると 0-5 の直線配置では
+	// 逃げ場が足りず、成立する配置がほとんど残らない。
+	if l.ForbiddenRotaryCount != 1 && l.ForbiddenRotaryCount != 2 {
+		return fmt.Errorf(
+			"difficulty %q: [load] forbidden_rotary_count は 1 か 2 (現在 %d)",
+			difficulty, l.ForbiddenRotaryCount)
+	}
+	// 押下列は最低3個 (2個以下だと「順番を覚える」課題にならない)。
+	// 上限は8個 — それ以上は無線で1回聞いて覚えられず、
+	// 読み上げを聞き直す時間だけが伸びる。
+	if l.PushSeqLen < 3 || l.PushSeqLen > 8 {
+		return fmt.Errorf(
+			"difficulty %q: [load] push_seq_len は 3〜8 (現在 %d)",
+			difficulty, l.PushSeqLen)
+	}
+	// 205 速さくらべ は点滅4色。速い順に並んでいること。
+	if len(l.SpeedRankMS) != 4 {
+		return fmt.Errorf(
+			"difficulty %q: [load] speed_rank_ms は4段階 (現在 %d個)",
+			difficulty, len(l.SpeedRankMS))
+	}
+	for i, ms := range l.SpeedRankMS {
+		if ms <= 0 {
+			return fmt.Errorf("difficulty %q: [load] speed_rank_ms[%d] が %d", difficulty, i, ms)
+		}
+		if 0 < i && ms <= l.SpeedRankMS[i-1] {
+			return fmt.Errorf(
+				"difficulty %q: [load] speed_rank_ms は**速い順**に並べる (%v)",
+				difficulty, l.SpeedRankMS)
+		}
+	}
+	return nil
+}
+
+// loadVars は難易度の入力量をテンプレート変数として返す。
+//
+// **ナビゲーター知識にもCore向けJSONにも同じ値が入る** — 回数は
+// 装置の挙動そのもので、両者がずれると事故になる。
+func (l LoadRule) loadVars() map[string]string {
+	return map[string]string{
+		"load_color_match_min":        strconv.Itoa(l.ColorMatchMin),
+		"load_color_match_max":        strconv.Itoa(l.ColorMatchMax),
+		"load_forbidden_rotary_count": strconv.Itoa(l.ForbiddenRotaryCount),
+		"load_push_seq_len":           strconv.Itoa(l.PushSeqLen),
+		"load_speed_rank_1":           speedRankAt(l.SpeedRankMS, 0),
+		"load_speed_rank_2":           speedRankAt(l.SpeedRankMS, 1),
+		"load_speed_rank_3":           speedRankAt(l.SpeedRankMS, 2),
+		"load_speed_rank_4":           speedRankAt(l.SpeedRankMS, 3),
+	}
+}
+
+// speedRankAt は速度段階を文字列で返す。範囲外は空文字
+// (Validate が起動時に落とすので、ここでは値を作らない)。
+func speedRankAt(ms []int, i int) string {
+	if i < 0 || len(ms) <= i {
+		return ""
+	}
+	return strconv.Itoa(ms[i])
 }
 
 // ComposeRule はステージ構成のハイブリッド指定 (固定並び + タグ抽選)。

@@ -10,6 +10,17 @@ import (
 // stdHints は イージー・ノーマルの標準比率 (docs/scenario_design.md §4.1)。
 var stdHints = HintRule{L2Pct: 25, L3Pct: 50, L4Pct: 75}
 
+// stdLoad は難易度ごとの入力量のテスト値 (ノーマル相当)。
+// 未設定 (0) だと「押す回数0回」の成立しないステージになるため、
+// テストでも必ず渡す (docs/scenario_design.md §4.2)。
+var stdLoad = LoadRule{
+	ColorMatchMin:        6,
+	ColorMatchMax:        9,
+	ForbiddenRotaryCount: 1,
+	PushSeqLen:           5,
+	SpeedRankMS:          []int{150, 300, 550, 1000},
+}
+
 // hardHints は ハード。L4 を無効化している (l4_pct = 0)。
 var hardHints = HintRule{L2Pct: 25, L3Pct: 50, L4Pct: 0}
 
@@ -161,7 +172,7 @@ func TestStageProgressReset(t *testing.T) {
 func TestL4KeepCutSecretNeverEmbedsAnswer(t *testing.T) {
 	answer := "正解は端子T5の線 = 白色。プレイヤーに伝えてよいのは端子番号だけ。"
 	stage := &BuiltStage{
-		TemplateID:    "205",
+		TemplateID:    "203",
 		KeepCutSecret: true,
 		Navigator: map[string]string{
 			"answer":  answer,
@@ -218,7 +229,7 @@ func TestKeepCutSecretStagesAreFlagged(t *testing.T) {
 
 	// 色名を言うと**課題そのものが消える**ステージ。
 	//   205: 回路図シートを読む工程 / 202: 資料3枚の読み解き / 203: モールス解読
-	want := map[string]bool{"205": true, "202": true, "203": true}
+	want := map[string]bool{"203": true, "301": true, "202": true}
 
 	for id := range lib.stages {
 		stageTmpl, err := lib.Stage(id)
@@ -241,7 +252,7 @@ func TestHintPolicyBelowL4NeverEmbedsAnswer(t *testing.T) {
 	const answer = "正解は白色の線を切ること"
 
 	stage := &BuiltStage{
-		TemplateID: "208",
+		TemplateID: "205",
 		Navigator: map[string]string{
 			"answer":  answer,
 			"hint_l1": "よく観察するよう促す",
@@ -262,7 +273,7 @@ func TestHintPolicyBelowL4NeverEmbedsAnswer(t *testing.T) {
 // TestHintLevelObservedFrontLoading は観察の報告による前倒しを確かめる
 // (§3.2 / ADR N-35)。
 //
-// 実運用で 105 早い者勝ち を「緑がゆっくり、青が早く点滅」と完璧に報告したのに、
+// 実運用で 104 早い者勝ち を「緑がゆっくり、青が早く点滅」と完璧に報告したのに、
 // 経過22秒では L1 のままで「2つの光り方の違いをよく見比べてください」と
 // 空振りが返った。報告できた時点で判断基準を示せるようにする。
 func TestHintLevelObservedFrontLoading(t *testing.T) {
@@ -308,7 +319,7 @@ func TestStageProgressResetClearsObserved(t *testing.T) {
 	}
 }
 
-// TestStageHintOverrideDisablesL4 は 206 色合わせが L4 (直言) へ到達しないことを
+// TestStageHintOverrideDisablesL4 は 204 色合わせが L4 (直言) へ到達しないことを
 // 確かめる (ADR N-36)。
 //
 // 206 は**正解がプレイヤーの記憶の中にしかない**。押し切ると全消灯するため
@@ -319,11 +330,11 @@ func TestStageHintOverrideDisablesL4(t *testing.T) {
 	lib := loadTestLibrary(t)
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
 
-	stageTmpl, err := lib.Stage("206")
+	stageTmpl, err := lib.Stage("204")
 	if err != nil {
 		t.Fatalf("Stage(206): %v", err)
 	}
-	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints)
+	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
 	if err != nil {
 		t.Fatalf("buildStage(206): %v", err)
 	}
@@ -351,12 +362,12 @@ func TestStageHintOverrideKeepsDifficultyDefault(t *testing.T) {
 	lib := loadTestLibrary(t)
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
 
-	// 105 は [hints] を持たない
-	stageTmpl, err := lib.Stage("105")
+	// 104 早い者勝ち は [hints] を持たない
+	stageTmpl, err := lib.Stage("104")
 	if err != nil {
-		t.Fatalf("Stage(105): %v", err)
+		t.Fatalf("Stage(104): %v", err)
 	}
-	built, err := builder.buildStage(stageTmpl, map[string]bool{}, hardHints)
+	built, err := builder.buildStage(stageTmpl, map[string]bool{}, hardHints, stdLoad)
 	if err != nil {
 		t.Fatalf("buildStage(105): %v", err)
 	}

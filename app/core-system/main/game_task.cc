@@ -783,6 +783,24 @@ void GameTask::ClearLedOverrides() {
     leds_.SetOverrideAll(false);
   }
 
+  // push_seq を押し切ったら**切る線の色だけを点灯**させる (104)。
+  //
+  // 押下中は「報告用の点灯」と「切る線の点滅」が両方見えており、
+  // 押し終わるとその区別が消えて切る線だけが残る。
+  // 押下フェーズの終わりが装置から一目で分かる。
+  //
+  // **オプトイン** (reveal_cut_on_complete)。既定では働かないので、
+  // 他のボタン列ステージ (102 など) の見え方は変わらない。
+  const StageConfig& stage = session_.stages[stage_index_];
+  if (stage.precondition.has_push_seq &&
+      stage.precondition.push_seq.reveal_cut_on_complete &&
+      push_seq_.IsCompleted()) {
+    leds_.SetOverrideAll(false);
+    if (stage.cut != COLOR_NONE) {
+      leds_.SetOverride(stage.cut, true);
+    }
+  }
+
   ApplyLedOutputs();
 }
 

@@ -26,7 +26,7 @@ type obsCase struct {
 // TestObservationJudgement は observation の判定が意図どおり働くかを実APIで確かめる
 // (docs/navigator_design.md 決定61 / ADR N-35)。
 //
-// **実運用で空振りした報告をそのまま入れてある。** 105 早い者勝ちの
+// **実運用で空振りした報告をそのまま入れてある。** 104 早い者勝ちの
 // 「緑がゆっくり全滅していて、青が早く全滅してます」は音声認識が
 // 「点滅」を「全滅」と誤変換したもので、**この揺れごと true にならないと
 // 実運用では効かない**。
@@ -39,28 +39,18 @@ func TestObservationJudgement(t *testing.T) {
 	}
 
 	cases := []obsCase{
-		// --- 105 早い者勝ち ---
-		{"105", "ランプが2つ点滅しています。どうぞ", false,
+		// --- 104 早い者勝ち ---
+		{"104", "ランプが2つ点滅しています。どうぞ", false,
 			"状態だけの報告。速さの差に触れていないので観察は未完了"},
-		{"105", "えっと、緑がゆっくり全滅していて、青が早く全滅してます。どうぞ。", true,
+		{"104", "えっと、緑がゆっくり全滅していて、青が早く全滅してます。どうぞ。", true,
 			"実運用ログ 2026-08-23。『点滅』が『全滅』へ誤変換されているが速さの差は伝わっている"},
-		{"105", "点滅の速さが違うように見えます。どうぞ", true,
+		{"104", "点滅の速さが違うように見えます。どうぞ", true,
 			"色名は無いが速さの差を報告できている"},
 
-		// --- 204 切るな危険 ---
-		{"204", "2つのランプが点滅していて、3つは消えています。どうぞ", true,
-			"点滅2・消灯3 を報告できている"},
-		{"204", "ランプを見ています。どうぞ", false,
-			"何も報告していない"},
-
-		// --- 207 仲間外れ ---
-		{"207", "5つとも点滅しています。どうぞ", true,
-			"5つ点滅を報告できている"},
-
-		// --- 205 ブループリント ---
-		{"205", "全部点いてます。どうぞ", true,
+		// --- 203 ブループリント ---
+		{"203", "全部点いてます。どうぞ", true,
 			"全灯を報告できている。言い回しは問わない"},
-		{"205", "まだよく見えません。どうぞ", false,
+		{"203", "まだよく見えません。どうぞ", false,
 			"報告になっていない"},
 	}
 
@@ -122,7 +112,7 @@ func TestObservationJudgement(t *testing.T) {
 	}
 }
 
-// TestColorMatchNeverRevealsColor は 206 色合わせで、プレイヤーが
+// TestColorMatchNeverRevealsColor は 204 色合わせで、プレイヤーが
 // 「最後に押した色を忘れた」と言っても正解色を言わないことを確かめる
 // (ADR N-36 / 実運用ログ 2026-08-23)。
 //
@@ -161,7 +151,7 @@ func TestColorMatchNeverRevealsColor(t *testing.T) {
 		t.Fatalf("LoadScenarioLibrary: %v", err)
 	}
 
-	built, err := simBuildStage(lib, cfg.MissionSheet, "206", 42)
+	built, err := simBuildStage(lib, cfg.MissionSheet, "204", 42)
 	if err != nil {
 		t.Fatalf("simBuildStage(206): %v", err)
 	}
@@ -252,7 +242,7 @@ func TestUncertainCutIsNotEncouraged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadScenarioLibrary: %v", err)
 	}
-	built, err := simBuildStage(lib, cfg.MissionSheet, "206", 42)
+	built, err := simBuildStage(lib, cfg.MissionSheet, "204", 42)
 	if err != nil {
 		t.Fatalf("simBuildStage(206): %v", err)
 	}
@@ -344,7 +334,7 @@ func TestKeepCutSecretNeverLeaksAtL4(t *testing.T) {
 		t.Fatalf("LoadScenarioLibrary: %v", err)
 	}
 
-	for _, id := range []string{"202", "203", "205"} {
+	for _, id := range []string{"301", "202", "203"} {
 		built, err := simBuildStage(lib, cfg.MissionSheet, id, 42)
 		if err != nil {
 			t.Fatalf("simBuildStage(%s): %v", id, err)

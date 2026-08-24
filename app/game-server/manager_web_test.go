@@ -53,7 +53,7 @@ func saveTestSession(t *testing.T, store SessionStore, sessionID, deviceID, stat
 					Navigator:  map[string]string{"answer": "赤を切る", "briefing": "3つのボタン"},
 				},
 				{
-					TemplateID: "203",
+					TemplateID: "202",
 					Name:       "暗号電文",
 					Cut:        "C",
 					Core:       map[string]any{"cut": "C"},
