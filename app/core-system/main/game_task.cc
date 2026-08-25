@@ -809,14 +809,16 @@ void GameTask::ClearLedOverrides() {
     leds_.SetOverrideAll(false);
   }
 
-  // push_seq を押し切ったら**切る線の色だけを点灯**させる (104)。
-  //
-  // 押下中は「報告用の点灯」と「切る線の点滅」が両方見えており、
-  // 押し終わるとその区別が消えて切る線だけが残る。
+  // push_seq を押し切ったら**切る線の色だけを点灯**させる (ADR C-13)。
   // 押下フェーズの終わりが装置から一目で分かる。
   //
-  // **オプトイン** (reveal_cut_on_complete)。既定では働かないので、
-  // 他のボタン列ステージ (102 など) の見え方は変わらない。
+  // 使っているのは 103 コール&レスポンス と 201 復唱 で、**見え方が違う**:
+  //   103: 押下中から「報告用の点灯」と「切る線の点滅」が両方見えている。
+  //        押し終わるとその区別が消えて切る線だけが残る (ADR C-13)。
+  //   201: 押下中は報告用の1色だけ。押し切って初めて切る線が現れるので、
+  //        「押し終わったらランプが変わった」という変化の報告が生まれる。
+  //
+  // **オプトイン** (reveal_cut_on_complete)。既定では働かない。
   const StageConfig& stage = session_.stages[stage_index_];
   if (stage.precondition.has_push_seq &&
       stage.precondition.push_seq.reveal_cut_on_complete &&

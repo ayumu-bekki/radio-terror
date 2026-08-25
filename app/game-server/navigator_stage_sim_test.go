@@ -64,8 +64,20 @@ type simScript struct {
 	StageID string
 	// Turns は台本のターン列
 	Turns []simTurn
+	// MustNotMention は**どのレベルでも**言ってはいけない語。
+	//
+	// 資料を読むこと自体が謎のステージ (209 配電盤照合) で、ナビが
+	// 数字を先に言うと謎が丸ごと消える (ADR N-44)。
+	// **同じ情報でもステージによって扱いが逆になる** — 206 綱渡り は
+	// 危険位置を第一声で必ず伝える (MustMention 側)。
+	MustNotMention []string
+
 	// MustMention は L1 の発話に必ず含まれるべき語 (装置に現れない情報)。
 	// ${var} で抽選変数を参照できる。
+	//
+	// **`|` 区切りで言い換えを並べられる**。1つでも出ていれば満たしたとみなす。
+	// 「押しながら」と「押したまま」のように**意味が同じで表現が違う**場合に使う
+	// (完全一致だけだと、正しく伝わっているのに所見になる。実測 2026-08-25)。
 	MustMention []string
 }
 
@@ -181,7 +193,18 @@ func simTargetStages(t *testing.T, lib *ScenarioLibrary) []string {
 func simBuildStage(lib *ScenarioLibrary, sheet MissionSheet, id string, seed int64) (*BuiltSession, error) {
 	const simDifficulty = "__sim__"
 
-	base, err := lib.Difficulty(difficultyNormal)
+	// **ステージの difficulty タグに合った難易度で組む。**
+	// 常にノーマルで組むと、イージーのステージまで `l4_pct = 0` になり
+	// (ADR N-39)、L4 の台本が本番と食い違う。
+	// 102/103/104 は L4 (直言) が有効な難易度で検証したい。
+	diff := difficultyNormal
+	if tmplStage, sErr := lib.Stage(id); sErr == nil && tmplStage.Difficulty != "" {
+		if _, err := lib.Difficulty(tmplStage.Difficulty); err == nil {
+			diff = tmplStage.Difficulty
+		}
+	}
+
+	base, err := lib.Difficulty(diff)
 	if err != nil {
 		return nil, err
 	}
@@ -240,6 +263,13 @@ func simulateStage(
 	playerSaidCut := false
 	// L4 で正解色を明かしたか。以降の言及は完了報告なので漏洩と見なさない。
 	revealedAtL4 := false
+	// 課題の入り口の発話を数える。`session_start` と**最初の** `player_message`
+	// の2つを入り口とみなし、MustMention はここまでにしか要求しない。
+	// 204 色合わせは注意事項を**観察報告への返し**で伝えるため
+	// (session_start の時点ではまだ装置を見ていない)、session_start だけでは足りない。
+	// 一方 3回目以降の L1 発話にまで要求すると毎回の復唱を強いることになる。
+	entryTurns := 0
+	mentionSeen := map[string]bool{}
 	cutJA := colorNameJA[stage.Cut]
 
 	for _, turn := range script.Turns {
@@ -262,6 +292,18 @@ func simulateStage(
 		if player != "" {
 			logs.Append(sessionID, ConversationEntry{
 				Sender: senderPlayer, Receiver: character.Name, Message: player,
+			})
+		}
+
+		// **台本のヒントレベルがステージ設定と矛盾していないか検査する。**
+		// `HintLevel` は台本が直接指定するため、`l4_pct = 0` で L4 を塞いだ
+		// ステージ (204 色合わせ / ADR N-36) でも台本が L4 と書けば L4 で走る。
+		// **本番では到達しない状態を検証していた**ことがあり、実際に
+		// 204 で「正解は緑色の線ですよ」と直言する所見を拾ってしまった。
+		if turn.HintLevel >= HintL4 && built.Hints.L4Pct == 0 {
+			result.Findings = append(result.Findings, simFinding{
+				StageID: id, Level: turn.HintLevel, Kind: "unreachable_hint_level",
+				Detail: "l4_pct = 0 のステージに L4 の台本がある。本番では到達しない",
 			})
 		}
 
@@ -304,7 +346,21 @@ func simulateStage(
 		}
 
 		result.Findings = append(result.Findings,
-			simCheckTurn(id, stage, turn, reply, script, vars, playerSaidCut, revealedAtL4)...)
+			simCheckTurn(id, stage, turn, reply, script, vars,
+				playerSaidCut, revealedAtL4, entryTurns < 2)...)
+
+		// 入り口の発話 (session_start と最初の player_message) で
+		// MustMention の語が出たかを集計する。
+		if turn.HintLevel == HintL1 && entryTurns < 2 {
+			for _, want := range script.MustMention {
+				if simMentionHit(expandSimText(want, vars), stripTTSTags(reply)) {
+					mentionSeen[want] = true
+				}
+			}
+		}
+		if turn.Trigger == "session_start" || turn.Trigger == "player_message" {
+			entryTurns++
+		}
 
 		// L4 で色名を出したら、以降の言及は完了報告として扱う
 		if turn.HintLevel >= HintL4 && cutJA != "" && strings.Contains(stripTTSTags(reply), cutJA) {
@@ -312,7 +368,72 @@ func simulateStage(
 		}
 	}
 
+	// 入り口の発話を通しても MustMention の語が出なかったら所見にする。
+	for _, want := range script.MustMention {
+		if w := expandSimText(want, vars); w != "" && !mentionSeen[want] {
+			result.Findings = append(result.Findings, simFinding{
+				StageID: id, Level: HintL1, Kind: "missing_required",
+				Detail: fmt.Sprintf("課題の入り口で %q に触れていない", w),
+			})
+		}
+	}
+
 	return result
+}
+
+// simPlayerReportedWrongColor は、このターンでプレイヤーが
+// **正解でない色**を報告したかを見る。台本の ${sim_wrong_color} を使う。
+func simPlayerReportedWrongColor(turn simTurn, vars map[string]string, stage *BuiltStage) bool {
+	wrong := vars["sim_wrong_color"]
+	if wrong == "" || turn.Player == "" {
+		return false
+	}
+	// 台本のプレイヤー発話が誤答の色を含み、かつ正解色を含まないこと。
+	player := expandSimText(turn.Player, vars)
+	if !strings.Contains(player, wrong) {
+		return false
+	}
+	if cutJA := colorNameJA[stage.Cut]; cutJA != "" && strings.Contains(player, cutJA) {
+		return false
+	}
+	return true
+}
+
+// simAuthorizesCut は**その色を正解と認めたうえで**切らせる言い方を拾う。
+//
+// 危険なのは「合っている」と請け合うこと。205 のナビゲーターは装置を見ておらず
+// 答え合わせができないので、**正解だと認めた時点で誤り**になる (ADR N-50)。
+//
+// 『数え直して自信が持てたら切ってくれ』は**判断を委ねている**ので安全 —
+// 切る話をしていても当たらない。条件節 (「たら」「なら」) や
+// 確認を促す語が同じ文にあれば承認とみなさない。
+var simCutApprovePattern = regexp.MustCompile(
+	`それが[0-9０-９]番目` +
+		`|(合って|正解|間違いな|それでいい|そのとおり)`)
+
+var simCutDeferPattern = regexp.MustCompile(
+	`(自信|確か|数え直|見比べ|もう一度|もういちど)`)
+
+func simAuthorizesCut(body string) bool {
+	if simCutDeferPattern.MatchString(body) {
+		return false
+	}
+	return simCutApprovePattern.MatchString(body)
+}
+
+// simMentionHit は want (｜区切りで言い換えを並べられる) が body に出ているかを見る。
+// 「押しながら|押したまま」のように**意味が同じで表現が違う**場合、
+// どれか1つ出ていれば満たしたとみなす。
+func simMentionHit(want, body string) bool {
+	if want == "" {
+		return false
+	}
+	for _, alt := range strings.Split(want, "|") {
+		if alt != "" && strings.Contains(body, alt) {
+			return true
+		}
+	}
+	return false
 }
 
 // simStageVars は台本展開用の変数表を作る。
@@ -326,9 +447,22 @@ func simStageVars(lib *ScenarioLibrary, stage *BuiltStage) map[string]string {
 		"cutJA": colorNameJA[stage.Cut],
 	}
 
-	// 誤報告の台本用に、正解ではない色を1つ用意する (208 で使う)。
+	// 誤報告の台本用に、正解ではない色を1つ用意する (205 で使う)。
+	//
+	// **点灯しっぱなしの基準色を選んではいけない** (205)。基準色を誤答にすると
+	// ナビゲーターの「それは基準だから数に入れない」が**正しい応答**になり、
+	// 「誤答に理由を付け足していないか」を検査できない。
+	// 実際にこれで「ナビが誤った理由を返している」と誤検知した。
+	steadyJA := ""
+	if leds, ok := stage.Core["leds"].(map[string]any); ok {
+		for code, spec := range leds {
+			if spec == "on" {
+				steadyJA = colorNameJA[code]
+			}
+		}
+	}
 	for _, code := range allColors {
-		if code != stage.Cut {
+		if code != stage.Cut && colorNameJA[code] != steadyJA {
 			vars["sim_wrong_color"] = colorNameJA[code]
 			break
 		}
@@ -339,9 +473,33 @@ func simStageVars(lib *ScenarioLibrary, stage *BuiltStage) map[string]string {
 	// answer の中でそのまま展開しているため)。
 	vars["navi_word_guess"] = simMorseWordFrom(stage)
 
-	// 209 の危険位置。展開済み answer の「ダイヤルN は危険位置」から拾う。
-	if m := simForbiddenPattern.FindStringSubmatch(stage.Navigator["answer"]); m != nil {
-		vars["sim_forbidden"] = m[1]
+	// 301 LED照合 のキーワード (資料の変換表から引く語)。
+	// **台本に固定値を書かない** — 抽選値と食い違うと、ナビが
+	// 『キーワードは違うみたいです』と正しい報告を差し戻す形になる
+	// (実測 2026-08-25)。
+	if m := simCodebookWordPattern.FindStringSubmatch(stage.Navigator["answer"]); len(m) > 1 {
+		vars["sim_keyword"] = m[1]
+	}
+
+	// 危険位置 (206 綱渡り / 209 配電盤照合)。
+	//
+	// **Core向けJSON から直接取る。** 以前は answer の文面を正規表現で
+	// 拾っていたが、ステージごとに言い回しが違う (「ダイヤル4で止まるな」/
+	// 「危険位置は**4**」) ため**どちらにも当たらず**、
+	// `${sim_forbidden}` が未展開のまま照合されて誤検出になっていた。
+	// 文面の書き方に依存しない形にする (押下列を push_seq から取るのと同じ)。
+	if positions := simForbiddenPositions(stage); len(positions) > 0 {
+		vars["sim_forbidden"] = positions[0]
+	}
+
+	// ダイヤルの指定位置。**ステージによって意味が逆**なので2つの名前で出す。
+	//   sim_release  — 209 配電盤照合の解除位置。**ナビが言ってはいけない**数字
+	//   sim_rotary   — 102 などの指定位置。**第一声で必ず伝える**数字
+	if pre, ok := stage.Core["precondition"].(map[string]any); ok {
+		if r, ok := pre["rotary"]; ok {
+			vars["sim_release"] = fmt.Sprintf("%v", r)
+			vars["sim_rotary"] = fmt.Sprintf("%v", r)
+		}
 	}
 
 	// 押下列の1色目 (102/201)。第一声で列が伝わっているかの照合に使う。
@@ -360,8 +518,38 @@ func simStageVars(lib *ScenarioLibrary, stage *BuiltStage) map[string]string {
 // simMorseWordPattern は answer に現れる大文字ローマ字の語 (ALFA / MIDORI 等)。
 var simMorseWordPattern = regexp.MustCompile(`[A-Z]{2,}`)
 
-// simForbiddenPattern は 209 の answer に現れる危険位置 (「ダイヤル2は危険位置」)。
-var simForbiddenPattern = regexp.MustCompile(`ダイヤル(\d)は危険位置`)
+// simPressBeforeLook は「押させてからランプを尋ねる」形を拾う。
+// 『黄色のボタンを押さえたまま、ランプはどうなってますか?』のような並び。
+var simPressBeforeLook = regexp.MustCompile(`ボタン[^。!?！?]{0,12}押[^。!?！?]{0,16}(ランプ|どうなって)`)
+
+// simDialBeforeLook は第一声のダイヤル手順を拾う。
+// 「N に合わせろ」だけでなく、**危険位置の警告 (「2で止まるな」) も対象**
+// — 回す指示と一緒に伝える形にしたので、第一声に単独で出てはいけない (ADR N-49)。
+var simDialBeforeLook = regexp.MustCompile(
+	`(ダイヤル|ロータリー)[^。!?！?]{0,10}[0-9０-９][^。!?！?]{0,8}(合わせ|回し|セット|止ま|止め)` +
+		`|[0-9０-９][^。!?！?]{0,6}(で止まるな|では止まるな|で止めるな|で止めないで)`)
+
+// simCodebookWordPattern は 301 の answer から変換表のキーワードを拾う。
+var simCodebookWordPattern = regexp.MustCompile(`キーワードは\*\*([A-Z]+)\*\*`)
+
+// simForbiddenPositions は forbidden_rotary の禁止位置を文字列で返す。
+// 無ければ空。**文面ではなく Core向けJSON から取る**ので、
+// ステージごとの言い回しの違いに影響されない。
+func simForbiddenPositions(stage *BuiltStage) []string {
+	forbidden, ok := stage.Core["forbidden_rotary"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	positions, ok := forbidden["positions"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(positions))
+	for _, p := range positions {
+		out = append(out, fmt.Sprintf("%v", p))
+	}
+	return out
+}
 
 // simFirstPushColor は push_seq の1個目の色コードを返す。押下列が無ければ空。
 func simFirstPushColor(stage *BuiltStage) string {
@@ -415,10 +603,10 @@ var simTagPattern = regexp.MustCompile(`\[([a-zA-Z_]+)\]`)
 // simColorToldByDesign は「切る線の色を伝えるのが仕様」のステージ。
 // 装置から色を読み取れないため、伏せるとプレイヤーが手詰まりになる。
 //
-// 現在は該当なし。これに当たるステージは採用を見送ったため、
-// **色を教えるだけの工程になる**として無効化した (.toml.disabled)。
-// 再開する場合はここへ戻す — 登録しないと、仕様どおりに色を伝えた発話が
-// 「色漏れ」として検出される。
+// **現在は該当なし。** これに当たる案は「色を教えるだけの工程が謎の隣に残る」
+// として採用を見送った (ADR S-5)。
+// 該当するステージを作った場合はここへ登録する — 登録しないと、
+// 仕様どおりに色を伝えた発話が「色漏れ」として検出される。
 var simColorToldByDesign = map[string]bool{}
 
 // simCheckTurn は1発話を4つの観点で検査する。
@@ -428,7 +616,7 @@ var simColorToldByDesign = map[string]bool{}
 // (205 速さくらべは「報告を照合して復唱する」のが正規の手順)。
 func simCheckTurn(
 	id string, stage *BuiltStage, turn simTurn, reply string,
-	script simScript, vars map[string]string, playerSaidCut, revealedAtL4 bool,
+	script simScript, vars map[string]string, playerSaidCut, revealedAtL4, firstReply bool,
 ) []simFinding {
 	findings := make([]simFinding, 0)
 	body := stripTTSTags(reply)
@@ -453,6 +641,16 @@ func simCheckTurn(
 	// 「赤色の線を切ってください」と伝えた以上、
 	// 「赤色の線を切断しましたね」は完了報告であって漏洩ではない。
 	if revealedAtL4 && id != "203" {
+		checkLeak = false
+	}
+	// **課題突破後の完了報告も漏洩ではない。**
+	// `stage_cleared` は**その線が既に切られた**ことを意味する。
+	// 「赤い線が切れて」は起きたことの描写で、答えを教える発話ではない。
+	//
+	// L4 経由の免除だけでは足りない — **ノーマル以上は `l4_pct = 0`**
+	// (ADR N-39) で L4 に到達しないため、正常な完了報告が毎回
+	// 漏洩として検出されてしまう。
+	if turn.Trigger == "stage_cleared" && id != "203" {
 		checkLeak = false
 	}
 	if checkLeak && cutJA != "" && strings.Contains(body, cutJA) {
@@ -495,18 +693,38 @@ func simCheckTurn(
 		}
 	}
 
-	// 4. 必須情報 (装置に現れない情報を L1 で伝えているか)
-	if turn.HintLevel == HintL1 && turn.Trigger == "session_start" {
-		for _, want := range script.MustMention {
-			want = expandSimText(want, vars)
-			if want != "" && !strings.Contains(body, want) {
-				findings = append(findings, simFinding{
-					StageID: id, Level: turn.HintLevel, Kind: "missing_required",
-					Detail: fmt.Sprintf("第一声に %q が含まれない", want), Reply: reply,
-				})
-			}
+	// 4. 必須情報 / 禁止情報
+	//
+	// **同じ情報でもステージによって扱いが逆になる。**
+	// 206 綱渡り は危険位置を第一声で必ず伝えるが (MustMention)、
+	// 209 配電盤照合 は資料を読ませるので言ってはいけない (MustNotMention)。
+
+	// 言ってはいけない語 (資料を読ませるステージの答えなど)
+	for _, ng := range script.MustNotMention {
+		ng = expandSimText(ng, vars)
+		if ng == "" {
+			continue
+		}
+		if strings.Contains(body, ng) {
+			findings = append(findings, simFinding{
+				StageID: id, Level: turn.HintLevel, Kind: "told_answer",
+				Detail: fmt.Sprintf("資料から読ませるべき %q を言っている", ng), Reply: reply,
+			})
 		}
 	}
+
+	// **第一声だけでなく、課題の入り口の返答も見る。**
+	// 204 色合わせは「最後に押した色を覚えておけ」を**観察報告への返し**で
+	// 伝える必要がある (session_start の時点ではまだ装置を見ていない)。
+	// プレイヤーが先回りして『同じ色のボタンを押せばいいですか?』と聞くと、
+	// 肯定するだけで返して**注意が落ちた**ため検査を広げた (実測 2026-08-25)。
+	// `firstReply` は課題の入り口 — session_start か、最初の player_message。
+	// **2回目以降の L1 発話には要求しない** (毎回の復唱を強いることになる)。
+	// MustMention は**入り口の発話のどれかに1回出れば足りる**。
+	// 発話ごとに要求すると、まだ装置を見ていない session_start にまで
+	// 「覚えておけ」を求めることになり、毎回の復唱も強いてしまう。
+	// 判定は呼び出し側で集計する (simMentionSeen)。
+	_ = firstReply
 
 	// 5. 観察を先に求めているか (課題の入り口の発話)
 	//
@@ -517,6 +735,56 @@ func simCheckTurn(
 		findings = append(findings, simFinding{
 			StageID: id, Level: turn.HintLevel, Kind: "no_observation_first",
 			Detail: "課題の入り口でランプの状態を尋ねていない", Reply: reply,
+		})
+	}
+
+	// 5.1 観察を求める前に操作させていないか
+	//
+	// ランプを尋ねてはいても、**同じ発話で先に押させる**ことがある
+	// (実測: 304 で『黄色のボタンを押さえたまま、ランプはどうなってますか?』)。
+	// 装置を見る前に操作させると、何を見ているのか分からないまま手が動く。
+	//
+	// **押すボタンの色は点滅として装置に現れる**ので、第一声で言う必要がない
+	// (危険位置のように装置に現れない情報とは扱いが違う。ADR N-10 / N-4)。
+	if isStageOpening(turn) && simPressBeforeLook.MatchString(body) {
+		findings = append(findings, simFinding{
+			StageID: id, Level: turn.HintLevel, Kind: "press_before_observation",
+			Detail: "観察を求める前にボタンを押させている", Reply: reply,
+		})
+	}
+
+	// 5.15 誤報告のあとに切らせていないか
+	//
+	// **切った線は戻せず即爆発する。** プレイヤーが正解でない色を報告したのに
+	// 『それが N 番目だ、切ってください』と応じると、**そのまま爆死する**。
+	//
+	// 205 速さくらべ で実測8回中1〜5回発生した。散文の指示を4通り書き直しても
+	// ゼロにはならなかったため、**検査で必ず落とす**。
+	//
+	// 台本が誤答を報告するターン (`sim_wrong_color`) の直後だけを見る。
+	if simPlayerReportedWrongColor(turn, vars, stage) && simAuthorizesCut(body) {
+		findings = append(findings, simFinding{
+			StageID: id, Level: turn.HintLevel, Kind: "cut_after_wrong_report",
+			Detail: "誤った色の報告に対して切る指示を出している(即爆発)", Reply: reply,
+		})
+	}
+
+	// 5.2 第一声で手順を言っていないか
+	//
+	// **手順は第一声に入れない** (ADR N-49)。プレイヤーはまだ装置に触っていないので、
+	// 報告を待つ間に事故は起きない。装置を見る前に数字を並べても頭に入らず、
+	// **見る前に手が動く**ことになる。
+	//
+	// **危険位置も例外ではない。** 206 綱渡り は「回す指示と一緒に警告する」形にした
+	// (回せと言う前に危険位置だけを告げると、何のための数字か分からない)。
+	// そのため**全ステージが対象**で、危険位置の有無で分岐しない。
+	//
+	// 実測: 102 で『まずはダイヤルを2に合わせてください。ランプはどうなってますか?』、
+	// 206 で『ダイヤル2で止まるな。ランプはどうなってますか?』となった。
+	if turn.Trigger == "session_start" && simDialBeforeLook.MatchString(body) {
+		findings = append(findings, simFinding{
+			StageID: id, Level: turn.HintLevel, Kind: "procedure_before_observation",
+			Detail: "第一声で手順(ダイヤル)を言っている", Reply: reply,
 		})
 	}
 

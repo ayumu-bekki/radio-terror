@@ -605,7 +605,7 @@ func TestPushSeqLenIsHarderOnHard(t *testing.T) {
 }
 
 // TestRevealCutOnCompleteReachesCore は 103 コール&レスポンス の
-// `reveal_cut_on_complete` が**Core向けJSONへ届く**ことを確かめる (ADR C-12)。
+// `reveal_cut_on_complete` が**Core向けJSONへ届く**ことを確かめる (ADR C-13)。
 //
 // この演出はファーム側の挙動 (押し切ったら切る線だけ点灯)。
 // フラグが落ちると**押し終わっても表示が変わらず**、

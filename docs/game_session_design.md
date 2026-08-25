@@ -290,7 +290,7 @@ WiFiが無いと永久に起動しなかった。
     (retry / penalty / explode、既定retry。retryは列の先頭からやり直し)。
     正しい入力のたびに `push_progress` をサーバーへ通知する(§7.2)。
     `reveal_cut_on_complete` を立てると、**押し切った時点で切る線の色だけを
-    点灯**させ他を消灯する(押下フェーズの終わりを装置で示す。ADR C-12)
+    点灯**させ他を消灯する(押下フェーズの終わりを装置で示す。ADR C-13)
   - `timer_digit`: 切断の瞬間の「残り秒数の指定桁」が条件を満たすこと。
     比較相手は固定値(判定窓は対象桁が一致する期間+直後1秒の猶予)、
     またはロータリー位置(桁とロータリーの一致)。
@@ -408,7 +408,7 @@ Setup 中の復帰は復旧ガイド表示(§4.1)に必要なため対象外。
 | `stages[].leds` | kLED A-E の表示パターン。文字列の簡易記法またはオブジェクト指定(§6.1) |
 | `stages[].rotary_leds` | 省略可。**ロータリー位置ごとのLED表示**。`{"0": {...}, "1": {...}}` の形で位置0-5を指定する。指定するとロータリーを回すたびに `leds` の代わりにその位置の表示へ差し替わる(209 配電盤照合。ADR C-14)。位置が変わるとパターン再生は先頭へ戻る |
 | `stages[].led_blink_ms` | 文字列 `"blink"` 指定時の点滅周期(省略時デフォルト500ms) |
-| `stages[].precondition` | 省略可。以下を組み合わせ可(§5)。`rotary`: 位置0-5 / `push`: 保持するスイッチ(複数指定可。5個あるので複数人で押さえる協力プレイが成立する) / `color_match`: 色合わせ(§5.1)。`count`: 押す回数, `last_matches_cut`: 最後の1つを `cut` と同色に固定, `penalty_ms`: 誤押下時の減算(省略時0) / `push_seq`: `entries`: [{`push`, `rotary`(省略可)}...], `on_wrong_press`(省略時retry), `reveal_cut_on_complete`(省略時false。押し切ったら**切る線の色だけを点灯**させ他は消灯する。103 コール&レスポンス) / `timer_digit`: `digit`(ones/tens), `value`(固定値)または `match: "rotary"`, `offset`(桁への加算値。-9〜9) / `leds_all_off`: true |
+| `stages[].precondition` | 省略可。以下を組み合わせ可(§5)。`rotary`: 位置0-5 / `push`: 保持するスイッチ(複数指定可。5個あるので複数人で押さえる協力プレイが成立する) / `color_match`: 色合わせ(§5.1)。`count`: 押す回数, `last_matches_cut`: 最後の1つを `cut` と同色に固定, `penalty_ms`: 誤押下時の減算(省略時0) / `push_seq`: `entries`: [{`push`, `rotary`(省略可)}...], `on_wrong_press`(省略時retry), `reveal_cut_on_complete`(省略時false。押し切ったら**切る線の色だけを点灯**させ他は消灯する。103 コール&レスポンス / 201 復唱) / `timer_digit`: `digit`(ones/tens), `value`(固定値)または `match: "rotary"`, `offset`(桁への加算値。-9〜9) / `leds_all_off`: true |
 | `stages[].forbidden_rotary` | 省略可。`positions`: 禁止位置リスト, `on_violation`: explode / penalty(+`penalty_ms`)。通過はセーフ、一定時間停止で違反確定(§5) |
 | `stages[].cut` | このステージで切断すべき線 (A-E) |
 

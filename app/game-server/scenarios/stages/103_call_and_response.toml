@@ -1,11 +1,11 @@
-# 104. コール&レスポンス (docs/puzzle_stage_ideas.md §2.1)
+# 103. コール&レスポンス (docs/puzzle_stage_ideas.md §2.1)
 #
 # **報告した色は答えではない**のが、このステージだけが教えること。
 # 点灯しているランプは「報告させるため」にあり、切る線は**点滅している別の色**。
 # 203 ブループリント の「全灯は合図」、205 速さくらべ の「点灯は基準外」へ
 # 繋がる素地になる (ADR N-10 まず報告させる)。
 #
-# ## 押し切ったら切る線だけが残る (ADR C-12)
+# ## 押し切ったら切る線だけが残る (ADR C-13)
 #
 # 押下中は「報告用の点灯」と「切る線の点滅」が**両方見えている**。
 # 押し終わると `reveal_cut_on_complete` が働き、**切る線の色だけが点灯**して
@@ -49,7 +49,7 @@ seq = { pick = "color_seq", count = 3, exclude = ["${cut}", "${lit}"] }
 leds = { "${lit}" = "on", "${cut}" = "blink" }
 led_blink_ms = 700
 cut = "${cut}"
-# 押し切ったら**切る線の色だけを点灯**させ、他は消灯する (ADR C-12)。
+# 押し切ったら**切る線の色だけを点灯**させ、他は消灯する (ADR C-13)。
 # `colors` は各色が { push = "<色>" } の1エントリへ展開される。
 precondition = { push_seq = { colors = "${seq}", reveal_cut_on_complete = true, on_wrong_press = { action = "penalty", penalty_ms = 3000 } } }
 

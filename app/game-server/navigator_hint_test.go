@@ -221,14 +221,17 @@ func TestL4WithoutKeepCutSecretStillDirects(t *testing.T) {
 // TestKeepCutSecretStagesAreFlagged は、色名を言うと課題が消えるステージに
 // `keep_cut_secret` が立っていることを確かめる (ADR N-38)。
 //
-// **散文の但し書きは L4 で負ける。** 205 は L4 を名指しした但し書きで
-// 個別に守っていたが、同じ性質の 202・203 は守られていなかった
-// (203 に至っては但し書きすら無かった)。フラグで揃える。
+// **散文の但し書きは L4 で負ける。** かつては L4 を名指しした但し書きで
+// 個別に守っていたが、同じ性質のステージで守られていなかった。フラグで揃える。
 func TestKeepCutSecretStagesAreFlagged(t *testing.T) {
 	lib := loadTestLibrary(t)
 
 	// 色名を言うと**課題そのものが消える**ステージ。
-	//   205: 回路図シートを読む工程 / 202: 資料3枚の読み解き / 203: モールス解読
+	//   203: 回路図シートを読む工程 / 301: 資料の読み解き / 202: モールス解読
+	//
+	// **205 速さくらべ は立てない** (ADR N-50)。正解が紙資料に無く、
+	// 点滅の速さは装置を見て数えるしかないため、色を伏せると
+	// **誰も正誤を確定できず誤答のまま切る** (実測8回中5回で通した)。
 	want := map[string]bool{"203": true, "301": true, "202": true}
 
 	for id := range lib.stages {
@@ -398,5 +401,60 @@ func TestStageHintOverrideZeroIsMeaningful(t *testing.T) {
 	// 何も指定しなければ base のまま
 	if empty := (StageHintOverride{}).Apply(stdHints); empty != stdHints {
 		t.Errorf("空の上書きで値が変わった: %+v", empty)
+	}
+}
+
+// TestMustSayReachesPrompt は `must_say` がプロンプトへ**独立したブロック**で
+// 届くことを確かめる (ADR N-51)。
+//
+// `hint_l1` に「必ず両方伝える」と書くだけでは、指針が長くなるほど
+// **末尾の項目が落ちる** (204 色合わせ で8回中2回欠けた)。
+// 散文の但し書きではなく単独の要求として置き直したので、
+// **その配置が壊れていないこと**を回帰で見る。
+func TestMustSayReachesPrompt(t *testing.T) {
+	const mustSay = "最後に押した色を覚えておくこと"
+
+	stage := &BuiltStage{
+		TemplateID: "204",
+		Navigator: map[string]string{
+			"answer":   "正解は緑色の線を切ること",
+			"must_say": mustSay,
+			"hint_l1":  "観察を促す",
+		},
+	}
+	text := BuildNavigatorPrompt(NavigatorPromptInput{
+		Prompt:    &NavigatorPromptConfig{},
+		Session:   &BuiltSession{Stages: []*BuiltStage{stage}},
+		HintLevel: HintL1,
+	})
+
+	if !strings.Contains(text, mustSay) {
+		t.Errorf("must_say がプロンプトに無い:\n%s", text)
+	}
+	if !strings.Contains(text, "この課題で必ず言うこと") {
+		t.Errorf("must_say の見出しが無い — 独立ブロックになっていない:\n%s", text)
+	}
+	// 見出しの直後に本文が来ていること (離れると埋もれる)。
+	head := strings.Index(text, "この課題で必ず言うこと")
+	body := strings.Index(text, mustSay)
+	if head < 0 || body < head || body-head > 200 {
+		t.Errorf("must_say が見出しから離れすぎ (head=%d body=%d)", head, body)
+	}
+}
+
+// TestMustSayAbsentWhenUnset は `must_say` を書いていないステージで
+// 見出しごと出ないことを確かめる。全ステージに出すと埋もれて意味が薄れる。
+func TestMustSayAbsentWhenUnset(t *testing.T) {
+	stage := &BuiltStage{
+		TemplateID: "101",
+		Navigator:  map[string]string{"answer": "正解は赤色の線を切ること"},
+	}
+	text := BuildNavigatorPrompt(NavigatorPromptInput{
+		Prompt:    &NavigatorPromptConfig{},
+		Session:   &BuiltSession{Stages: []*BuiltStage{stage}},
+		HintLevel: HintL1,
+	})
+	if strings.Contains(text, "この課題で必ず言うこと") {
+		t.Errorf("must_say が無いのに見出しが出た:\n%s", text)
 	}
 }
