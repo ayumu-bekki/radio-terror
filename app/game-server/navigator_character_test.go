@@ -20,13 +20,14 @@ func loadTestNavigator(t *testing.T) *NavigatorConfig {
 func TestNavigatorConfigLoads(t *testing.T) {
 	cfg := loadTestNavigator(t)
 
-	// docs/navigator_design.md §2 の4キャラクター
-	if len(cfg.Characters) != 4 {
-		t.Fatalf("キャラクター数 = %d, want 4 (%v)", len(cfg.Characters), cfg.Names())
+	// docs/navigator_design.md §2 の5キャラクター
+	if len(cfg.Characters) != 5 {
+		t.Fatalf("キャラクター数 = %d, want 5 (%v)", len(cfg.Characters), cfg.Names())
 	}
 
 	wantIDs := map[string]string{
-		"owl": "フクロウ", "lark": "ヒバリ", "heron": "アオサギ", "thrush": "ツグミ",
+		"owl": "フクロウ", "lark": "ヒバリ", "heron": "アオサギ",
+		"thrush": "ツグミ", "shrike": "モズ",
 	}
 	for id, name := range wantIDs {
 		c, ok := cfg.ByID(id)

@@ -42,12 +42,19 @@ go test -run TestKeepaliveAcceptsBridgePings -keepalive -timeout 420s -v
 go test -run TestSimulateAllStages -simulate -timeout 60m -v
 go test -run TestSimulateAllStages -simulate -sim-stages 201,202 -v
 
-# **キャラクターを変えて回す**。口調で出る問題が違うため4人とも
+# **キャラクターを変えて回す**。口調で出る問題が違うため全員
 # (敬語のアオサギは字数超過、命令形を使わないツグミは口調写し、
-# ヒバリは最も字数が厳しく詰め込みすぎが最初に現れる)
+# ヒバリは最も字数が厳しく詰め込みすぎが最初に現れる、
+# 大阪弁のモズは口調の崩れと軽口の入れすぎ)
 go test -run TestSimulateAllStages -simulate -sim-character heron -v
 go test -run TestSimulateAllStages -simulate -sim-character thrush -v
 go test -run TestSimulateAllStages -simulate -sim-character lark -v
+go test -run TestSimulateAllStages -simulate -sim-character shrike -v
+
+# **終幕 (解除成功・爆発) のシミュレーション** (実APIを呼ぶ。約10秒)
+# ステージ横断シミュレーションはここを通らない。キャラ差が最も大きい場面
+# なので、キャラシートを触ったら回す。既定で各3回 (ADR V-1)
+go test -run TestSimulateEndings -ending -ending-character shrike -v
 ```
 
 `gofmt -w <file>` は編集後に必ず実行する(`gofmt -l *.go` が何も出さない状態を保つ)。
@@ -260,6 +267,12 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | 判定できないことは委ねる | 装置を見ていないナビに答え合わせはさせない。205 は正誤を告げず「自信が持てたら切れ」と委ねる | N-50 |
 | 誤答に理由を付けない | 差し戻しは数え直させるだけ。理由を述べさせると当てはまらない材料を当てはめる。「了解」で受けない | N-45 |
 | 頻度指示は効かない | 「3回に1回」は守られない。**判定できる条件**で分岐させる | N-33 |
+| 方言は禁じる場所で書く | モズ(大阪弁)は「〜まっせ」等の商人口調を禁じる。**「知らんけど」は語ごと禁じない** — 軽口は可、**手順(切る線・位置・順番)に付けさせない**。軽口は1発話一言まで | N-21b |
+| トリガーに例文を書かない | `[triggers]` は全キャラ共通。例文を置くとその口調に全員が寄る(モズ17/18が標準語に戻った)。**短い発話ほど強く出る**。委ね先をキャラシートに作ってから外す | N-21c |
+| 中間の答えも答え | 302 は解読した語(ECHO等)を教えていた。**色漏れ検査に掛からない** | N-45 |
+| 断り方は確定手段で選ぶ | **資料がある**(302・203)なら「本当にそれか?」と疑いをかけて資料へ戻す。**数えるしかない**(205)なら正誤に触れず委ねる。**どちらも断定しない** | N-50 |
+| 条件は動作までつなげる | 「9になった瞬間を**見ておけ**」では切らない。「**その瞬間に切る**」まで言い切る。**`hint_l2` にも書く**(procedure だけでは L2 で再発) | N-48 |
+| 動く正解は追尾させる | 303 は「合わせてから切る」では桁が変わる。「**合っている状態で切る**」+「ずれたら回し直す」 | N-48 |
 
 ## 未検証・既知の制約
 

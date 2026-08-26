@@ -513,6 +513,11 @@ var simScripts = map[string]simScript{
 	// 解き方は 202 暗号電文と同じなので、妨害の扱いだけが違いになる。
 	"302": {
 		StageID: "302",
+		// **解読した語 (ECHO 等) を言ってはいけない** (ADR N-45)。
+		// これは切る線の色ではなく**中間の答え**で、色漏れ検査に掛からない。
+		// 実測で「デルタやない、ECHOや」と正解の語を教えてしまった
+		// (2026-08-26)。誤答は読み直しを促すだけにする。
+		MustNotMention: []string{"${navi_word_guess}"},
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
@@ -521,8 +526,16 @@ var simScripts = map[string]simScript{
 				Player: "ランプがばらばらに光っています。点きっぱなしのものもあります。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL2,
 				Player: "長短が混ざっているランプが1つありました。どうぞ"},
+			// **誤った語を報告する。** ここでナビが正解の語を教えていないか、
+			// かつ断定して突き放していないかを見る (決定87)。
+			// 正しい形は「本当にデルタか?」と疑いをかけて資料へ戻すこと。
 			{Trigger: "player_message", HintLevel: HintL3,
 				Player: "読めました。デルタです。どうぞ"},
+			// **今度は正しく読めた場合。** 疑いをかけるのは違っているときだけで、
+			// 正解には「せやな」と認めて先へ進めるかを見る。
+			// ここで毎回疑い返すと、正しく読めても先へ進めない。
+			{Trigger: "player_message", HintLevel: HintL3,
+				Player: "確かめ直しました。${navi_word_guess}でした。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,
@@ -579,5 +592,30 @@ func TestScriptsReportLampsFirst(t *testing.T) {
 			t.Errorf("%s: 最初のプレイヤー発話がランプの報告になっていない — "+
 				"報告→照合→指示の往復が検証されない:\n  %s", id, first)
 		}
+	}
+}
+
+// TestMustNotMentionExemptionIsNarrow は、MustNotMention の
+// 「プレイヤーが先に言った語は復唱なので免除」が**広すぎない**ことを確かめる。
+//
+// 302 は誤答を差し戻したあと、プレイヤーが正しい語を報告してくる。
+// そこを復唱するのは漏洩ではないので免除が要る (決定87)。
+// だが免除が雑だと、**ナビが自分から言った語まで見逃す**。
+func TestMustNotMentionExemptionIsNarrow(t *testing.T) {
+	script := simScript{
+		Turns: []simTurn{
+			{Player: "読めました。デルタです。どうぞ"},
+			{Player: "確かめ直しました。${navi_word_guess}でした。どうぞ"},
+		},
+	}
+	vars := map[string]string{"navi_word_guess": "ECHO"}
+
+	// プレイヤーが報告した語 → 復唱なので免除される
+	if !simPlayerSaid(script, vars, "ECHO") {
+		t.Error("プレイヤーが言った語が免除されていない — 正当な復唱が所見になる")
+	}
+	// プレイヤーが一度も言っていない語 → 免除されない (漏洩として拾う)
+	if simPlayerSaid(script, vars, "FOXTROT") {
+		t.Error("プレイヤーが言っていない語まで免除している — 漏洩を見逃す")
 	}
 }

@@ -534,7 +534,11 @@ void GameTask::TickCountdown() {
 }
 
 void GameTask::TickLeds() {
-  leds_.TickPatterns(CurrentLedPatterns());
+  const LedPattern* patterns = CurrentLedPatterns();
+  if (patterns == nullptr) {
+    return;
+  }
+  leds_.TickPatterns(patterns);
   ApplyLedOutputs();
 }
 
@@ -785,6 +789,11 @@ void GameTask::ApplyLedOutputs() {
 /// 位置が変わると `HandleRotaryChanged` がパターン再生をリセットするので、
 /// 切り替わった瞬間から新しい表示が先頭から流れる。
 const LedPattern* GameTask::CurrentLedPatterns() const {
+  // 呼び出し元は Playing に限られるが、セッションが空のまま来ても落ちないようにする
+  if (static_cast<size_t>(stage_index_) >= session_.stages.size()) {
+    return nullptr;
+  }
+
   const StageConfig& stage = session_.stages[stage_index_];
   if (!stage.has_rotary_leds) {
     return stage.leds;
@@ -819,6 +828,14 @@ void GameTask::ClearLedOverrides() {
   //        「押し終わったらランプが変わった」という変化の報告が生まれる。
   //
   // **オプトイン** (reveal_cut_on_complete)。既定では働かない。
+  //
+  // Setup・Ready ではセッションがまだ空なので、ステージ参照はここで打ち切る
+  // (この関数は EnterSetup / EnterReady からも呼ばれる)。
+  if (state_ != STATE_PLAYING || session_.stages.empty()) {
+    ApplyLedOutputs();
+    return;
+  }
+
   const StageConfig& stage = session_.stages[stage_index_];
   if (stage.precondition.has_push_seq &&
       stage.precondition.push_seq.reveal_cut_on_complete &&

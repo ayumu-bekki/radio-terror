@@ -699,10 +699,18 @@ func simCheckTurn(
 	// 206 綱渡り は危険位置を第一声で必ず伝えるが (MustMention)、
 	// 209 配電盤照合 は資料を読ませるので言ってはいけない (MustNotMention)。
 
-	// 言ってはいけない語 (資料を読ませるステージの答えなど)
+	// 言ってはいけない語 (資料を読ませるステージの答えなど)。
+	//
+	// **プレイヤーが先に言った語の復唱は漏洩ではない** (色名と同じ扱い)。
+	// 302 は誤答を差し戻したあと、プレイヤーが正しい語を報告してくる。
+	// そこで「ECHO やな、了解」と受けるのは**復唱**であって、
+	// 資料から読ませるべき答えを教えたことにはならない。
 	for _, ng := range script.MustNotMention {
 		ng = expandSimText(ng, vars)
 		if ng == "" {
+			continue
+		}
+		if simPlayerSaid(script, vars, ng) {
 			continue
 		}
 		if strings.Contains(body, ng) {
@@ -987,4 +995,22 @@ func simRenderReport(results []*simStageResult, character NavigatorCharacter) st
 		fmt.Fprintf(&b, "\n")
 	}
 	return b.String()
+}
+
+// simPlayerSaid は台本のプレイヤー発話に語が含まれるかを返す。
+//
+// 含まれていれば、ナビゲーターがその語を口にしても**復唱**であって
+// 漏洩ではない (MustNotMention の免除に使う)。
+// 表記ゆれ (ECHO / エコー) は拾えないが、台本は展開後の語をそのまま
+// 使うため、台本経由の報告はこれで一致する。
+func simPlayerSaid(script simScript, vars map[string]string, word string) bool {
+	for _, turn := range script.Turns {
+		if turn.Player == "" {
+			continue
+		}
+		if strings.Contains(expandSimText(turn.Player, vars), word) {
+			return true
+		}
+	}
+	return false
 }

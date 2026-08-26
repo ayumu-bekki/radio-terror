@@ -709,7 +709,7 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 	attempts := 0
 	unknown := map[string]int{}
 
-	for _, id := range []string{"owl", "heron", "lark", "thrush"} {
+	for _, id := range []string{"owl", "heron", "lark", "thrush", "shrike"} {
 		character, ok := navCfg.ByID(id)
 		if !ok {
 			t.Fatalf("キャラクター %q が無い", id)
