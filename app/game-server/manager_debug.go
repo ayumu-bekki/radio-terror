@@ -25,7 +25,10 @@ type debugPageData struct {
 	Bridges      []string
 	Difficulties []debugChoice
 	Characters   []debugChoice
-	Stages       []debugChoice
+
+	// StageGroups は難易度ごとに束ねたステージ。
+	// 18個を平坦に並べると目的のものを探しにくいため区切って出す。
+	StageGroups []debugStageGroup
 
 	// MaxStages は選択できるステージ数の上限 (画面の注意書きに出す)
 	MaxStages int
@@ -37,6 +40,28 @@ type debugPageData struct {
 type debugChoice struct {
 	Value string
 	Label string
+}
+
+// debugStageGroup は難易度ごとのステージ群。
+//
+// **番号帯 (100/200/300番台) ではなく `difficulty` タグで束ねる。**
+// 現在は一致しているが、正本はタグの方 (ADR S-8)。番号から判定すると
+// ずれたときに表示だけが実態と食い違う。
+type debugStageGroup struct {
+	// Difficulty は難易度タグ (easy / normal / hard)
+	Difficulty string
+	// Label は見出し (「イージー (easy)」)
+	Label  string
+	Stages []debugStageChoice
+}
+
+// debugStageChoice はステージ1つ分の選択肢。
+type debugStageChoice struct {
+	Value string
+	Label string
+	// EasyOnly は「イージーでしか選出されない」ステージ (101)。
+	// 他の難易度と組むと**本番では起こらない組み合わせ**になるので印を付ける
+	EasyOnly bool
 }
 
 // debugDeviceView は Core の選択肢。接続していない Core も出す
@@ -74,13 +99,10 @@ func (w *ManagerWeb) handleDebugPage(rw http.ResponseWriter, r *http.Request) {
 	// 難易度は3つ固定 (ロードも同じ3つを決め打ちで読む)。
 	// 表示名はテンプレートの Name を使う
 	for _, name := range []string{difficultyEasy, difficultyNormal, difficultyHard} {
-		label := name
-		if w.library != nil {
-			if tmpl, err := w.library.Difficulty(name); err == nil && tmpl.Name != "" {
-				label = fmt.Sprintf("%s (%s)", tmpl.Name, name)
-			}
-		}
-		data.Difficulties = append(data.Difficulties, debugChoice{Value: name, Label: label})
+		data.Difficulties = append(data.Difficulties, debugChoice{
+			Value: name,
+			Label: w.difficultyLabel(name),
+		})
 	}
 
 	if w.navigator != nil {
@@ -92,17 +114,76 @@ func (w *ManagerWeb) handleDebugPage(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if w.library != nil {
-		for _, id := range w.library.StageIDs() {
-			label := id
-			if stage, err := w.library.Stage(id); err == nil {
-				label = fmt.Sprintf("%s %s", id, stage.Name)
-			}
-			data.Stages = append(data.Stages, debugChoice{Value: id, Label: label})
+	data.StageGroups = w.buildStageGroups()
+
+	w.render(rw, managerDebugTmpl, "page", data)
+}
+
+// buildStageGroups は難易度ごとに束ねたステージ一覧を作る。
+//
+// 並びは easy → normal → hard、各群の中はID順 (StageIDs が昇順)。
+// **どの難易度にも属さないタグが付いていたら最後にまとめて出す** —
+// 黙って捨てると、タグを打ち間違えたステージが画面から消えて気付けない。
+func (w *ManagerWeb) buildStageGroups() []debugStageGroup {
+	if w.library == nil {
+		return nil
+	}
+
+	byTag := make(map[string][]debugStageChoice)
+	order := make([]string, 0, 4)
+	seen := make(map[string]bool)
+
+	for _, id := range w.library.StageIDs() {
+		stage, err := w.library.Stage(id)
+		if err != nil {
+			continue
+		}
+		tag := stage.Difficulty
+		if !seen[tag] {
+			seen[tag] = true
+			order = append(order, tag)
+		}
+		byTag[tag] = append(byTag[tag], debugStageChoice{
+			Value:    id,
+			Label:    fmt.Sprintf("%s %s", id, stage.Name),
+			EasyOnly: stage.EasyOnly,
+		})
+	}
+
+	// 既知の難易度を先に、想定外のタグはその後ろへ
+	known := []string{difficultyEasy, difficultyNormal, difficultyHard}
+	tags := make([]string, 0, len(order))
+	for _, name := range known {
+		if seen[name] {
+			tags = append(tags, name)
+		}
+	}
+	for _, name := range order {
+		if name != difficultyEasy && name != difficultyNormal && name != difficultyHard {
+			tags = append(tags, name)
 		}
 	}
 
-	w.render(rw, managerDebugTmpl, "page", data)
+	groups := make([]debugStageGroup, 0, len(tags))
+	for _, tag := range tags {
+		groups = append(groups, debugStageGroup{
+			Difficulty: tag,
+			Label:      w.difficultyLabel(tag),
+			Stages:     byTag[tag],
+		})
+	}
+	return groups
+}
+
+// difficultyLabel は難易度タグの見出しを作る (「イージー (easy)」)。
+// テンプレートに名前が無ければタグをそのまま使う。
+func (w *ManagerWeb) difficultyLabel(tag string) string {
+	if w.library != nil {
+		if tmpl, err := w.library.Difficulty(tag); err == nil && tmpl.Name != "" {
+			return fmt.Sprintf("%s (%s)", tmpl.Name, tag)
+		}
+	}
+	return tag
 }
 
 // handleDebugStart はデバッグ開始フォームの送信を受けてセッションを開始する。

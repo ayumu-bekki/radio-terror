@@ -146,6 +146,23 @@ button.danger:hover { background: var(--danger-bg); border-color: var(--danger-f
 .health .health-msg .v { font-family: ui-monospace, monospace; font-size: .74rem;
                          word-break: break-all; }
 
+/* --- デバッグ開始ページのステージ選択 --- */
+
+/* stage-group は難易度ごとの区切り。18個を平坦に並べると探しにくいため、
+   枠と見出しで段落を作る。開発用の画面なので装飾は最小限にする。 */
+.stage-group { border: 1px solid var(--line-strong); border-radius: 3px;
+               padding: .3rem .7rem .55rem; margin: 0 0 .5rem; }
+.stage-group legend { color: var(--text-muted); font-size: .74rem;
+                      font-weight: 600; letter-spacing: .02em; padding: 0 .3rem; }
+
+/* 1行に詰め込みすぎず、幅に応じて折り返す */
+.stage-list { display: grid; gap: .1rem .9rem;
+              grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); }
+
+.stage-pick { display: flex; align-items: baseline; gap: .35rem; }
+.stage-pick label { font-size: .8rem; cursor: pointer; }
+.stage-pick input { cursor: pointer; }
+
 /* --- ページ間の行き来 --- */
 
 /* nav はページ上部の戻り導線とページ間リンク。 */

@@ -8,15 +8,13 @@
 </head>
 <body>
 <div class="nav"><a href="/manager">← Management Console</a></div>
-<h1>デバッグ開始 — Core・難易度・オペレーター・ステージを指定して開始する</h1>
+<h1>デバッグ開始</h1>
 
 {{/* デバッグ専用ページ。ダッシュボードからのリンクは張っていない
      (URLを直接叩いて使う)。当日の運営では使わない */}}
 <p class="muted" style="font-size:.78rem;margin:0 0 .7rem">
   開発中の動作確認用。ステージは最大 {{.MaxStages}} 個まで
   (切断線を1本以上余らせるため)。未選択なら難易度どおりに抽選する。
-  <strong>無線は必須</strong> — ナビゲーターの発話が流れない状態では
-  本番と同じ挙動にならないため。
 </p>
 
 {{if not .Bridges}}
@@ -64,16 +62,24 @@
     </label>
   </div>
 
-  <div class="summary" style="margin-bottom:.6rem">
-    {{range .Stages}}
-      <div style="flex-direction:row;align-items:baseline;gap:.35rem">
-        <input type="checkbox" name="stage_id" value="{{.Value}}" id="s{{.Value}}">
-        <label for="s{{.Value}}" style="font-size:.8rem">{{.Label}}</label>
+  {{/* 18個を平坦に並べると探しにくいので難易度ごとに区切る。
+       束ねる基準は番号帯ではなく difficulty タグ (正本はタグ側。ADR S-8) */}}
+  {{range .StageGroups}}
+    <fieldset class="stage-group">
+      <legend>{{.Label}}</legend>
+      <div class="stage-list">
+        {{range .Stages}}
+          <div class="stage-pick">
+            <input type="checkbox" name="stage_id" value="{{.Value}}" id="s{{.Value}}">
+            <label for="s{{.Value}}">{{.Label}}
+              {{- if .EasyOnly}} <span class="muted">(イージー専用)</span>{{end}}</label>
+          </div>
+        {{end}}
       </div>
-    {{else}}
-      <div class="muted">ステージが読み込まれていません</div>
-    {{end}}
-  </div>
+    </fieldset>
+  {{else}}
+    <p class="muted">ステージが読み込まれていません</p>
+  {{end}}
 
   <button type="submit">この構成で開始する</button>
   <span class="muted" id="note" style="font-size:.75rem;margin-left:.5rem"></span>

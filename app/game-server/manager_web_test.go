@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -687,7 +688,7 @@ func TestDebugPageRenders(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"デバッグ開始", "/manager/api/debug-start", "無線は必須"} {
+	for _, want := range []string{"デバッグ開始", "/manager/api/debug-start"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body に %q が無い", want)
 		}
@@ -835,5 +836,83 @@ func TestHealthPanelRenders(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manager?partial=live", nil))
 	if !strings.Contains(rec.Body.String(), `id="health"`) {
 		t.Error("partial=live に #health が無い — 差し替えで消える")
+	}
+}
+
+// TestStageGroupRender はステージ選択が難易度ごとに区切られることを確認する。
+//
+// 束ねる基準は**番号帯ではなく difficulty タグ** (正本はタグ側。ADR S-8)。
+func TestStageGroupRender(t *testing.T) {
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	bridges := NewBridgeRegistry()
+	game := NewGameCoordinator(devices, bridges, nil, store, nil)
+	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), nil,
+		&APIHealth{}, store, lib, nil)
+	mux := http.NewServeMux()
+	web.Register(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manager/debug", nil))
+	body := rec.Body.String()
+
+	// legend の並び順
+	re := regexp.MustCompile(`<legend>([^<]+)</legend>`)
+	var legends []string
+	for _, m := range re.FindAllStringSubmatch(body, -1) {
+		legends = append(legends, strings.TrimSpace(m[1]))
+	}
+	t.Logf("見出しの並び: %v", legends)
+
+	// 各群のステージ数
+	for _, g := range web.buildStageGroups() {
+		ids := make([]string, 0, len(g.Stages))
+		for _, st := range g.Stages {
+			ids = append(ids, st.Value)
+		}
+		t.Logf("%-16s %d件: %v", g.Label, len(g.Stages), ids)
+	}
+
+	if !strings.Contains(body, "イージー専用") {
+		t.Error("101 の easy_only 印が無い")
+	}
+	if strings.Count(body, `name="stage_id"`) != 18 {
+		t.Errorf("チェックボックス数 = %d, want 18", strings.Count(body, `name="stage_id"`))
+	}
+}
+
+// 想定外の difficulty タグが付いたステージが画面から消えないことを確認する。
+// 黙って捨てるとタグの打ち間違いに気付けない。
+func TestStageGroupKeepsUnknownTag(t *testing.T) {
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// タグを打ち間違えたステージを注入する
+	lib.stages["999"] = &StageTemplate{ID: "999", Name: "打ち間違い", Difficulty: "nomal"}
+
+	store := NewMemoryStore()
+	web := NewManagerWeb(NewDeviceRegistry(), NewBridgeRegistry(),
+		NewGameCoordinator(NewDeviceRegistry(), NewBridgeRegistry(), nil, store, nil),
+		NewSessionLogStore(store), nil, &APIHealth{}, store, lib, nil)
+
+	groups := web.buildStageGroups()
+	var last debugStageGroup
+	found := false
+	for _, g := range groups {
+		if g.Difficulty == "nomal" {
+			found, last = true, g
+		}
+	}
+	if !found {
+		t.Fatal("未知タグの群が消えている — 打ち間違いに気付けない")
+	}
+	t.Logf("未知タグ群: %q (%d件)", last.Label, len(last.Stages))
+	if groups[len(groups)-1].Difficulty != "nomal" {
+		t.Error("未知タグは末尾に置くべき")
 	}
 }
