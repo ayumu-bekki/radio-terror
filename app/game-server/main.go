@@ -18,6 +18,51 @@ const (
 	defaultNavigatorDir     = "navigator"
 )
 
+// orDefault は設定値が空なら既定値を返す。
+// 設定ファイルの項目は「書かなければ既定」という扱いで揃えてある。
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+// validateStartup は起動時に落とすべき設定の不整合をまとめて検査する。
+//
+// ここに集めてあるものは**抽選次第でしか再現しない**性質を持つ —
+// 対応が足りない色や端子は、その色が正解になったセッションだけが
+// 組み立てに失敗する。当日の1回に当たると原因の特定が難しいため、
+// 起動時に全件を検査して落とす。
+func validateStartup(cfg *Config, library *ScenarioLibrary) {
+	// 資料名が空だと `${sheet_morse}` が空文字に展開され、「を使って解読しろ」
+	// という意味の通らない発話になる (ADR D-2)。
+	if err := cfg.MissionSheet.Documents.Validate(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	// 端子は X/Y の両系統を検査する (ADR D-6)。
+	if err := cfg.MissionSheet.ValidateTerminalMaps(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	// 202 暗号電文 の対照表。
+	if err := validateCodebookTable(); err != nil {
+		log.Fatalf("codebook: %v", err)
+	}
+	// 209 配電盤照合 の対照表。見え方が重複していると現在位置を特定できない。
+	if err := validatePanelTable(); err != nil {
+		log.Fatalf("panel: %v", err)
+	}
+	// 難易度ごとの入力量。未設定だと「押す回数0回」の成立しないステージになる。
+	for _, name := range []string{difficultyEasy, difficultyNormal, difficultyHard} {
+		diff, err := library.Difficulty(name)
+		if err != nil {
+			log.Fatalf("difficulty %s: %v", name, err)
+		}
+		if err := diff.Load.Validate(name); err != nil {
+			log.Fatalf("config: %v", err)
+		}
+	}
+}
+
 func main() {
 	configPath := "config.toml"
 	if len(os.Args) > 1 {
@@ -53,55 +98,20 @@ func main() {
 	}
 
 	// --- シナリオテンプレート ---
-	scenarioDir := cfg.Scenario.Dir
-	if scenarioDir == "" {
-		scenarioDir = defaultScenarioDir
-	}
+	scenarioDir := orDefault(cfg.Scenario.Dir, defaultScenarioDir)
 	library, err := LoadScenarioLibrary(scenarioDir)
 	if err != nil {
 		log.Fatalf("LoadScenarioLibrary: %v", err)
 	}
 	log.Printf("[scenario] loaded %d stages from %s", library.StageCount(), scenarioDir)
 
-	// 資料名が空だと `${sheet_morse}` が空文字に展開され、「を使って解読しろ」
-	// という意味の通らない発話になる。**起動時に落とす** (ADR D-2)。
-	if err := cfg.MissionSheet.Documents.Validate(); err != nil {
-		log.Fatalf("config: %v", err)
-	}
-	// 端子の登録漏れは**その色が正解になったセッションだけ**が失敗するため、
-	// 抽選次第でしか再現しない。起動時に両系統を検査する (ADR D-6)。
-	if err := cfg.MissionSheet.ValidateTerminalMaps(); err != nil {
-		log.Fatalf("config: %v", err)
-	}
-	// 202 の対照表も同じ性質 — 対応が足りない色は、その色が正解になった
-	// セッションだけが組み立てに失敗する。起動時に検査する。
-	if err := validateCodebookTable(); err != nil {
-		log.Fatalf("codebook: %v", err)
-	}
-	// 209 配電盤照合 の対照表も同じ性質 — 見え方が重複していると
-	// その行が抽選された回だけ現在位置を特定できなくなる。
-	if err := validatePanelTable(); err != nil {
-		log.Fatalf("panel: %v", err)
-	}
-	// 難易度ごとの入力量。未設定だと「押す回数0回」の成立しないステージになる。
-	for _, name := range []string{difficultyEasy, difficultyNormal, difficultyHard} {
-		diff, err := library.Difficulty(name)
-		if err != nil {
-			log.Fatalf("difficulty %s: %v", name, err)
-		}
-		if err := diff.Load.Validate(name); err != nil {
-			log.Fatalf("config: %v", err)
-		}
-	}
+	validateStartup(cfg, library)
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	builder := NewScenarioBuilder(library, cfg.MissionSheet, rng)
 
 	// --- ナビゲーター設定 (キャラクター・プロンプト) ---
-	navigatorDir := cfg.Navigator.Dir
-	if navigatorDir == "" {
-		navigatorDir = defaultNavigatorDir
-	}
+	navigatorDir := orDefault(cfg.Navigator.Dir, defaultNavigatorDir)
 	navigatorCfg, err := LoadNavigatorConfig(navigatorDir)
 	if err != nil {
 		log.Fatalf("LoadNavigatorConfig: %v", err)
@@ -149,10 +159,7 @@ func main() {
 	}
 
 	// --- 混線・効果音アセット ---
-	assetDir := cfg.Assets.Dir
-	if assetDir == "" {
-		assetDir = defaultAssetDir
-	}
+	assetDir := orDefault(cfg.Assets.Dir, defaultAssetDir)
 	crosstalkLib := LoadCrosstalkLibrary(assetDir + "/crosstalk")
 	crosstalk := NewCrosstalkScheduler(crosstalkLib, bridges, rng)
 	game.SetCrosstalkScheduler(crosstalk)
@@ -183,16 +190,14 @@ func main() {
 	game.SetTestResponder(testResponder)
 
 	// --- WebSocket サーバー (core-system デバイス) + マネージャー向け Web 画面 ---
-	wsAddr := cfg.WebSocket.ListenAddr
-	if wsAddr == "" {
-		wsAddr = defaultWSListenAddr
-	}
+	wsAddr := orDefault(cfg.WebSocket.ListenAddr, defaultWSListenAddr)
 	health := &APIHealth{}
 	processor.SetHealth(health)
 	// TTS の失敗は発話が丸ごと無音になる形で表れるため、画面で検知できるようにする
 	ttsClient.SetHealth(health)
 
-	managerWeb := NewManagerWeb(devices, bridges, game, sessionLogs, crosstalkLib, health, store)
+	managerWeb := NewManagerWeb(devices, bridges, game, sessionLogs, crosstalkLib, health, store,
+		library, navigatorCfg)
 
 	wsServer := NewWSServer(devices, game, managerWeb)
 	go func() {
@@ -202,10 +207,7 @@ func main() {
 	}()
 
 	// --- gRPC サーバー (radio-bridge からのダイヤルインを受ける) ---
-	bridgeAddr := cfg.RadioBridge.ListenAddr
-	if bridgeAddr == "" {
-		bridgeAddr = defaultBridgeListenAddr
-	}
+	bridgeAddr := orDefault(cfg.RadioBridge.ListenAddr, defaultBridgeListenAddr)
 	bridgeServer := NewBridgeServer(bridges, pipeline)
 
 	if err := bridgeServer.Run(ctx, bridgeAddr); err != nil && ctx.Err() == nil {

@@ -161,6 +161,31 @@ struct Precondition {
   bool leds_all_off = false;
 };
 
+/// 危険位置に止まっていることを示す表示色 (209 配電盤照合)。
+///
+/// **この色が単独で点灯していたら危険位置**。対照表の行はすべて2色以上なので、
+/// 1色だけの表示は必ずこの意味になる。
+/// サーバー側の `panelDangerLit` (scenario_panel.go) と揃えること。
+constexpr ColorId kPanelDangerColor = COLOR_A;  // 赤
+
+/// ステージ属性: **ロータリー位置ごとの対照表** (209 配電盤照合)。
+///
+/// **サーバーは開始時のロータリー位置を知らない。** ツマミは前のプレイから
+/// 物理的に位置が残っており、サーバーがそこへ動かす手段が無いため、
+/// 抽選するとツマミの実位置とずれる (実運用で爆発した)。
+///
+/// そこで**6行すべてを受け取り、ステージ開始時点の実位置で行を確定する**。
+/// 確定した行から `precondition.rotary` (解除位置) と
+/// `forbidden_rotary` (危険位置) を自分で設定する。
+struct PanelRows {
+  bool enabled = false;
+  /// 位置ごとの危険位置・解除位置
+  int8_t forbidden[kRotaryPositionNum] = {-1, -1, -1, -1, -1, -1};
+  int8_t release[kRotaryPositionNum] = {-1, -1, -1, -1, -1, -1};
+  /// 解除位置で cut を点滅させる周期
+  int32_t blink_ms = 500;
+};
+
 /// ステージ属性: 停止してはいけないロータリー位置 (通過はセーフ)
 struct ForbiddenRotary {
   bool enabled = false;
@@ -187,6 +212,12 @@ struct StageConfig {
   /// 未指定 (has_rotary_leds = false) なら従来どおり `leds` を使い続ける。
   bool has_rotary_leds = false;
   LedPattern rotary_leds[kRotaryPositionNum][kColorNum];
+
+  /// **位置ごとの危険位置・解除位置** (209 配電盤照合)。
+  ///
+  /// 指定すると、ステージ開始時に**その時点のロータリー位置**で行を確定し、
+  /// `precondition.rotary` と `forbidden_rotary` を上書きする。
+  PanelRows panel_rows;
 };
 
 /// セッション定義一式 (session_start のペイロード)

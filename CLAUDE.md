@@ -51,6 +51,11 @@ go test -run TestSimulateAllStages -simulate -sim-character thrush -v
 go test -run TestSimulateAllStages -simulate -sim-character lark -v
 go test -run TestSimulateAllStages -simulate -sim-character shrike -v
 
+# **209 は開始位置を変えて回す** (実機はツマミの残り位置から始まる。決定91)
+for p in 0 1 2 3 4 5; do
+  go test -run TestSimulateAllStages -simulate -sim-stages 209 -sim-panel-start $p -v
+done
+
 # **終幕 (解除成功・爆発) のシミュレーション** (実APIを呼ぶ。約10秒)
 # ステージ横断シミュレーションはここを通らない。キャラ差が最も大きい場面
 # なので、キャラシートを触ったら回す。既定で各3回 (ADR V-1)
@@ -170,10 +175,13 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | bridge からの音声受信 | `bridge_server.go` → `audio_pipeline.go` |
 | マネージャー音声コマンド判定 | `manager_command.go`(開始申告・秘密ワード付きリセット) |
 | セッション組み立て | `scenario_builder.go` + `scenario_expand.go` + `scenario_validate.go` |
-| バインド・イベント処理の中心 | `game_coordinator.go` |
+| 抽選 (`pick`) と導出 (`derive`) | `scenario_pick.go`(乱数を引く) / `scenario_derive.go`(引いた値から決まる) |
+| セッション開始・中断 | `game_coordinator.go` |
+| デバイス進行イベントの演出 | `game_events.go`(`HandleDeviceMessage` と各イベント) |
 | ナビゲーター発話生成 | `navigator_speaker.go` → `navigator_prompt.go` |
 | デバイスとのWS | `ws_session.go` + `device_registry.go` |
 | Management Console | `manager_web.go`(ハンドラ) + `manager_view.go`(表示整形) + `manager_*.gohtml` |
+| デバッグ開始ページ | `manager_debug.go` + `manager_debug.gohtml`(開発用。ADR M-6) |
 
 **`/ws` は1エンドポイントにトランシーバーとデバイスが相乗り**する。
 接続種別は最初のメッセージで判定する(`login` → トランシーバー、
@@ -247,6 +255,8 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | 危険位置は場合による | 206 はナビが伝える(回す指示と一緒に)。209 は資料を読ませるので知らない立場を取る | N-44 |
 | 操作に反応しない | ナビは装置を見ていない。押下通知で発話しない、叩いている最中は黙る | N-26 |
 | ミスには音を出す | 無線越しは音が唯一のフィードバック。ブザー+軽いペナルティ | C-6b |
+| 位置が残るものは決め打たない | ロータリーは前のプレイの位置が残る。**サーバーが現在位置を抽選すると実機とずれ**、正しく資料を読んでも爆発する。選択肢を全部渡してデバイスが実行時に選ぶ | C-15 |
+| 209 の点滅は「切る線」専用 | 見え方は**点灯色の組だけ**で引く。点滅を混ぜると cut と衝突し、cut に使える色が無くなる | C-15 |
 | 回すと表示が変わる | 209 は位置ごとにLED表示を差し替える。解除位置の見え方は紙に載せない(回す前に答えが分かる) | C-14 |
 | 押し切ったら答えを出す | 103 は押下中2色見せ(最初から両方見せないとひねりが消える)。201 は1色だけ見せ、押し切って初めて切る線が出る | C-13 |
 | 色合わせは待つ | 時間で色を切り替えない。押すまで待つ。時間切れ判定は無操作でも鳴り続け爆発する | C-11 |

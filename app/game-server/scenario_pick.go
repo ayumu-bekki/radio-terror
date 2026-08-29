@@ -11,6 +11,115 @@ import (
 	"strings"
 )
 
+// availableColors は除外条件を満たす色を allColors の順で返す。
+//
+// usedLines が非 nil なら、他ステージで使用済みの色も除く
+// (切断線はステージ間で重複させられないため)。
+func availableColors(excluded, usedLines map[string]bool) []string {
+	candidates := make([]string, 0, len(allColors))
+	for _, color := range allColors {
+		if excluded[color] {
+			continue
+		}
+		if usedLines != nil && usedLines[color] {
+			continue
+		}
+		candidates = append(candidates, color)
+	}
+	return candidates
+}
+
+// pickColors は複数色をまとめて選ぶ (カンマ区切りで返す)。
+// 互いに異なる色を選び、**ソートして**返す (表示用)。
+func (b *ScenarioBuilder) pickColors(
+	def map[string]any, vars map[string]string, excluded map[string]bool,
+) (string, error) {
+	countText, err := expandAny(def["count"], vars)
+	if err != nil {
+		return "", err
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil {
+		return "", fmt.Errorf("colors.count is not a number: %q", countText)
+	}
+
+	candidates := availableColors(excluded, nil)
+	if len(candidates) < count {
+		return "", fmt.Errorf("colors.count %d exceeds available %d", count, len(candidates))
+	}
+	b.rng.Shuffle(len(candidates), func(i, j int) {
+		candidates[i], candidates[j] = candidates[j], candidates[i]
+	})
+	picked := candidates[:count]
+	sort.Strings(picked)
+	return strings.Join(picked, ","), nil
+}
+
+// pickInt は範囲から整数を1つ引く。exclude された数値は避ける。
+func (b *ScenarioBuilder) pickInt(
+	def map[string]any, vars map[string]string, excluded map[string]bool,
+) (string, error) {
+	minText, err := expandAny(def["min"], vars)
+	if err != nil {
+		return "", err
+	}
+	maxText, err := expandAny(def["max"], vars)
+	if err != nil {
+		return "", err
+	}
+	min, err1 := strconv.Atoi(minText)
+	max, err2 := strconv.Atoi(maxText)
+	if err1 != nil || err2 != nil {
+		return "", fmt.Errorf("int.min/max are not numbers: %q %q", minText, maxText)
+	}
+	if max < min {
+		return "", fmt.Errorf("int.max (%d) < int.min (%d)", max, min)
+	}
+
+	candidates := make([]int, 0, max-min+1)
+	for v := min; v <= max; v++ {
+		if !excluded[strconv.Itoa(v)] {
+			candidates = append(candidates, v)
+		}
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no int available in [%d,%d]", min, max)
+	}
+	return strconv.Itoa(candidates[b.rng.Intn(len(candidates))]), nil
+}
+
+// pickChoice は候補リストから1つ引く。
+//
+// as_line = true の場合は切断線として扱い、他ステージで使用済みの色を除く。
+// 5色すべてを表示に使うステージ(208)で cut を選ぶ用途を想定している。
+// (通常の choice は表示や分岐の選択に使うため、線の重複制約は受けない)
+func (b *ScenarioBuilder) pickChoice(
+	def map[string]any, vars map[string]string, excluded, usedLines map[string]bool,
+) (string, error) {
+	candidates, err := expandStringList(def["candidates"], vars)
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("choice.candidates is empty")
+	}
+
+	if asLine, _ := def["as_line"].(bool); asLine {
+		available := make([]string, 0, len(candidates))
+		for _, c := range candidates {
+			if !usedLines[c] && !excluded[c] {
+				available = append(available, c)
+			}
+		}
+		if len(available) == 0 {
+			return "", fmt.Errorf("choice(as_line): no line available (all候補が使用済み)")
+		}
+		candidates = available
+	}
+
+	return candidates[b.rng.Intn(len(candidates))], nil
+}
+
 // resolveOneVar は1つの抽選定義を解決する。
 func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars map[string]string, usedLines map[string]bool) (string, error) {
 	// derive: 他の変数から機械的に導出する (抽選ではない)
@@ -41,12 +150,7 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 	switch pickKind {
 	case "line":
 		// 切断線: ステージ間で重複しないよう、既に使われた色を除く
-		candidates := make([]string, 0, len(allColors))
-		for _, color := range allColors {
-			if !usedLines[color] && !excluded[color] {
-				candidates = append(candidates, color)
-			}
-		}
+		candidates := availableColors(excluded, usedLines)
 		if len(candidates) == 0 {
 			return "", fmt.Errorf("no line available (all %d colors used)", len(allColors))
 		}
@@ -54,42 +158,14 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 
 	case "color":
 		// 任意の色 (切断線の重複制約は受けない)
-		candidates := make([]string, 0, len(allColors))
-		for _, color := range allColors {
-			if !excluded[color] {
-				candidates = append(candidates, color)
-			}
-		}
+		candidates := availableColors(excluded, nil)
 		if len(candidates) == 0 {
 			return "", fmt.Errorf("no color available")
 		}
 		return candidates[b.rng.Intn(len(candidates))], nil
 
 	case "colors":
-		// 複数色をまとめて選ぶ (カンマ区切りで返す)
-		countText, err := expandAny(def["count"], vars)
-		if err != nil {
-			return "", err
-		}
-		count, err := strconv.Atoi(countText)
-		if err != nil {
-			return "", fmt.Errorf("colors.count is not a number: %q", countText)
-		}
-		candidates := make([]string, 0, len(allColors))
-		for _, color := range allColors {
-			if !excluded[color] {
-				candidates = append(candidates, color)
-			}
-		}
-		if len(candidates) < count {
-			return "", fmt.Errorf("colors.count %d exceeds available %d", count, len(candidates))
-		}
-		b.rng.Shuffle(len(candidates), func(i, j int) {
-			candidates[i], candidates[j] = candidates[j], candidates[i]
-		})
-		picked := candidates[:count]
-		sort.Strings(picked)
-		return strings.Join(picked, ","), nil
+		return b.pickColors(def, vars, excluded)
 
 	case "color_seq":
 		// **順番に意味がある色の列**を引く (201 復唱 のボタン列)。
@@ -103,61 +179,10 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 		return b.resolveColorSeq(def, vars, excluded)
 
 	case "int":
-		minText, err := expandAny(def["min"], vars)
-		if err != nil {
-			return "", err
-		}
-		maxText, err := expandAny(def["max"], vars)
-		if err != nil {
-			return "", err
-		}
-		min, err1 := strconv.Atoi(minText)
-		max, err2 := strconv.Atoi(maxText)
-		if err1 != nil || err2 != nil {
-			return "", fmt.Errorf("int.min/max are not numbers: %q %q", minText, maxText)
-		}
-		if max < min {
-			return "", fmt.Errorf("int.max (%d) < int.min (%d)", max, min)
-		}
-
-		// exclude された数値は避ける
-		candidates := make([]int, 0, max-min+1)
-		for v := min; v <= max; v++ {
-			if !excluded[strconv.Itoa(v)] {
-				candidates = append(candidates, v)
-			}
-		}
-		if len(candidates) == 0 {
-			return "", fmt.Errorf("no int available in [%d,%d]", min, max)
-		}
-		return strconv.Itoa(candidates[b.rng.Intn(len(candidates))]), nil
+		return b.pickInt(def, vars, excluded)
 
 	case "choice":
-		candidates, err := expandStringList(def["candidates"], vars)
-		if err != nil {
-			return "", err
-		}
-		if len(candidates) == 0 {
-			return "", fmt.Errorf("choice.candidates is empty")
-		}
-
-		// as_line = true の場合は切断線として扱い、他ステージで使用済みの色を除く。
-		// 5色すべてを表示に使うステージ(208)で cut を選ぶ用途を想定している。
-		// (通常の choice は表示や分岐の選択に使うため、線の重複制約は受けない)
-		if asLine, _ := def["as_line"].(bool); asLine {
-			available := make([]string, 0, len(candidates))
-			for _, c := range candidates {
-				if !usedLines[c] && !excluded[c] {
-					available = append(available, c)
-				}
-			}
-			if len(available) == 0 {
-				return "", fmt.Errorf("choice(as_line): no line available (all候補が使用済み)")
-			}
-			candidates = available
-		}
-
-		return candidates[b.rng.Intn(len(candidates))], nil
+		return b.pickChoice(def, vars, excluded, usedLines)
 
 	case "noise_leds":
 		// 妨害用のLED表示を残りの色へ割り当てる (203難版など)。
@@ -215,228 +240,6 @@ func (b *ScenarioBuilder) resolveOneVar(name string, def map[string]any, vars ma
 	}
 }
 
-// deriveRankSlot は cut を rank 番目に差し込んだ並びの slot 番目を返す。
-//
-// 205 速さくらべが「N番目に速い色」を正解にするために使う。
-// 速度そのものは [core] 側で s1〜s4 に固定値を割り当てるため、
-// ここでは**並び順だけ**を決める。
-//
-// rank / slot はいずれも 1 始まり。並びの長さは len(others)+1 になる。
-func (b *ScenarioBuilder) deriveRankSlot(def map[string]any, vars map[string]string) (string, error) {
-	cut, err := expandAny(def["cut"], vars)
-	if err != nil {
-		return "", fmt.Errorf("rank_slot.cut: %w", err)
-	}
-	others, err := expandStringList(def["others"], vars)
-	if err != nil {
-		return "", fmt.Errorf("rank_slot.others: %w", err)
-	}
-
-	rank, err := rankSlotIndex(def["rank"], vars, "rank")
-	if err != nil {
-		return "", err
-	}
-	slot, err := rankSlotIndex(def["slot"], vars, "slot")
-	if err != nil {
-		return "", err
-	}
-
-	size := len(others) + 1
-	if rank < 1 || rank > size {
-		return "", fmt.Errorf("rank_slot.rank (%d) is out of range [1,%d]", rank, size)
-	}
-	if slot < 1 || slot > size {
-		return "", fmt.Errorf("rank_slot.slot (%d) is out of range [1,%d]", slot, size)
-	}
-
-	// cut を rank 番目へ置き、残りを others の順で前から詰める。
-	order := make([]string, 0, size)
-	next := 0
-	for i := 1; i <= size; i++ {
-		if i == rank {
-			order = append(order, cut)
-			continue
-		}
-		order = append(order, others[next])
-		next++
-	}
-	return order[slot-1], nil
-}
-
-// rankSlotIndex は rank_slot の rank / slot を整数として読む。
-// TOML の整数でも "${rank}" のような参照でも書けるようにする。
-func rankSlotIndex(value any, vars map[string]string, name string) (int, error) {
-	text, err := expandAny(value, vars)
-	if err != nil {
-		return 0, fmt.Errorf("rank_slot.%s: %w", name, err)
-	}
-	n, err := strconv.Atoi(text)
-	if err != nil {
-		return 0, fmt.Errorf("rank_slot.%s is not a number: %q", name, text)
-	}
-	return n, nil
-}
-
-// deriveVar は他の変数から値を機械的に導出する。
-func (b *ScenarioBuilder) deriveVar(kind string, def map[string]any, vars map[string]string) (string, error) {
-	switch kind {
-	case "morse_word_color":
-		// 語の頭文字 → モールス対照表の色 (09. 暗号電文)
-		word, err := expandAny(def["from"], vars)
-		if err != nil {
-			return "", err
-		}
-		color := morseWordColor(word)
-		if color == "" {
-			return "", fmt.Errorf("cannot map morse word %q to a color", word)
-		}
-		return color, nil
-
-	case "romaji_color":
-		// 色名のローマ字表記 → 色 (305 ローマ字電文)
-		word, err := expandAny(def["from"], vars)
-		if err != nil {
-			return "", err
-		}
-		color := romajiColor(word)
-		if color == "" {
-			return "", fmt.Errorf("unknown romaji color name: %q", word)
-		}
-		return color, nil
-
-	case "rank_slot":
-		// 順位付きの並びを組み立てる (205 速さくらべ)。
-		//
-		// cut を rank 番目に置き、残りを others の順で前から詰めた並びの
-		// slot 番目を返す。「N番目に速い色を切れ」という課題で、
-		// **どの順位を正解にするかを毎回抽選する**ために使う。
-		//
-		//   cut=D rank=3 others=[A,B,C] のとき
-		//     slot 1 → A / slot 2 → B / slot 3 → D(cut) / slot 4 → C
-		return b.deriveRankSlot(def, vars)
-
-	case "choice_value":
-		// choice の抽選結果から対応する値を引く。
-		//
-		//   odd     = { pick = "choice", candidates = ["fast", "slow"] }
-		//   odd_ms  = { derive = "choice_value", from = "${odd}", fast = "300", slow = "650" }
-		//   rest_ms = { derive = "choice_value", from = "${odd}", fast = "650", slow = "300" }
-		//
-		// **抽選結果に応じて変わる値を別々に人手で書かない** (ADR S-1)。
-		// 207 なら片方だけ直し忘れると「5色とも同じ速さ」になり、
-		// 謎が成立しないまま組み立てが通ってしまう。
-		return b.deriveChoiceValue(def, vars)
-
-	case "panel_field":
-		// 209 配電盤照合: 選ばれた行から1項目を取り出す。
-		// `field` は position / forbidden / release / lit / blink / appearance。
-		return b.derivePanelField(def, vars)
-
-	case "codebook_field":
-		// 301 LED照合: 選ばれた表示 (pick = "codebook") から1項目を取り出す。
-		//
-		// `field` に "lit" (点灯色) / "dark" (消灯色) / "word" (キーワード) /
-		// "rotary" (ダイヤル位置) / "pattern" (4桁の2進表記) を指定する。
-		return b.deriveCodebookField(def, vars)
-
-	case "terminal_for_color":
-		// 配線色 → 資料3の端子番号 (203 ブループリント)。
-		//
-		// `series` に "x" / "y" を指定する。ナビゲーターは**両系統を並べて**
-		// 伝え、どちらを使うかはプレイヤーがシリアル銘板の下1桁 (奇数=X /
-		// 偶数=Y) を見て選ぶ (ADR D-6)。サーバーは個体のシリアルを知らない。
-		color, err := expandAny(def["from"], vars)
-		if err != nil {
-			return "", err
-		}
-		series, err := expandAny(def["series"], vars)
-		if err != nil {
-			return "", fmt.Errorf("terminal_for_color.series: %w", err)
-		}
-		series = strings.ToLower(strings.TrimSpace(series))
-		if series != "x" && series != "y" {
-			return "", fmt.Errorf("terminal_for_color.series は \"x\" か \"y\": %q", series)
-		}
-		terminal := b.sheet.TerminalForColor(series, color)
-		if terminal == "" {
-			return "", fmt.Errorf(
-				"no terminal mapped to color %q (check [mission_sheet.terminal_map_%s])",
-				color, series)
-		}
-		return terminal, nil
-
-	case "spoken_letter":
-		// 1文字を**無線で読み上げる形**にする (302)。
-		//
-		// 探すものを**指定する**側なので曖昧さを残せない。
-		// フォネティックだけだと資料1のフォネティック列を引き直す手間が増え、
-		// 文字名だけだと無線で聞き取りにくい。**両方を並べる** (ADR N-41)。
-		//   "G" → 「ジー、ゴルフ」
-		letter, err := expandAny(def["from"], vars)
-		if err != nil {
-			return "", fmt.Errorf("spoken_letter.from: %w", err)
-		}
-		spoken, ok := spokenLetterJA[strings.ToUpper(strings.TrimSpace(letter))]
-		if !ok {
-			return "", fmt.Errorf("spoken_letter: 読み方が未定義の文字 %q", letter)
-		}
-		return spoken, nil
-
-	case "tail":
-		// カンマ区切りの値から index 番目 (1始まり) 以降を**まとめて**返す。
-		//
-		// 206 綱渡り の禁止位置に使う。数が難易度で変わる (1個 or 2個) ため、
-		// `nth` で1つずつ取り出すと**count=1 のときに2つ目が範囲外**になる。
-		// 残り全部を返せば `positions = ["${forbidden}"]` がそのまま
-		// 1要素にも2要素にも展開される (expandValue がカンマを展開する)。
-		list, err := expandAny(def["from"], vars)
-		if err != nil {
-			return "", fmt.Errorf("tail.from: %w", err)
-		}
-		idxText, err := expandAny(def["index"], vars)
-		if err != nil {
-			return "", fmt.Errorf("tail.index: %w", err)
-		}
-		idx, err := strconv.Atoi(idxText)
-		if err != nil {
-			return "", fmt.Errorf("tail.index is not a number: %q", idxText)
-		}
-		items := strings.Split(list, ",")
-		if idx < 1 || idx > len(items) {
-			return "", fmt.Errorf("tail.index %d is out of range [1,%d]", idx, len(items))
-		}
-		rest := make([]string, 0, len(items)-idx+1)
-		for _, item := range items[idx-1:] {
-			rest = append(rest, strings.TrimSpace(item))
-		}
-		return strings.Join(rest, ","), nil
-
-	case "nth":
-		// カンマ区切りの値から N 番目 (1始まり) を取り出す。
-		// morse_letters がまとめて選んだ文字を各色へ配るのに使う。
-		list, err := expandAny(def["from"], vars)
-		if err != nil {
-			return "", fmt.Errorf("nth.from: %w", err)
-		}
-		idxText, err := expandAny(def["index"], vars)
-		if err != nil {
-			return "", fmt.Errorf("nth.index: %w", err)
-		}
-		idx, err := strconv.Atoi(idxText)
-		if err != nil {
-			return "", fmt.Errorf("nth.index is not a number: %q", idxText)
-		}
-		items := strings.Split(list, ",")
-		if idx < 1 || idx > len(items) {
-			return "", fmt.Errorf("nth.index %d is out of range [1,%d]", idx, len(items))
-		}
-		return strings.TrimSpace(items[idx-1]), nil
-
-	default:
-		return "", fmt.Errorf("unknown derive kind: %q", kind)
-	}
-}
-
 // romajiColorNames は色名のローマ字表記 → 色記号。
 // モールスで直接表示するため、A-Z のみで書ける表記にする (§6.1)。
 var romajiColorNames = map[string]string{
@@ -445,27 +248,6 @@ var romajiColorNames = map[string]string{
 	"MIDORI": "C", // 緑
 	"AO":     "D", // 青
 	"SIRO":   "E", // 白
-}
-
-// romajiColor は色名のローマ字表記から色記号を引く。
-func romajiColor(word string) string {
-	return romajiColorNames[strings.ToUpper(word)]
-}
-
-// morseWordColor は語の頭文字からモールス対照表の色を引く。
-//
-// 対照表は A-Z の各文字に5色を循環割当した固定印刷
-// (docs/puzzle_stage_ideas.md §6): A=A(赤), B=B(黄), C=C(緑), D=D(青), E=E(白),
-// F=A(赤), G=B(黄), ... となる。
-func morseWordColor(word string) string {
-	if word == "" {
-		return ""
-	}
-	head := strings.ToUpper(word)[0]
-	if head < 'A' || head > 'Z' {
-		return ""
-	}
-	return allColors[int(head-'A')%len(allColors)]
 }
 
 // spokenLetterJA は1文字を無線で読み上げる形。**文字名 + NATOフォネティック**。
@@ -678,87 +460,6 @@ func (b *ScenarioBuilder) resolveCodebook(def map[string]any, vars map[string]st
 		return "", fmt.Errorf("codebook: 色 %q になる表示が対照表に無い", cut)
 	}
 	return matched[b.rng.Intn(len(matched))].patternText(), nil
-}
-
-// deriveCodebookField は選ばれた表示から1項目を取り出す (301 LED照合)。
-func (b *ScenarioBuilder) deriveCodebookField(def map[string]any, vars map[string]string) (string, error) {
-	patternText, err := expandAny(def["from"], vars)
-	if err != nil {
-		return "", fmt.Errorf("codebook_field.from: %w", err)
-	}
-	field, err := expandAny(def["field"], vars)
-	if err != nil {
-		return "", fmt.Errorf("codebook_field.field: %w", err)
-	}
-
-	entry, err := codebookEntryByPattern(patternText)
-	if err != nil {
-		return "", err
-	}
-
-	field = strings.TrimSpace(field)
-	if field == "lit" {
-		return entry.litColors(), nil
-	}
-	if field == "dark" {
-		return entry.darkColors(), nil
-	}
-	if field == "word" {
-		return entry.word, nil
-	}
-	if field == "rotary" {
-		return strconv.Itoa(entry.rotary), nil
-	}
-	if field == "pattern" {
-		return entry.patternText(), nil
-	}
-	return "", fmt.Errorf("codebook_field.field が不正: %q (lit/dark/word/rotary/pattern)", field)
-}
-
-// codebookEntryByPattern は4桁の2進表記から対照表の行を引く。
-func codebookEntryByPattern(patternText string) (codebookEntry, error) {
-	patternText = strings.TrimSpace(patternText)
-	value, err := strconv.ParseInt(patternText, 2, 32)
-	if err != nil {
-		return codebookEntry{}, fmt.Errorf("codebook: pattern が2進表記ではない: %q", patternText)
-	}
-	for _, entry := range codebookTable {
-		if entry.pattern == int(value) {
-			return entry, nil
-		}
-	}
-	return codebookEntry{}, fmt.Errorf("codebook: pattern %q が対照表に無い", patternText)
-}
-
-// deriveChoiceValue は choice の抽選結果をキーにして値を引く (207)。
-//
-// `from` が展開された文字列をそのままキーとして def から読む。
-// 対応するキーが無ければエラーにする — 候補を増やしたのに値を
-// 足し忘れた場合、**その候補が当たった回だけ**失敗するため
-// (抽選次第でしか再現しない) 静かに通してはいけない。
-func (b *ScenarioBuilder) deriveChoiceValue(def map[string]any, vars map[string]string) (string, error) {
-	key, err := expandAny(def["from"], vars)
-	if err != nil {
-		return "", fmt.Errorf("choice_value.from: %w", err)
-	}
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return "", fmt.Errorf("choice_value.from が空")
-	}
-
-	// "derive" / "from" は指定そのものなので候補から除く
-	if key == "derive" || key == "from" {
-		return "", fmt.Errorf("choice_value: %q はキーに使えない", key)
-	}
-	raw, ok := def[key]
-	if !ok {
-		return "", fmt.Errorf("choice_value: 抽選結果 %q に対応する値が無い", key)
-	}
-	value, err := expandAny(raw, vars)
-	if err != nil {
-		return "", fmt.Errorf("choice_value.%s: %w", key, err)
-	}
-	return value, nil
 }
 
 // rotaryLayout は綱渡りのダイヤル配置 (206)。

@@ -20,13 +20,29 @@
 async function refresh() {
   const live = document.getElementById('live');
   try {
-    const html = await (await fetch('/manager?partial=live')).text();
-    live.innerHTML = html;
+    const res = await fetch('/manager?partial=live');
+    // HTTPエラー (502 等) は例外にならないので明示的に見る
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    live.innerHTML = await res.text();
     scrollLog();
   } catch (e) {
-    live.querySelector('#health').innerHTML =
-      '<span class="err">サーバーに接続できません</span>';
+    // **サーバーへ届いていない**ことを画面に出す。
+    // 直前の表示はそのまま残す — 消すと「何も起きていない」ように見え、
+    // 通信が切れたのか静かなだけなのか区別できない。
+    showOffline(e);
   }
+}
+
+// showOffline は通信断を知らせる帯を出す。
+//
+// #health は live の中にあり、通信が回復した次の refresh で
+// サーバー側の描画に置き換わる (自分で消す必要はない)。
+function showOffline(err) {
+  const health = document.getElementById('health');
+  if (!health) return;
+  health.innerHTML =
+    '<div><span class="k">接続</span>' +
+    '<span class="v err">サーバーに接続できません (' + err.message + ')</span></div>';
 }
 
 // 交信ログは最新が見えるよう末尾へ送る
@@ -71,6 +87,35 @@ setInterval(refresh, 2000);
 
 {{/* live は2秒ごとに差し替える範囲。進行中の状態だけを含める */}}
 {{define "live"}}
+{{/* 外部APIの状況。生成AIの障害は自動フォールバックせずマネージャー介入で
+     運用するため、まず気付けることが要る (決定: game_session_design §9)。
+     #health は refresh() の失敗時にも書き込まれるので必ず存在させる */}}
+<div id="health" class="summary health">
+  <div>
+    <span class="k">生成AI・TTS</span>
+    <span class="v">
+      {{- if .Health.HasError}}<span class="err">エラー {{.Health.ErrorCount}}件</span>
+      {{- else}}<span class="ok">正常</span>
+      {{- end}}
+    </span>
+  </div>
+  <div><span class="k">最終成功</span><span class="v">{{.Health.LastSuccess}}</span></div>
+  <div><span class="k">最終エラー</span><span class="v">{{.Health.LastError}}</span></div>
+  <div>
+    <span class="k">混線アセット</span>
+    {{/* 0件だとその種別は無言でスキップされる。気付けるよう警告色にする */}}
+    <span class="v{{if not .Health.Jamming}} warn{{end}}">
+      邪魔 {{.Health.Jamming}} / 環境 {{.Health.Ambient}} / 不穏 {{.Health.Uneasy}}
+    </span>
+  </div>
+  {{if .Health.LastMessage}}
+    <div class="health-msg">
+      <span class="k">直近のエラー内容</span>
+      <span class="v err">{{.Health.LastMessage}}</span>
+    </div>
+  {{end}}
+</div>
+
 <h2>デバイス</h2>
 <table><thead><tr>
   <th>CoreID</th><th>状態</th><th>残り</th><th>電池</th><th>ダイヤル</th><th>配線</th><th>最終報告</th>

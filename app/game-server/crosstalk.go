@@ -104,6 +104,21 @@ func LoadCrosstalkLibrary(root string) *CrosstalkLibrary {
 	return lib
 }
 
+// Counts は種別ごとのアセット件数を返す (Management Console の表示用)。
+//
+// **0 件でも起動はする**が、その種別の混線は無言でスキップされる。
+// 起動ログだけでは当日気付けないため、画面にも出す。
+func (l *CrosstalkLibrary) Counts() map[string]int {
+	if l == nil {
+		return map[string]int{}
+	}
+	return map[string]int{
+		crosstalkJamming: len(l.jamming),
+		crosstalkAmbient: len(l.ambient),
+		crosstalkUneasy:  len(l.uneasy),
+	}
+}
+
 // listOggFiles はディレクトリ内の .ogg ファイルを列挙する。
 func listOggFiles(dir string) []string {
 	entries, err := os.ReadDir(dir)

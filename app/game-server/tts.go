@@ -34,25 +34,6 @@ const ttsSlowThreshold = 10 * time.Second
 // 通常はキャラクター定義側で必ず指定する (navigator_character.go が検証する)。
 const defaultTTSVoice = "Despina"
 
-const ttsPersona = `# VOICE CHARACTER: 無線オペレーターA (Despina)
-## 基本プロフィール
-- 話者: 日本人女性の熟練アマチュア無線オペレーター
-- 声質: 明るく明瞭な女性の声。FM変調がかかった状態でも一語一語がはっきり聞き取れる
-- 話速: やや速め。ただし子音・語尾を明確に発音し、早口でも聞き取りやすさを保つ
-- 感情: 落ち着いた親しみやすさ。抑揚は最小限に抑え、チャンクをまたいでも同じトーンを維持する
-- 語尾を伸ばさない。文末は平坦〜下がり調子で終わる
-
-## 発音の特徴
-- コールサイン (英数字の組み合わせ) は一文字ずつ日本語読みで発音する: S4CA → "エス ヨン シー エー"
-- 「どうぞ」は無線用語として明確に発音し、その後は無音にする
-- 助詞・助動詞を略さず丁寧に発音する
-
-## 音響特性 (毎回一定に保つこと)
-- Pitch: 一定 (変動なし)
-- Tempo: 1.1x (やや速め、一定)
-- Breathiness: minimal
-- Vocal fry: none`
-
 // TTSClient は Gemini TTS クライアントを保持する。
 type TTSClient struct {
 	client   *genai.Client

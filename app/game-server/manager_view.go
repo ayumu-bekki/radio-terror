@@ -101,7 +101,10 @@ type bridgeView struct {
 	Status string
 }
 
-// healthView は外部APIの状況。
+// healthView は外部API (生成AI・TTS) と音声アセットの状況。
+//
+// 生成AIの障害時は自動フォールバックを設けずマネージャー介入で運用するため、
+// **障害に気付けること**が要件になる (docs/game_session_design.md §9)。
 type healthView struct {
 	LastSuccess string
 	LastError   string
@@ -110,6 +113,8 @@ type healthView struct {
 	// HasError は直近にエラーがあったか (テンプレートの色分け用)
 	HasError bool
 
+	// 混線アセットの件数。0 のままだと混線が無言でスキップされるため、
+	// 「置いたつもりで置けていない」を画面から気付けるようにする
 	Jamming int
 	Ambient int
 	Uneasy  int
@@ -387,20 +392,6 @@ func buildBridgeViews(ids []string, bindings map[string]string) []bridgeView {
 	return views
 }
 
-// buildHealthView は外部APIとアセットの状況を組み立てる。
-func buildHealthView(h APIHealthSnapshot, assets map[string]int) healthView {
-	return healthView{
-		LastSuccess: fmtClock(h.LastSuccess),
-		LastError:   fmtClock(h.LastError),
-		ErrorCount:  h.ErrorCount,
-		LastMessage: h.LastMessage,
-		HasError:    h.ErrorCount > 0,
-		Jamming:     assets[crosstalkJamming],
-		Ambient:     assets[crosstalkAmbient],
-		Uneasy:      assets[crosstalkUneasy],
-	}
-}
-
 // buildEntryViews は交信ログを組み立てる。
 func buildEntryViews(entries []ConversationEntry) []entryView {
 	views := make([]entryView, 0, len(entries))
@@ -511,4 +502,18 @@ func buildNaviFields(navi map[string]string) []naviFieldView {
 		})
 	}
 	return fields
+}
+
+// buildHealthView は外部APIとアセットの状況を組み立てる。
+func buildHealthView(h APIHealthSnapshot, assets map[string]int) healthView {
+	return healthView{
+		LastSuccess: fmtClock(h.LastSuccess),
+		LastError:   fmtClock(h.LastError),
+		ErrorCount:  h.ErrorCount,
+		LastMessage: h.LastMessage,
+		HasError:    h.ErrorCount > 0,
+		Jamming:     assets[crosstalkJamming],
+		Ambient:     assets[crosstalkAmbient],
+		Uneasy:      assets[crosstalkUneasy],
+	}
 }

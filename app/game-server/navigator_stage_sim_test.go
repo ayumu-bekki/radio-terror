@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,10 @@ var (
 		"シミュレーションで使うキャラクターID")
 	simReport = flag.String("sim-report", "",
 		"結果を Markdown で書き出すパス (空なら書き出さない)")
+	// **209 は開始位置で内容が変わる** (決定91)。実機ではツマミの残り位置が
+	// そのまま開始位置になるため、0-5 のどこから始まっても成立する必要がある。
+	simPanelStart = flag.Int("sim-panel-start", 0,
+		"209 配電盤照合の開始ロータリー位置 (0-5)")
 )
 
 // simTurn は台本の1ターン。プレイヤーの発話とサーバー側のトリガーを与える。
@@ -499,6 +504,31 @@ func simStageVars(lib *ScenarioLibrary, stage *BuiltStage) map[string]string {
 		if r, ok := pre["rotary"]; ok {
 			vars["sim_release"] = fmt.Sprintf("%v", r)
 			vars["sim_rotary"] = fmt.Sprintf("%v", r)
+		}
+	}
+
+	// **209 配電盤照合: 開始位置ごとの見え方と資料の中身** (決定91)。
+	//
+	// 現在位置は抽選されない (Core が実位置で決める) ので、
+	// シミュレーターは **-sim-panel-start で開始位置を与える**。
+	// 台本はその位置の点灯色を報告し、資料から読める危険位置・解除位置を
+	// 復唱する形で書く。
+	if _, ok := stage.Core["panel_rows"]; ok {
+		start := *simPanelStart
+		if start < 0 || rotaryPositionNum <= start {
+			start = 0
+		}
+		if row, err := panelRowByPosition(start); err == nil {
+			names := make([]string, 0, len(row.lit))
+			for _, c := range row.lit {
+				names = append(names, colorNameJA[c])
+			}
+			vars["sim_panel_start"] = strconv.Itoa(row.position)
+			vars["sim_panel_lit"] = strings.Join(names, "と")
+			vars["sim_panel_forbidden"] = strconv.Itoa(row.forbidden)
+			vars["sim_panel_release"] = strconv.Itoa(row.release)
+			// 解除位置では cut だけが点滅する
+			vars["sim_panel_cut"] = colorNameJA[stage.Cut]
 		}
 	}
 

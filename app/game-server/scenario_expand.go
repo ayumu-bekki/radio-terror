@@ -105,7 +105,68 @@ func (b *ScenarioBuilder) expandCore(core map[string]any, vars map[string]string
 	if err := expandRotaryLeds(result); err != nil {
 		return nil, err
 	}
+	if err := expandPanelRows(result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+// expandPanelRows は core の panel_rows を位置ごとのテーブルへ展開する
+// (209 配電盤照合。決定91)。
+//
+//	panel_rows = { rows = "${panel_rows}", blink_ms = 500 }
+//	  ↓
+//	panel_rows = { blink_ms: 500, rows: { "0": {forbidden:1, release:3}, ... } }
+//
+// **Core はステージ開始時点の実位置でこの表から行を引く**。サーバーは
+// 開始位置を知らないので、6行すべてを渡して選択を Core に委ねる。
+func expandPanelRows(core map[string]any) error {
+	raw, ok := core["panel_rows"]
+	if !ok {
+		return nil
+	}
+	spec, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("panel_rows must be a table")
+	}
+	text, ok := spec["rows"].(string)
+	if !ok {
+		return fmt.Errorf("panel_rows.rows must reference a panel variable")
+	}
+
+	rows := map[string]any{}
+	for _, entry := range strings.Split(text, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		fields := strings.Split(entry, ":")
+		if len(fields) != 3 {
+			return fmt.Errorf("panel_rows: 行の形式が不正: %q (位置:危険:解除)", entry)
+		}
+		nums := make([]int, 3)
+		for i, f := range fields {
+			n, err := strconv.Atoi(strings.TrimSpace(f))
+			if err != nil {
+				return fmt.Errorf("panel_rows: %q が数値でない", f)
+			}
+			nums[i] = n
+		}
+		rows[strconv.Itoa(nums[0])] = map[string]any{
+			"forbidden": nums[1],
+			"release":   nums[2],
+		}
+	}
+	if len(rows) != rotaryPositionNum {
+		return fmt.Errorf("panel_rows: %d 行しかない (%d 行必要)", len(rows), rotaryPositionNum)
+	}
+
+	out := map[string]any{"rows": rows}
+	if blink, ok := spec["blink_ms"]; ok {
+		out["blink_ms"] = blink
+	}
+	core["panel_rows"] = out
+	return nil
 }
 
 // expandRotaryLeds は core の rotary_leds を位置ごとのテーブルへ展開する。

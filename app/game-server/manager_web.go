@@ -50,6 +50,10 @@ func (h *APIHealth) NoteError(err error) {
 }
 
 func (h *APIHealth) Snapshot() APIHealthSnapshot {
+	// 未設定でも画面は描けるようにする (health は表示のためだけに持つ)
+	if h == nil {
+		return APIHealthSnapshot{}
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return APIHealthSnapshot{
@@ -76,6 +80,12 @@ type ManagerWeb struct {
 	// store は終了済みセッションの履歴を読むための永続化層。
 	// 進行中セッションはメモリから消えるため、履歴はここから引く。
 	store SessionStore
+
+	// library / navigator はデバッグ開始ページの選択肢を作るために使う。
+	// 表示のためだけに持つので、どちらも nil を許容する
+	// (HTTP層だけを検証するテストでは渡されない)。
+	library   *ScenarioLibrary
+	navigator *NavigatorConfig
 }
 
 func NewManagerWeb(
@@ -86,6 +96,8 @@ func NewManagerWeb(
 	crosstalk *CrosstalkLibrary,
 	health *APIHealth,
 	store SessionStore,
+	library *ScenarioLibrary,
+	navigator *NavigatorConfig,
 ) *ManagerWeb {
 	return &ManagerWeb{
 		devices:   devices,
@@ -95,6 +107,8 @@ func NewManagerWeb(
 		crosstalk: crosstalk,
 		health:    health,
 		store:     store,
+		library:   library,
+		navigator: navigator,
 	}
 }
 
@@ -117,6 +131,10 @@ func (w *ManagerWeb) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/manager/api/abort", w.handleAbort)
 	mux.HandleFunc("/manager/api/detonate", w.handleDetonate)
 	mux.HandleFunc("/manager/api/transcript", w.handleTranscript)
+
+	// デバッグ用。**既存ページからリンクは張らない** (URLを直接叩いて使う)
+	mux.HandleFunc("/manager/debug", w.handleDebugPage)
+	mux.HandleFunc("/manager/api/debug-start", w.handleDebugStart)
 }
 
 // --- ダッシュボード ---
@@ -126,6 +144,9 @@ type dashboardData struct {
 	Sessions []sessionView
 	Devices  []deviceView
 	Bridges  []bridgeView
+
+	// Health は外部API・音声アセットの状況 (§9 のマネージャー介入の判断材料)。
+	Health healthView
 
 	// Tabs は交信ログのタブ (進行中セッション)。
 	Tabs []logTabView
@@ -152,6 +173,7 @@ func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		Sessions: sessions,
 		Devices:  buildDeviceViews(w.devices.AllStatus(), w.devices.IsConnected),
 		Bridges:  buildBridgeViews(w.bridges.IDs(), w.game.Bindings()),
+		Health:   buildHealthView(w.health.Snapshot(), w.crosstalk.Counts()),
 	}
 
 	// 表示するログのセッションを決める。指定が無ければ先頭の進行中セッション
@@ -523,15 +545,27 @@ func (w *ManagerWeb) handleTranscript(rw http.ResponseWriter, r *http.Request) {
 	rw.Write([]byte(b.String()))
 }
 
-// handleAbort は Web 画面からの強制リセット。無線が使えない場合の代替手段。
-func (w *ManagerWeb) handleAbort(rw http.ResponseWriter, r *http.Request) {
+// postDeviceID は device_id を対象に取る POST 操作の前処理。
+//
+// 満たさない場合は応答を書いて false を返す (呼び出し側はそのまま return する)。
+// abort・detonate が同じ形をしているため共通化してある。
+func postDeviceID(rw http.ResponseWriter, r *http.Request) (string, bool) {
 	if r.Method != http.MethodPost {
 		http.Error(rw, "POST required", http.StatusMethodNotAllowed)
-		return
+		return "", false
 	}
 	deviceID := r.URL.Query().Get("device_id")
 	if deviceID == "" {
 		http.Error(rw, "device_id is required", http.StatusBadRequest)
+		return "", false
+	}
+	return deviceID, true
+}
+
+// handleAbort は Web 画面からの強制リセット。無線が使えない場合の代替手段。
+func (w *ManagerWeb) handleAbort(rw http.ResponseWriter, r *http.Request) {
+	deviceID, ok := postDeviceID(rw, r)
+	if !ok {
 		return
 	}
 
@@ -551,13 +585,8 @@ func (w *ManagerWeb) handleAbort(rw http.ResponseWriter, r *http.Request) {
 // 進行中セッションが無い場合は 409 を返す。誤操作の影響が大きいため、
 // abort と違って「届かなかったが状態は整理した」という緩い扱いはしない。
 func (w *ManagerWeb) handleDetonate(rw http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(rw, "POST required", http.StatusMethodNotAllowed)
-		return
-	}
-	deviceID := r.URL.Query().Get("device_id")
-	if deviceID == "" {
-		http.Error(rw, "device_id is required", http.StatusBadRequest)
+	deviceID, ok := postDeviceID(rw, r)
+	if !ok {
 		return
 	}
 
@@ -589,6 +618,9 @@ var (
 	//go:embed manager_session.gohtml
 	managerSessionHTML string
 
+	//go:embed manager_debug.gohtml
+	managerDebugHTML string
+
 	//go:embed manager.css
 	managerCSS string
 )
@@ -599,4 +631,5 @@ var (
 	managerPageTmpl    = template.Must(template.New("page").Parse(managerPageHTML))
 	managerHistoryTmpl = template.Must(template.New("history").Parse(managerHistoryHTML))
 	managerSessionTmpl = template.Must(template.New("session").Parse(managerSessionHTML))
+	managerDebugTmpl   = template.Must(template.New("debug").Parse(managerDebugHTML))
 )

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +23,7 @@ func newTestManagerWeb(t *testing.T) (*ManagerWeb, *http.ServeMux, SessionStore)
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
 	logs := NewSessionLogStore(store)
 
-	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store)
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 	return web, mux, store
@@ -488,7 +490,7 @@ func TestManagerPageShowsRotary(t *testing.T) {
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
 	logs := NewSessionLogStore(store)
 
-	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store)
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -558,7 +560,7 @@ func TestManagerPageBridgeTable(t *testing.T) {
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
 	logs := NewSessionLogStore(store)
 
-	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store)
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -634,7 +636,7 @@ func TestFinishedSessionKeepsResetButton(t *testing.T) {
 	devices := NewDeviceRegistry()
 	bridges := NewBridgeRegistry()
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
-	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), nil, &APIHealth{}, store)
+	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), nil, &APIHealth{}, store, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -670,5 +672,168 @@ func TestFinishedSessionKeepsResetButton(t *testing.T) {
 		"/manager/api/abort?device_id=3701", nil))
 	if rec.Code != http.StatusNoContent && rec.Code != http.StatusAccepted {
 		t.Errorf("リセット API の status = %d", rec.Code)
+	}
+}
+
+// TestDebugPageRenders はデバッグ開始ページが描画できることを確認する。
+// library / navigator が nil でも落ちないこと (選択肢が空になるだけ)。
+func TestDebugPageRenders(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manager/debug", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"デバッグ開始", "/manager/api/debug-start", "無線は必須"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body に %q が無い", want)
+		}
+	}
+}
+
+// TestDebugStartRejectsTooManyStages は上限を超えるステージ指定を弾くことを確認する。
+// **セッション開始まで到達しない**ことが要点 (到達すると外部APIを呼ぶ)。
+func TestDebugStartRejectsTooManyStages(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+
+	form := url.Values{}
+	form.Set("device_id", "3701")
+	form.Set("difficulty", difficultyNormal)
+	for _, id := range []string{"101", "202", "203", "301", "302"} {
+		form.Add("stage_id", id)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/manager/api/debug-start",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "最大") {
+		t.Errorf("理由が本文に無い: %q", rec.Body.String())
+	}
+}
+
+// TestDebugStartRequiresBridge は無線の指定が無い場合に開始しないことを確認する。
+// 発話が流れない状態で開始しても本番と同じ挙動にならないため。
+func TestDebugStartRequiresBridge(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+
+	form := url.Values{}
+	form.Set("device_id", "3701")
+	form.Set("difficulty", difficultyNormal)
+
+	req := httptest.NewRequest(http.MethodPost, "/manager/api/debug-start",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "bridge_id") {
+		t.Errorf("理由が本文に無い: %q", rec.Body.String())
+	}
+}
+
+// TestDebugStartRejectsDisconnectedBridge は未接続の無線を弾くことを確認する。
+func TestDebugStartRejectsDisconnectedBridge(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+
+	form := url.Values{}
+	form.Set("device_id", "3701")
+	form.Set("difficulty", difficultyNormal)
+	form.Set("bridge_id", "bridge-not-connected")
+
+	req := httptest.NewRequest(http.MethodPost, "/manager/api/debug-start",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	// フォームへ理由を持たせて戻す
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "error=") {
+		t.Errorf("戻り先に理由が無い: %q", loc)
+	}
+}
+
+// TestDebugStartRequiresPost は GET を拒否することを確認する
+// (既存の abort / detonate と同じ扱い)。
+func TestDebugStartRequiresPost(t *testing.T) {
+	_, mux, _ := newTestManagerWeb(t)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manager/api/debug-start", nil))
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+// TestHealthPanelRenders は外部APIの状況がダッシュボードに出ることを確認する。
+//
+// **この表示は一度壊れていた** — テンプレートに #health 要素が無いまま
+// JS だけが書き込もうとしており、サーバー障害時に何も出なかった。
+// 要素の存在と partial=live への追従を固定する。
+func TestHealthPanelRenders(t *testing.T) {
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	bridges := NewBridgeRegistry()
+	game := NewGameCoordinator(devices, bridges, nil, store, nil)
+	health := &APIHealth{}
+	lib := LoadCrosstalkLibrary("assets/crosstalk")
+
+	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), lib,
+		health, store, nil, nil)
+	mux := http.NewServeMux()
+	web.Register(mux)
+
+	get := func() string {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manager", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d", rec.Code)
+		}
+		return rec.Body.String()
+	}
+
+	// 正常時
+	body := get()
+	if !strings.Contains(body, `id="health"`) {
+		t.Fatal(`#health 要素が無い — catch 節の書き込み先が存在しない`)
+	}
+	if !strings.Contains(body, "正常") {
+		t.Error("正常表示が無い")
+	}
+	t.Logf("混線アセット件数が出ているか: %v", strings.Contains(body, "邪魔"))
+
+	// エラー発生後
+	health.NoteError(errors.New("429 RESOURCE_EXHAUSTED: quota exceeded"))
+	body = get()
+	if !strings.Contains(body, "エラー 1件") {
+		t.Error("エラー件数が出ていない")
+	}
+	if !strings.Contains(body, "quota exceeded") {
+		t.Error("エラー内容が出ていない")
+	}
+
+	// partial=live にも含まれること (2秒ごとの差し替えで消えない)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manager?partial=live", nil))
+	if !strings.Contains(rec.Body.String(), `id="health"`) {
+		t.Error("partial=live に #health が無い — 差し替えで消える")
 	}
 }

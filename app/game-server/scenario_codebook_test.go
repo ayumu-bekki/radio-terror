@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -824,6 +825,18 @@ func TestPanelTableIsValid(t *testing.T) {
 //
 // **解除位置の表示は対照表に載っていない**ことが要点 — 載せると
 // 回す前に切る線が分かってしまい、回す工程が消える。
+// TestPanelStageRotaryLeds は 209 の表示テーブルと対照表の整合を確かめる
+// (決定91)。
+//
+// **現在位置は抽選しない。** ロータリーは前のプレイから物理的に位置が残るため、
+// サーバーは実位置を知らない。6行すべてを渡し、Core が開始時点の位置で
+// 行を確定する。したがってサーバーが出すのは:
+//
+//	rotary_leds … 位置ごとの点灯色 (対照表そのもの)
+//	panel_rows  … 位置ごとの危険位置・解除位置 (6行ぶん)
+//
+// **precondition.rotary / forbidden_rotary は出さない** — 開始位置が
+// 分からないと決まらないため、Core が実行時に設定する。
 func TestPanelStageRotaryLeds(t *testing.T) {
 	lib := loadTestLibrary(t)
 	stageTmpl, err := lib.Stage("209")
@@ -838,6 +851,14 @@ func TestPanelStageRotaryLeds(t *testing.T) {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
 
+		// **サーバーは位置を決めない**
+		if _, exists := built.Core["precondition"]; exists {
+			t.Fatalf("seed=%d: precondition が出ている — 開始位置は Core が決める", seed)
+		}
+		if _, exists := built.Core["forbidden_rotary"]; exists {
+			t.Fatalf("seed=%d: forbidden_rotary が出ている — 開始位置は Core が決める", seed)
+		}
+
 		table, ok := built.Core["rotary_leds"].(map[string]any)
 		if !ok {
 			t.Fatalf("seed=%d: rotary_leds が無い", seed)
@@ -847,43 +868,13 @@ func TestPanelStageRotaryLeds(t *testing.T) {
 				seed, len(table), rotaryPositionNum)
 		}
 
-		release, err := strconv.Atoi(fmt.Sprintf("%v",
-			built.Core["precondition"].(map[string]any)["rotary"]))
-		if err != nil {
-			t.Fatalf("seed=%d: 解除位置が数値でない", seed)
-		}
-		positions := built.Core["forbidden_rotary"].(map[string]any)["positions"].([]any)
-		forbidden, err := strconv.Atoi(fmt.Sprintf("%v", positions[0]))
-		if err != nil {
-			t.Fatalf("seed=%d: 危険位置が数値でない", seed)
-		}
-		if release == forbidden {
-			t.Fatalf("seed=%d: 解除位置と危険位置が同じ (%d) — 到達できない", seed, release)
+		cut, _ := built.Core["cut"].(string)
+		if colorNameJA[cut] == "" {
+			t.Fatalf("seed=%d: cut が不正: %q", seed, cut)
 		}
 
-		// **危険位置は現在位置と解除位置の「間」にあること。**
-		// 経路の外だと素通りでき、「止まらずに通り抜ける」緊張が消える。
-		//
-		// 現在位置は対照表から引く (危険位置と解除位置の組で一意に決まる)。
-		position := -1
-		for _, row := range panelTable {
-			if row.forbidden == forbidden && row.release == release {
-				position = row.position
-				break
-			}
-		}
-		if position < 0 {
-			t.Fatalf("seed=%d: 危険%d/解除%d の組が対照表に無い", seed, forbidden, release)
-		}
-		lo, hi := position, release
-		if hi < lo {
-			lo, hi = hi, lo
-		}
-		if forbidden <= lo || hi <= forbidden {
-			t.Errorf("seed=%d: 危険位置 %d が経路 (%d〜%d) の外 — 素通りできる",
-				seed, forbidden, lo, hi)
-		}
-
+		// 表示は**対照表そのもの**。点滅は一切含まない
+		// (点滅は「切る線」の合図に予約してある)。
 		for key, raw := range table {
 			pos, err := strconv.Atoi(key)
 			if err != nil || pos < 0 || rotaryPositionNum <= pos {
@@ -893,45 +884,81 @@ func TestPanelStageRotaryLeds(t *testing.T) {
 			if !ok {
 				t.Fatalf("seed=%d: 位置 %d の表示がテーブルでない", seed, pos)
 			}
-
-			blinking := make([]string, 0, 2)
+			row, err := panelRowByPosition(pos)
+			if err != nil {
+				t.Fatalf("seed=%d: %v", seed, err)
+			}
+			if len(leds) != len(row.lit) {
+				t.Errorf("seed=%d 位置%d: 点灯 %d 色 (対照表は %d 色)",
+					seed, pos, len(leds), len(row.lit))
+			}
+			for _, want := range row.lit {
+				if leds[want] != "on" {
+					t.Errorf("seed=%d 位置%d: %s が点灯していない", seed, pos, want)
+				}
+			}
 			for color, spec := range leds {
 				if obj, isObj := spec.(map[string]any); isObj && obj["pattern"] == "blink" {
-					blinking = append(blinking, color)
+					t.Errorf("seed=%d 位置%d: %s が点滅している — "+
+						"見え方に点滅を混ぜると cut と衝突する", seed, pos, color)
 				}
 			}
+		}
 
-			switch pos {
-			case release:
-				// **cut だけが点滅**していること
-				if len(blinking) != 1 || blinking[0] != built.Cut {
-					t.Errorf("seed=%d: 解除位置 %d で点滅しているのが %v (cut=%s のみのはず)",
-						seed, pos, blinking, built.Cut)
-				}
-			case forbidden:
-				// **1色だけ点灯**。危険位置に止まっている合図
-				if len(leds) != 1 {
-					t.Errorf("seed=%d: 危険位置 %d の表示が %d 色 (1色のはず)",
-						seed, pos, len(leds))
-				}
-				if _, lit := leds[panelDangerLit]; !lit {
-					t.Errorf("seed=%d: 危険位置 %d が %s 単独点灯になっていない: %v",
-						seed, pos, panelDangerLit, leds)
-				}
-			default:
-				// ダミーと現在位置。**1色だけにしない** — 危険位置の合図と紛れる
-				if len(leds) == 1 {
-					t.Errorf("seed=%d: 位置 %d の表示が1色だけ — "+
-						"危険位置の合図 (%s 単独点灯) と紛れる", seed, pos, panelDangerLit)
-				}
-				// **cut が点滅していてはいけない** — 解除位置以外で答えが見える
-				for _, c := range blinking {
-					if c == built.Cut {
-						t.Errorf("seed=%d: 位置 %d で cut (%s) が点滅している — "+
-							"解除位置へ回す前に答えが分かる", seed, pos, built.Cut)
-					}
-				}
+		// panel_rows が6行そろい、対照表と一致すること
+		spec, ok := built.Core["panel_rows"].(map[string]any)
+		if !ok {
+			t.Fatalf("seed=%d: panel_rows が無い", seed)
+		}
+		rows, ok := spec["rows"].(map[string]any)
+		if !ok {
+			t.Fatalf("seed=%d: panel_rows.rows が無い", seed)
+		}
+		if len(rows) != rotaryPositionNum {
+			t.Fatalf("seed=%d: panel_rows が %d 行 (%d 行のはず)",
+				seed, len(rows), rotaryPositionNum)
+		}
+		for _, row := range panelTable {
+			got, ok := rows[strconv.Itoa(row.position)].(map[string]any)
+			if !ok {
+				t.Fatalf("seed=%d: 位置%d の行が無い", seed, row.position)
 			}
+			if fmt.Sprintf("%v", got["forbidden"]) != strconv.Itoa(row.forbidden) {
+				t.Errorf("seed=%d 位置%d: 危険位置 %v (対照表は %d)",
+					seed, row.position, got["forbidden"], row.forbidden)
+			}
+			if fmt.Sprintf("%v", got["release"]) != strconv.Itoa(row.release) {
+				t.Errorf("seed=%d 位置%d: 解除位置 %v (対照表は %d)",
+					seed, row.position, got["release"], row.release)
+			}
+		}
+	}
+}
+
+// TestPanelCutWorksFromEveryPosition は **cut が5色すべて使える**ことを
+// 確かめる (決定91)。
+//
+// 見え方に点滅を混ぜていた頃は、cut と点滅色が衝突する行を避けて
+// 抽選していた。点灯のみにしたので、どの色を切ることになっても
+// **どの位置から始めても答えが見えない**。
+func TestPanelCutWorksFromEveryPosition(t *testing.T) {
+	for _, cut := range allColors {
+		for _, row := range panelTable {
+			for _, lit := range row.lit {
+				if lit != cut {
+					continue
+				}
+				// 点灯するのは構わない — 点滅こそが「切れ」の合図。
+				// ここでは「点滅していないこと」だけを確かめる。
+				t.Logf("cut=%s は位置%d で点灯する (点滅ではないので可)", cut, row.position)
+			}
+		}
+	}
+	// 対照表に点滅色の概念が残っていないこと
+	for _, row := range panelTable {
+		if len(row.lit) < panelLitMin || panelLitMax < len(row.lit) {
+			t.Errorf("位置%d: 点灯 %d 色 — %d〜%d 色にする",
+				row.position, len(row.lit), panelLitMin, panelLitMax)
 		}
 	}
 }
@@ -1052,4 +1079,96 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestPanelWorksFromAnyStartPosition は **どの開始位置でも謎が成立する**ことを
+// 確かめる (決定91)。
+//
+// 実運用の事故の再現: ロータリーが4にあるのに、サーバーは「現在位置は2」として
+// 組み立てていた。プレイヤーは正しく資料を読んでも別の行を引き、
+// 危険位置を踏んで爆発した。
+//
+// **サーバーは開始位置を知らない**ので、6行すべてが単独で成立していなければ
+// ならない — どこから始まっても、解除位置へ到達でき、危険位置が経路の内側にあり、
+// 開始位置の表示で cut が点滅しないこと。
+func TestPanelWorksFromAnyStartPosition(t *testing.T) {
+	lib := loadTestLibrary(t)
+	tmpl, _ := lib.Stage("209")
+
+	for seed := int64(0); seed < 30; seed++ {
+		b := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		built, err := b.buildStage(tmpl, map[string]bool{}, stdHints, stdLoad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(built.Core)
+		var core map[string]any
+		json.Unmarshal(raw, &core)
+
+		spec := core["panel_rows"].(map[string]any)
+		rows := spec["rows"].(map[string]any)
+		leds := core["rotary_leds"].(map[string]any)
+		cut := core["cut"].(string)
+
+		// **どの開始位置でも成立すること**
+		for start := 0; start < rotaryPositionNum; start++ {
+			row, ok := rows[fmt.Sprint(start)].(map[string]any)
+			if !ok {
+				t.Fatalf("seed=%d start=%d: 行が無い", seed, start)
+			}
+			rel := int(row["release"].(float64))
+			forb := int(row["forbidden"].(float64))
+
+			if rel == start || forb == start || rel == forb {
+				t.Errorf("seed=%d start=%d: 解除%d 危険%d が不正", seed, start, rel, forb)
+			}
+			lo, hi := start, rel
+			if hi < lo {
+				lo, hi = hi, lo
+			}
+			if forb <= lo || hi <= forb {
+				t.Errorf("seed=%d start=%d: 危険%d が経路(%d〜%d)の外", seed, start, forb, lo, hi)
+			}
+			// 開始位置の表示が対照表どおりで、cut が点滅していないこと
+			disp := leds[fmt.Sprint(start)].(map[string]any)
+			if v, ok := disp[cut].(map[string]any); ok && v["pattern"] == "blink" {
+				t.Errorf("seed=%d start=%d: cut(%s) が開始位置で点滅している", seed, start, cut)
+			}
+			if len(disp) < panelLitMin {
+				t.Errorf("seed=%d start=%d: 点灯 %d 色 — 危険位置の合図と紛れる", seed, start, len(disp))
+			}
+		}
+	}
+}
+
+// TestPanelCutColorDistribution は 209 の cut が **5色すべて出る**ことを
+// 確かめる (決定91)。
+//
+// 旧設計では見え方に点滅を混ぜていたため、cut と点滅色が衝突する行を
+// 避けて抽選していた。旧表は点滅色に5色すべてを使っており、
+// 位置を選べなくすると **cut の候補がゼロ**になった。
+//
+// 見え方を点灯のみにして点滅を「切る線」の合図に予約したので、
+// どの色でも衝突しない。**偏りが出たらこの前提が崩れている。**
+func TestPanelCutColorDistribution(t *testing.T) {
+	lib := loadTestLibrary(t)
+	tmpl, _ := lib.Stage("209")
+	seen := map[string]int{}
+	for seed := int64(0); seed < 200; seed++ {
+		b := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
+		built, err := b.buildStage(tmpl, map[string]bool{}, stdHints, stdLoad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(built.Core)
+		var core map[string]any
+		json.Unmarshal(raw, &core)
+		seen[core["cut"].(string)]++
+	}
+	t.Logf("cut の分布: %v", seen)
+	for _, c := range allColors {
+		if seen[c] == 0 {
+			t.Errorf("cut に %s (%s) が一度も出ていない", c, colorNameJA[c])
+		}
+	}
 }

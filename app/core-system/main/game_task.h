@@ -143,6 +143,14 @@ class GameTask final : public Task {
   void AdvanceStage();
   void ResetStageProgress();
 
+  /// **ステージ開始時点のロータリー位置で対照表の行を確定する**
+  /// (209 配電盤照合)。
+  ///
+  /// サーバーは開始位置を知らないため6行すべてを送ってくる。
+  /// ここで今いる位置の行を選び、解除位置 (precondition.rotary)・
+  /// 危険位置 (forbidden_rotary)・解除位置の表示を設定する。
+  void ApplyPanelRows();
+
   // --- push_seq (§5) ---
   void HandlePushSeqInput(ColorId color);
 

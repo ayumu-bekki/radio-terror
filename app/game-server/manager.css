@@ -134,6 +134,18 @@ button:hover { background: var(--surface-alt); }
 button.danger { background: #fff; color: var(--danger-fg); border-color: #d9a5a5; }
 button.danger:hover { background: var(--danger-bg); border-color: var(--danger-fg); }
 
+/* --- 外部APIの状況 (ダッシュボード最上段) --- */
+
+/* health は生成AI・TTS・混線アセットの状況。**気付けること**が要件なので、
+   進行表より上に置き、異常時だけ色が付く。正常時は目立たせない。 */
+.health { margin-bottom: .7rem; }
+.health .ok { color: var(--text-muted); }
+
+/* エラー内容は1行に収まらないので行全体を使う */
+.health .health-msg { grid-column: 1 / -1; }
+.health .health-msg .v { font-family: ui-monospace, monospace; font-size: .74rem;
+                         word-break: break-all; }
+
 /* --- ページ間の行き来 --- */
 
 /* nav はページ上部の戻り導線とページ間リンク。 */

@@ -1160,3 +1160,56 @@ func TestStagesObservationIsAQuestion(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildWithStages はステージを明示指定した組み立てを検証する
+// (Management Console のデバッグ開始で使う経路)。
+func TestBuildWithStages(t *testing.T) {
+	lib := loadTestLibrary(t)
+	newBuilder := func() *ScenarioBuilder {
+		return NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
+	}
+
+	// 指定したステージが指定した順で並ぶこと
+	want := []string{"101", "202", "301"}
+	session, err := newBuilder().BuildWithStages("s-debug", difficultyNormal, want)
+	if err != nil {
+		t.Fatalf("BuildWithStages: %v", err)
+	}
+	if len(session.Stages) != len(want) {
+		t.Fatalf("stage count = %d, want %d", len(session.Stages), len(want))
+	}
+	for i, id := range want {
+		if got := session.Stages[i].TemplateID; got != id {
+			t.Errorf("stage[%d] = %s, want %s", i, got, id)
+		}
+	}
+
+	// 難易度テンプレートの値を引いていること (残り時間・ヒントは難易度側の責務)
+	tmpl, err := lib.Difficulty(difficultyNormal)
+	if err != nil {
+		t.Fatalf("Difficulty: %v", err)
+	}
+	if session.CountdownMS != tmpl.CountdownMS {
+		t.Errorf("countdown_ms = %d, want %d (難易度テンプレートの値)",
+			session.CountdownMS, tmpl.CountdownMS)
+	}
+	if session.StageBudgetMS != tmpl.CountdownMS/len(want) {
+		t.Errorf("stage_budget_ms = %d, want %d",
+			session.StageBudgetMS, tmpl.CountdownMS/len(want))
+	}
+
+	// 弾くべき指定
+	for _, tc := range []struct {
+		name   string
+		stages []string
+	}{
+		{"上限超え", []string{"101", "202", "203", "301", "302"}},
+		{"空", nil},
+		{"重複", []string{"101", "101"}},
+		{"未知のID", []string{"999"}},
+	} {
+		if _, err := newBuilder().BuildWithStages("s-debug", difficultyNormal, tc.stages); err == nil {
+			t.Errorf("%s: エラーになるべきだが成功した", tc.name)
+		}
+	}
+}

@@ -317,6 +317,84 @@ bool ParsePrecondition(const cJSON* obj, Precondition* out, std::string* error_d
   return true;
 }
 
+/// panel_rows をパースする (209 配電盤照合)。
+///
+/// 6行すべてが揃っていることを確かめる。1行でも欠けると、その位置から
+/// 始めたプレイヤーが解除位置を決められず**詰む**ため、起動時に落とす。
+bool ParsePanelRows(const cJSON* obj, PanelRows* out, std::string* error_detail) {
+  const cJSON* blink = cJSON_GetObjectItemCaseSensitive(obj, "blink_ms");
+  if (cJSON_IsNumber(blink)) {
+    out->blink_ms = static_cast<int32_t>(blink->valuedouble);
+  }
+  if (out->blink_ms <= 0) {
+    *error_detail = "panel_rows.blink_ms must be positive";
+    return false;
+  }
+
+  const cJSON* rows = cJSON_GetObjectItemCaseSensitive(obj, "rows");
+  if (!cJSON_IsObject(rows)) {
+    *error_detail = "panel_rows.rows must be an object";
+    return false;
+  }
+
+  int32_t count = 0;
+  const cJSON* slot = nullptr;
+  cJSON_ArrayForEach(slot, rows) {
+    if (!slot->string) {
+      *error_detail = "panel_rows key must be a position number";
+      return false;
+    }
+    char* end = nullptr;
+    const long pos = strtol(slot->string, &end, 10);
+    if (end == slot->string || *end != '\0' || pos < 0 || kRotaryPositionNum <= pos) {
+      *error_detail = std::string("panel_rows position out of range: ") + slot->string;
+      return false;
+    }
+    if (!cJSON_IsObject(slot)) {
+      *error_detail = std::string("panel_rows[") + slot->string + "] must be an object";
+      return false;
+    }
+
+    const cJSON* f = cJSON_GetObjectItemCaseSensitive(slot, "forbidden");
+    const cJSON* r = cJSON_GetObjectItemCaseSensitive(slot, "release");
+    if (!cJSON_IsNumber(f) || !cJSON_IsNumber(r)) {
+      *error_detail = std::string("panel_rows[") + slot->string +
+                      "] needs numeric forbidden and release";
+      return false;
+    }
+    const int32_t forbidden = static_cast<int32_t>(f->valuedouble);
+    const int32_t release = static_cast<int32_t>(r->valuedouble);
+    if (forbidden < 0 || kRotaryPositionNum <= forbidden ||
+        release < 0 || kRotaryPositionNum <= release) {
+      *error_detail = std::string("panel_rows[") + slot->string + "] out of range";
+      return false;
+    }
+    // 解除位置と危険位置が同じだと、回した先で必ず爆発して**到達できない**
+    if (forbidden == release) {
+      *error_detail = std::string("panel_rows[") + slot->string +
+                      "] forbidden equals release";
+      return false;
+    }
+    out->forbidden[pos] = static_cast<int8_t>(forbidden);
+    out->release[pos] = static_cast<int8_t>(release);
+    ++count;
+  }
+
+  // **6行そろっていること。** 欠けた位置から始めると詰む
+  if (count != kRotaryPositionNum) {
+    *error_detail = "panel_rows needs all rotary positions";
+    return false;
+  }
+  for (int32_t i = 0; i < kRotaryPositionNum; ++i) {
+    if (out->release[i] < 0) {
+      *error_detail = "panel_rows is missing a position";
+      return false;
+    }
+  }
+  out->enabled = true;
+  return true;
+}
+
 /// forbidden_rotary をパースする (§5)
 bool ParseForbiddenRotary(const cJSON* obj, ForbiddenRotary* out, std::string* error_detail) {
   const cJSON* positions = cJSON_GetObjectItemCaseSensitive(obj, "positions");
@@ -425,6 +503,19 @@ bool ParseStage(const cJSON* obj, StageConfig* out, std::string* error_detail) {
         }
       }
       out->has_rotary_leds = true;
+    }
+  }
+
+  // **位置ごとの危険位置・解除位置** (209 配電盤照合)。
+  // "panel_rows": { "blink_ms": 500,
+  //                 "rows": { "0": {"forbidden":1,"release":3}, ... } }
+  //
+  // サーバーは開始時のロータリー位置を知らないため、6行すべてを受け取り、
+  // **ステージ開始時に実位置で行を確定する** (game_task.cc)。
+  const cJSON* panel_rows = cJSON_GetObjectItemCaseSensitive(obj, "panel_rows");
+  if (cJSON_IsObject(panel_rows)) {
+    if (!ParsePanelRows(panel_rows, &out->panel_rows, error_detail)) {
+      return false;
     }
   }
 

@@ -1,0 +1,98 @@
+{{define "page"}}<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>📡 RADIO TERROR — デバッグ開始</title>
+<link rel="stylesheet" href="/manager/manager.css">
+</head>
+<body>
+<div class="nav"><a href="/manager">← Management Console</a></div>
+<h1>デバッグ開始 — Core・難易度・オペレーター・ステージを指定して開始する</h1>
+
+{{/* デバッグ専用ページ。ダッシュボードからのリンクは張っていない
+     (URLを直接叩いて使う)。当日の運営では使わない */}}
+<p class="muted" style="font-size:.78rem;margin:0 0 .7rem">
+  開発中の動作確認用。ステージは最大 {{.MaxStages}} 個まで
+  (切断線を1本以上余らせるため)。未選択なら難易度どおりに抽選する。
+  <strong>無線は必須</strong> — ナビゲーターの発話が流れない状態では
+  本番と同じ挙動にならないため。
+</p>
+
+{{if not .Bridges}}
+  <p class="err" style="font-size:.8rem">
+    接続中の無線がありません。radio-bridge を起動してから開始してください。
+  </p>
+{{end}}
+
+{{if .Error}}
+  <p class="err" style="font-size:.8rem">開始できませんでした: {{.Error}}</p>
+{{end}}
+
+<form method="post" action="/manager/api/debug-start" onsubmit="lock(this)">
+  <div class="filters">
+    <label>Core
+      <select name="device_id" required>
+        <option value="">選択してください</option>
+        {{range .Devices}}
+          <option value="{{.DeviceID}}">{{.DeviceID}}{{if not .Connected}} (未接続){{else if .State}} ({{.State}}){{end}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>難易度
+      <select name="difficulty" required>
+        {{range .Difficulties}}
+          <option value="{{.Value}}">{{.Label}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>オペレーター
+      <select name="character_id">
+        <option value="">ランダム</option>
+        {{range .Characters}}
+          <option value="{{.Value}}">{{.Label}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>無線
+      <select name="bridge_id" required>
+        <option value="">選択してください</option>
+        {{range .Bridges}}
+          <option value="{{.}}">{{.}}</option>
+        {{end}}
+      </select>
+    </label>
+  </div>
+
+  <div class="summary" style="margin-bottom:.6rem">
+    {{range .Stages}}
+      <div style="flex-direction:row;align-items:baseline;gap:.35rem">
+        <input type="checkbox" name="stage_id" value="{{.Value}}" id="s{{.Value}}">
+        <label for="s{{.Value}}" style="font-size:.8rem">{{.Label}}</label>
+      </div>
+    {{else}}
+      <div class="muted">ステージが読み込まれていません</div>
+    {{end}}
+  </div>
+
+  <button type="submit">この構成で開始する</button>
+  <span class="muted" id="note" style="font-size:.75rem;margin-left:.5rem"></span>
+</form>
+
+<script>
+// 開始は準備完了の発話とカウントダウン猶予で数秒かかる。
+// 二重送信を防ぎ、待っていることを画面に出す
+function lock(form) {
+  const n = form.querySelectorAll('input[name=stage_id]:checked').length;
+  if (n > {{.MaxStages}}) {
+    alert('ステージは最大 {{.MaxStages}} 個までです (選択: ' + n + '個)');
+    return false;
+  }
+  form.querySelector('button[type=submit]').disabled = true;
+  document.getElementById('note').textContent = '開始しています… (数秒かかります)';
+  return true;
+}
+</script>
+</body>
+</html>
+{{end}}

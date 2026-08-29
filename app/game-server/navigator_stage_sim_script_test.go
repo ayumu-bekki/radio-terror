@@ -393,18 +393,26 @@ var simScripts = map[string]simScript{
 	// 謎なので、ナビが数字を言うと丸ごと消える。206 綱渡り とは**逆**。
 	// 検査は MustNotMention 側で行う。
 	"209": {
-		StageID:        "209",
-		MustNotMention: []string{"${sim_forbidden}", "${sim_release}"},
+		StageID: "209",
+		// **見え方は点灯のみ**になった (決定91)。点滅は「切る線」の合図に
+		// 予約してあるので、現在位置の報告に点滅は出ない。
+		//
+		// **ナビは現在位置を知らない。** サーバーは開始時のロータリー位置を
+		// 知らず、Core が実位置で行を確定する。ナビが位置を当てにいくと、
+		// ずれたときに正しい報告を否定してしまう (実運用で爆発した)。
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready", HintLevel: HintL1},
 			{Trigger: "session_start", HintLevel: HintL1},
+			// **開始位置は -sim-panel-start で変わる** (決定91)。
+			// 実機ではツマミの残り位置がそのまま開始位置になるため、
+			// 0-5 のどこから始まっても成立しなければならない。
 			{Trigger: "player_message", HintLevel: HintL1,
-				Player: "赤が点いていて、青が点滅しています。どうぞ"},
+				Player: "${sim_panel_lit}が点いています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL2,
-				Player: "はい、その位置です。資料を見ればいいですか。どうぞ"},
+				Player: "資料を見ました。${sim_panel_start}番ですね。危険位置は${sim_panel_forbidden}、解除位置は${sim_panel_release}です。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL3,
-				Player: "回しました。今度は別の色が点滅しています。どうぞ"},
+				Player: "${sim_panel_release}まで回しました。今度は${sim_panel_cut}が点滅しています。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "stage_cleared", HintLevel: HintL1,
@@ -555,8 +563,12 @@ var simScripts = map[string]simScript{
 // このテストは**台本の検査**であって発話の検査ではない。
 // 実際の発話は `no_observation_first` 検査が見る。
 func TestScriptsReportLampsFirst(t *testing.T) {
-	// ランプの状態に言及していると見なす語
-	observed := []string{"ランプ", "光", "点滅", "点灯", "消え"}
+	// ランプの状態に言及していると見なす語。
+	//
+	// **「点いて」を入れておく** — 209 は点灯色だけを報告する設計 (決定91) で、
+	// 「赤と黄色が点いています」が正規の第一報になる。
+	// 「点灯」しか見ていないとこれを取りこぼす。
+	observed := []string{"ランプ", "光", "点滅", "点灯", "点いて", "消え"}
 
 	// 206 綱渡り は危険位置を第一声で警告する設計 (決定22) なので、
 	// プレイヤーがそれを聞き返すところから始まるのが自然。

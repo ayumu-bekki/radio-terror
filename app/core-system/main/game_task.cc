@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "hardware_config.h"
+#include "led_pattern.h"
 #include "logger.h"
 
 namespace CoreSystem {
@@ -713,10 +714,70 @@ void GameTask::ResetStageProgress() {
     return;
   }
 
+  ApplyPanelRows();
+
   const StageConfig& stage = session_.stages[stage_index_];
   if (stage.precondition.has_color_match) {
     color_match_.Start(stage.precondition.color_match, stage, &leds_);
   }
+}
+
+// **ステージ開始時点のロータリー位置で対照表の行を確定する** (209 配電盤照合)。
+//
+// サーバーは開始位置を知らない — ツマミは前のプレイから物理的に位置が残り、
+// サーバーがそこへ動かす手段が無いため、抽選するとツマミの実位置とずれる
+// (実運用で、プレイヤーが正しく資料を読んだのに別の行を引いて爆発した)。
+//
+// そこで6行すべてを受け取っておき、**ここで今いる位置の行を選ぶ**。
+// 選んだ行から解除位置と危険位置を設定し、解除位置の表示 (cut だけ点滅) も
+// ここで作る。
+void GameTask::ApplyPanelRows() {
+  StageConfig& stage = session_.stages[stage_index_];
+  if (!stage.panel_rows.enabled) {
+    return;
+  }
+  if (rotary_position_ < 0 || kRotaryPositionNum <= rotary_position_) {
+    return;
+  }
+
+  const int8_t release = stage.panel_rows.release[rotary_position_];
+  const int8_t forbidden = stage.panel_rows.forbidden[rotary_position_];
+  if (release < 0 || forbidden < 0) {
+    return;
+  }
+
+  // 解除位置に合わせた状態でしか切れない
+  stage.precondition.has_rotary = true;
+  stage.precondition.rotary = release;
+
+  // 危険位置で止まったら即爆発 (通過はセーフ)
+  stage.forbidden_rotary.enabled = true;
+  for (int32_t i = 0; i < kRotaryPositionNum; ++i) {
+    stage.forbidden_rotary.positions[i] = false;
+  }
+  stage.forbidden_rotary.positions[forbidden] = true;
+  stage.forbidden_rotary.on_violation.action = ACTION_EXPLODE;
+
+  // **解除位置は cut だけを点滅させる**。対照表には載っていない見え方なので、
+  // 回して初めて切る線が分かる。
+  if (stage.has_rotary_leds && stage.cut != COLOR_NONE) {
+    for (int32_t color = 0; color < kColorNum; ++color) {
+      stage.rotary_leds[release][color] = LedPatternBuilder::MakeSolidOff();
+    }
+    stage.rotary_leds[release][stage.cut] = LedPatternBuilder::MakeBlink(
+        stage.panel_rows.blink_ms, stage.panel_rows.blink_ms);
+
+    // **危険位置は赤だけ点灯**。1色だけの表示は「危険位置に止まっている」
+    // 合図に予約してある (対照表の行はすべて2色以上)。
+    for (int32_t color = 0; color < kColorNum; ++color) {
+      stage.rotary_leds[forbidden][color] = LedPatternBuilder::MakeSolidOff();
+    }
+    stage.rotary_leds[forbidden][kPanelDangerColor] = LedPatternBuilder::MakeSolidOn();
+  }
+
+  ESP_LOGI(TAG, "panel: start=%d release=%d forbidden=%d",
+           static_cast<int>(rotary_position_), static_cast<int>(release),
+           static_cast<int>(forbidden));
 }
 
 // --- push_seq (§5) --------------------------------------------------------

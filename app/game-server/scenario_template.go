@@ -381,3 +381,16 @@ func (l *ScenarioLibrary) StagesByTag(tag string, forEasy bool) []string {
 
 // StageCount はロード済みステージ数を返す (起動ログ・Web画面用)。
 func (l *ScenarioLibrary) StageCount() int { return len(l.stages) }
+
+// StageIDs は読み込み済みステージのIDを昇順で返す (Web画面の選択肢用)。
+//
+// StagesByTag と違い難易度タグで絞らない。デバッグ開始では
+// 難易度と無関係にステージを選べるようにするため。
+func (l *ScenarioLibrary) StageIDs() []string {
+	ids := make([]string, 0, len(l.stages))
+	for id := range l.stages {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}

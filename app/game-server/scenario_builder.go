@@ -225,6 +225,45 @@ func (b *ScenarioBuilder) Build(sessionID, difficulty string) (*BuiltSession, er
 		return nil, fmt.Errorf("compose stages: %w", err)
 	}
 
+	return b.buildFrom(sessionID, difficulty, tmpl, stageIDs)
+}
+
+// BuildWithStages はステージIDを明示指定してセッションを組み立てる
+// (Management Console のデバッグ開始用)。
+//
+// **抽選 (composeStages) を飛ばすだけ**にとどめ、残り時間・ヒント閾値・混線・
+// 入力量 ([load]) は難易度テンプレートから引く。別経路で組み立てると
+// ステージ以外の挙動が本番とずれ、デバッグで見た結果が信用できなくなる。
+func (b *ScenarioBuilder) BuildWithStages(sessionID, difficulty string, stageIDs []string) (*BuiltSession, error) {
+	tmpl, err := b.lib.Difficulty(difficulty)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stageIDs) == 0 {
+		return nil, fmt.Errorf("no stages specified")
+	}
+	// 上限は抽選経路と同じ (切断線を1本以上余らせる。ADR S-2)
+	if len(stageIDs) > maxStagesPerSession {
+		return nil, fmt.Errorf("too many stages: %d (max %d)", len(stageIDs), maxStagesPerSession)
+	}
+
+	seen := make(map[string]bool, len(stageIDs))
+	for _, id := range stageIDs {
+		if seen[id] {
+			return nil, fmt.Errorf("duplicated stage: %s", id)
+		}
+		seen[id] = true
+	}
+
+	return b.buildFrom(sessionID, difficulty, tmpl, stageIDs)
+}
+
+// buildFrom は決定済みのステージ構成からセッションを組み立てる。
+// 抽選 (Build) と明示指定 (BuildWithStages) の共通部分。
+func (b *ScenarioBuilder) buildFrom(
+	sessionID, difficulty string, tmpl *DifficultyTemplate, stageIDs []string,
+) (*BuiltSession, error) {
 	session := &BuiltSession{
 		SessionID:       sessionID,
 		Difficulty:      difficulty,
