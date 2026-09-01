@@ -120,6 +120,8 @@ func (p *AudioPipeline) handlePlayerMessage(ctx context.Context, sender *AudioSe
 
 		// 質問回数はヒントレベルの前倒し条件になる (docs/navigator_design.md §3.2)
 		p.game.NoteQuestion(session.DeviceID)
+		// 声が届いたので無応答の計測をやり直す
+		p.game.SilenceWatcher().Notice(session.DeviceID)
 		spoke = true
 	}
 

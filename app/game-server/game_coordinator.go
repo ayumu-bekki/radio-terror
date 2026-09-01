@@ -62,6 +62,7 @@ type GameCoordinator struct {
 	crosstalk *CrosstalkScheduler
 	logs      *SessionLogStore
 	navigator *NavigatorConfig
+	silence   *SilenceWatcher
 
 	// testResponder は疎通確認応答 (カラス)。セッション開始時に文脈を破棄する。
 	testResponder *TestResponder
@@ -100,6 +101,16 @@ func (c *GameCoordinator) Binder() *SessionBinder {
 // SetNavigatorSpeaker はナビゲーターの発話生成器を設定する。
 func (c *GameCoordinator) SetNavigatorSpeaker(speaker NavigatorSpeaker) {
 	c.speaker = speaker
+}
+
+// SetSilenceWatcher は無応答時の声掛けを設定する。
+func (c *GameCoordinator) SetSilenceWatcher(w *SilenceWatcher) {
+	c.silence = w
+}
+
+// SilenceWatcher は無応答監視を返す (音声パイプラインが応答を通知する)。
+func (c *GameCoordinator) SilenceWatcher() *SilenceWatcher {
+	return c.silence
 }
 
 // SetTestResponder は疎通確認応答の相手を設定する。
@@ -284,6 +295,10 @@ func (c *GameCoordinator) StartSessionWith(
 		c.crosstalk.Start(ctx, session, sender)
 	}
 
+	// 無応答の監視を開始する。**第一声より前に始める** —
+	// 装置を前にして何も言えないまま黙り込む場面が最初に来る。
+	c.silence.Start(ctx, session)
+
 	// 5. カウントダウン開始後、ナビゲーターから最初の指示を出す
 	// (プレイヤーの発話待ちにせず行動を促す)。
 	//
@@ -374,6 +389,7 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 	if c.crosstalk != nil {
 		c.crosstalk.Stop(deviceID)
 	}
+	c.silence.Stop(deviceID)
 
 	if sendErr != nil {
 		log.Printf("[game] session aborted (device unreachable): device=%s: %v", deviceID, sendErr)
@@ -466,6 +482,7 @@ func (c *GameCoordinator) finishSession(ctx context.Context, session *GameSessio
 	if c.crosstalk != nil {
 		c.crosstalk.Stop(session.DeviceID)
 	}
+	c.silence.Stop(session.DeviceID)
 }
 
 // speak はナビゲーターの発話を生成して送出する。

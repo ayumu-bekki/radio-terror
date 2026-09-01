@@ -50,6 +50,15 @@ type NavigatorPromptConfig struct {
 
 	// UrgentThresholdMS は交信スタイルが「緊迫」へ切り替わる残り時間 (§2.6)
 	UrgentThresholdMS int `toml:"urgent_threshold_ms"`
+
+	// SilenceMinMS / SilenceMaxMS はプレイヤーの無応答が続いたときに
+	// ナビゲーターから声を掛けるまでの待ち時間 (ミリ秒)。
+	//
+	// **幅を持たせて毎回ずらす。** 固定間隔だと「一定時間黙ると必ず鳴る」
+	// と読まれ、装置ではなく無線の挙動を試す遊びになる。
+	// 0以下なら既定値、Max <= Min なら Min 固定として扱う。
+	SilenceMinMS int `toml:"silence_min_ms"`
+	SilenceMaxMS int `toml:"silence_max_ms"`
 }
 
 // TriggerInstruction はトリガーに対応する発話指示を返す。
@@ -69,6 +78,15 @@ type NavigatorConfig struct {
 
 // urgentThresholdDefaultMS は prompt.toml に指定が無い場合の既定値 (§2.6 仮: 60秒)。
 const urgentThresholdDefaultMS = 60000
+
+// silenceMinDefaultMS / silenceMaxDefaultMS は無応答での声掛けまでの既定の待ち時間。
+//
+// 短すぎると考えている最中に割り込み、長すぎると手が止まったまま
+// 時間だけが減る。40〜60秒を既定にする。
+const (
+	silenceMinDefaultMS = 40000
+	silenceMaxDefaultMS = 60000
+)
 
 // LoadNavigatorConfig は navigator/ 以下の設定を読み込む。
 //
@@ -96,6 +114,15 @@ func LoadNavigatorConfig(root string) (*NavigatorConfig, error) {
 	}
 	if cfg.Prompt.UrgentThresholdMS <= 0 {
 		cfg.Prompt.UrgentThresholdMS = urgentThresholdDefaultMS
+	}
+	if cfg.Prompt.SilenceMinMS <= 0 {
+		cfg.Prompt.SilenceMinMS = silenceMinDefaultMS
+	}
+	if cfg.Prompt.SilenceMaxMS <= 0 {
+		cfg.Prompt.SilenceMaxMS = silenceMaxDefaultMS
+	}
+	if cfg.Prompt.SilenceMaxMS < cfg.Prompt.SilenceMinMS {
+		cfg.Prompt.SilenceMaxMS = cfg.Prompt.SilenceMinMS
 	}
 
 	charDir := filepath.Join(root, "characters")

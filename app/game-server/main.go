@@ -179,6 +179,19 @@ func main() {
 	navigator.SetCrosstalkScheduler(crosstalk)
 	game.SetNavigatorSpeaker(navigator)
 
+	// 応答が途絶えたらナビゲーターから声を掛ける (docs/navigator_design.md §3.5)
+	game.SetSilenceWatcher(NewSilenceWatcher(
+		navigator, bridges, crosstalk,
+		time.Duration(navigatorCfg.Prompt.SilenceMinMS)*time.Millisecond,
+		time.Duration(navigatorCfg.Prompt.SilenceMaxMS)*time.Millisecond,
+		// **専用の乱数源を渡す。** 既存の rng は組み立て・混線と共有しており、
+		// それぞれが自前のミューテックスで守っているだけなので、
+		// 別のゴルーチンから引くと競合する。
+		rand.New(rand.NewSource(time.Now().UnixNano())),
+	))
+	log.Printf("[silence] navigator checks in after %d-%dms of no reply",
+		navigatorCfg.Prompt.SilenceMinMS, navigatorCfg.Prompt.SilenceMaxMS)
+
 	// --- 音声パイプライン ---
 	pipeline := NewAudioPipeline(processor, bridges)
 	pipeline.SetManagerCommandHandler(NewManagerCommandHandler(game, cfg.Manager.SecretWord))
