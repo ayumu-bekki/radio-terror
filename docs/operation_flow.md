@@ -97,8 +97,12 @@
 
 - プレイヤーは Core の状態(LEDの光り方など)を無線で報告し、
   ナビゲーターがヒントを返す。
-- Core の進行イベント(`stage_cleared` / `color_match_completed` / `push_progress` /
-  `wrong_action` / `exploded` / `defused`)はナビゲーターの声掛け演出のトリガーになる。
+- Core の進行イベント(`stage_cleared` / `wrong_action` / `exploded` / `defused`)は
+  ナビゲーターの声掛け演出のトリガーになる。
+- **ボタン・ダイヤルの操作そのものでは声を掛けない**(ADR N-26)。
+  `color_match_completed` / `push_progress` / 色合わせの押し間違いは
+  **ログだけ残す** — ナビゲーターは装置を見ていないため。
+  プレイヤーが報告してきたときに応じる。
 
 ### 5.1 混線演出
 

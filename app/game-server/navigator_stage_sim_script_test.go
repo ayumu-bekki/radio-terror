@@ -289,8 +289,11 @@ var simScripts = map[string]simScript{
 			{Trigger: "session_start", HintLevel: HintL1},
 			{Trigger: "player_message", HintLevel: HintL1,
 				Player: "1つだけ光っています。同じ色のボタンを押せばいいですか。どうぞ"},
-			{Trigger: "color_match_completed", HintLevel: HintL2,
-				Event: "プレイヤーが色合わせを完了した。最後に押した色が次の手がかりになる。"},
+			// **`color_match_completed` は台本に置かない** (ADR N-26)。
+			// 色合わせの完了で発話しなくなったため、押し切ったあとの
+			// 交信は**プレイヤーの報告から始まる**。
+			{Trigger: "player_message", HintLevel: HintL2,
+				Player: "押し終わりました。ランプが全部消えました。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL3,
 				Player: "最後に押した色は覚えています。どうぞ"},
 			{Trigger: "player_message", HintLevel: HintL3,
@@ -447,6 +450,11 @@ var simScripts = map[string]simScript{
 	// 303 追いかけダイヤル: 十の位に追従させる。届かない時間帯の待ちを伝えるか。
 	"303": {
 		StageID: "303",
+		// **入り口を3発話に広げる** (ADR N-55)。
+		// 1回目の報告には色名が無く、ナビが**色を尋ね返すのが正しい**。
+		// 手順が渡るのは色名を聞いたあと (2回目の報告への返し) なので、
+		// 既定の2では**手順が渡る前に窓が閉じる**。
+		EntryTurns: 3,
 		// **追いかけを落とさない** (ADR N-51)。十の位は減り続けるため、
 		// 「一致した瞬間に切る」だけ伝えると、プレイヤーはダイヤルを
 		// 合わせたまま待ち続け、数字が変わったことに気づけない。
@@ -457,6 +465,11 @@ var simScripts = map[string]simScript{
 			// **切る線の指し方**。「その色」「同じ色」だけでは何と同じか分からず、
 			// 点灯しているランプと取り違える。必ず「点滅している」を添えさせる。
 			"点滅している|点滅しとる|点滅してる",
+			// **どこの十の位かを言わせる**。「ダイヤルを十の位に合わせ直せ」
+			// だけでは**何の十の位か分からない** — ロータリー自体にも
+			// 0-5 の数字が並んでおり、プレイヤーはそちらと取り違える。
+			// カウントダウン (タイマー / 残り時間) の秒だと明示させる。
+			"カウントダウン|タイマー|残り時間|残時間",
 		},
 		// **「瞬間」を狙わせない** (ADR S-7)。十の位は10秒間同じ値のままで、
 		// さらに変わった直後1秒の猶予がある (`TimerDigitRule::kGraceMs`)。

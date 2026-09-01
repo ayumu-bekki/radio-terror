@@ -84,6 +84,23 @@ type simScript struct {
 	// 「押しながら」と「押したまま」のように**意味が同じで表現が違う**場合に使う
 	// (完全一致だけだと、正しく伝わっているのに所見になる。実測 2026-08-25)。
 	MustMention []string
+
+	// EntryTurns は MustMention を要求する「入り口の発話」の数。
+	// 0 なら既定の 2 (`session_start` + 最初の `player_message`)。
+	//
+	// **報告を1往復で受け切らない台本では広げる**。303 追いかけダイヤルは
+	// 1回目の報告に色名が無く、ナビが**色を尋ね返すのが正しい** (ADR N-55)。
+	// 手順が渡るのは2回目の報告への返しなので、既定の2では
+	// **手順が渡る前に窓が閉じ**、正しく伝えていても所見になる。
+	EntryTurns int
+}
+
+// entryTurnBudget は MustMention を要求する入り口の発話数を返す。
+func (s simScript) entryTurnBudget() int {
+	if s.EntryTurns > 0 {
+		return s.EntryTurns
+	}
+	return 2
 }
 
 // simFinding は1件の所見。
@@ -268,8 +285,9 @@ func simulateStage(
 	playerSaidCut := false
 	// L4 で正解色を明かしたか。以降の言及は完了報告なので漏洩と見なさない。
 	revealedAtL4 := false
-	// 課題の入り口の発話を数える。`session_start` と**最初の** `player_message`
-	// の2つを入り口とみなし、MustMention はここまでにしか要求しない。
+	// 課題の入り口の発話を数える。既定では `session_start` と**最初の**
+	// `player_message` の2つを入り口とみなし、MustMention は
+	// ここまでにしか要求しない (台本ごとに `EntryTurns` で広げられる)。
 	// 204 色合わせは注意事項を**観察報告への返し**で伝えるため
 	// (session_start の時点ではまだ装置を見ていない)、session_start だけでは足りない。
 	// 一方 3回目以降の L1 発話にまで要求すると毎回の復唱を強いることになる。
@@ -350,13 +368,15 @@ func simulateStage(
 			t.Logf("  L%d %-15s N> %s (%d字)", turn.HintLevel, turn.Trigger, reply, tr.Runes)
 		}
 
+		entryBudget := script.entryTurnBudget()
+
 		result.Findings = append(result.Findings,
 			simCheckTurn(id, stage, turn, reply, script, vars,
-				playerSaidCut, revealedAtL4, entryTurns < 2)...)
+				playerSaidCut, revealedAtL4, entryTurns < entryBudget)...)
 
 		// 入り口の発話 (session_start と最初の player_message) で
 		// MustMention の語が出たかを集計する。
-		if turn.HintLevel == HintL1 && entryTurns < 2 {
+		if turn.HintLevel == HintL1 && entryTurns < entryBudget {
 			for _, want := range script.MustMention {
 				if simMentionHit(expandSimText(want, vars), stripTTSTags(reply)) {
 					mentionSeen[want] = true

@@ -144,8 +144,20 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 
 	case msgColorMatchCompleted:
 		c.logEvent(session, EventColorMatchDone, "色合わせ完了", msg.StageIndex, msg.RemainingMS)
-		c.speakAsync(ctx, sender, session, "color_match_completed",
-			"プレイヤーが色合わせを完了した。最後に押した色が次の手がかりになる。")
+
+		// **発話しない** (ADR N-26)。
+		//
+		// 色合わせの完了はボタンを押し切ったという**装置の中の出来事**で、
+		// ナビゲーターは装置を見ていないので知りようがない。ここで
+		// 「色合わせが終わったな」と喋ると、押下に反応しないと決めた
+		// `push_progress` (下) と同じ矛盾が最後の1押しでだけ起きる。
+		//
+		// 加えて実害がある — 完了直後はプレイヤーが「最後に押した色」を
+		// 反芻している最中で、そこへ無線が入ると**記憶を上書きする**
+		// (204 は正解がプレイヤーの記憶にしかない。ADR N-36)。
+		//
+		// プレイヤーが「押し終わりました」と報告してきたときに
+		// `player_message` で応じればよい。
 
 	case msgPushProgress:
 		// ログは毎回残す (後から入力の進み方を追えるようにする)

@@ -508,8 +508,8 @@ MCP23017への書き込みはtickごとに変化があった場合のみグル�
 | `session_accepted` | セッションJSON検証OK・ゲーム開始 |
 | `session_rejected` | 検証NG。`reason` 付き(`not_ready`: Ready状態でない(切断済みライン一覧付き) / `parse_error`: JSON不正 など) |
 | `stage_cleared` | `stage_index`, `remaining_ms` |
-| `color_match_completed` | 色合わせ完了の通知。`stage_index`, `remaining_ms`。ナビゲーター演出のトリガーに利用可 |
-| `push_progress` | `push_seq` の正しい入力ごとの進捗通知。`stage_index`, `seq_index`, `remaining_ms`。ナビゲーターが実操作に反応する演出に使う(08対話誘導など) |
+| `color_match_completed` | 色合わせ完了の通知。`stage_index`, `remaining_ms`。**サーバーはログだけ残し発話しない**(ADR N-26・N-56) |
+| `push_progress` | `push_seq` の正しい入力ごとの進捗通知。`stage_index`, `seq_index`, `remaining_ms`。**サーバーはログだけ残し発話しない**(ADR N-26) |
 | `wrong_action` | 誤操作の通知。`detail`, `line`, `penalty_ms`, `remaining_ms`。ナビゲーターの煽り演出に利用可。`detail` は誤操作の種類を示す: `wrong_line`(誤配線の切断) / `precondition_unmet`(事前条件未達での正解線切断) / `forbidden_rotary`(禁止位置での停止) / `push_seq`(ボタン列の入力ミス) / `color_match`(色合わせの誤押下)。`line` は配線に起因する場合のみ含める |
 | `exploded` | `reason`(`timeout` / `wrong_cut` / `forced`)。`wrong_cut` の場合は `detail`(`wrong_action` と同じ値域)と `line` も含める。禁止ロータリー・ボタン列ミスの `explode` も `reason` は `wrong_cut` とし、`detail` で区別する。ソレノイド駆動前(失敗確定時点)に送信 |
 | `defused` | `remaining_ms`(残タイムはスコア) |
