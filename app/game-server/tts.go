@@ -74,16 +74,6 @@ func NewTTSClient(ctx context.Context, cfg GeminiConfig) (*TTSClient, error) {
 	}, nil
 }
 
-// GenerateOggOpusFromPrompt は組み立て済みプロンプトから TTS 音声を生成して Ogg Opus で返す。
-// voice が空の場合は defaultTTSVoice が使われる。
-func (t *TTSClient) GenerateOggOpusFromPrompt(ctx context.Context, prompt, voice string) ([]byte, error) {
-	pcm24k, err := t.GeneratePCM24kFromPrompt(ctx, prompt, voice)
-	if err != nil {
-		return nil, err
-	}
-	return encodePCMToOggOpus(pcm24k)
-}
-
 // GeneratePCM24kFromPrompt はプロンプトからTTS音声を生成し、24kHz mono の PCM(int16)で返す。
 //
 // voice はキャラクターごとのボイス名 (navigator/characters/*.toml の tts_voice、

@@ -45,6 +45,14 @@ func newTestWatcher(speaker NavigatorSpeaker, min, max time.Duration) *SilenceWa
 		rand.New(rand.NewSource(1)))
 }
 
+// noteStageCleared は「課題を突破したが、まだ声を聞いていない」印を立てる。
+// 本番では onStageCleared が立てる (game_events.go)。
+func noteStageCleared(session *GameSession) {
+	session.mu.Lock()
+	session.awaitingStageReport = true
+	session.mu.Unlock()
+}
+
 func newSilenceTestSession() *GameSession {
 	return &GameSession{
 		SessionID: "s-silence",
@@ -121,6 +129,97 @@ func TestSilenceWatcherStopsAfterFinish(t *testing.T) {
 	}
 }
 
+// TestSilenceWatcherAfterStageCleared は、課題の突破後に応答が無い場合に
+// **専用のトリガーで、しかも早めに**声を掛けることを確かめる。
+//
+// 突破そのものは無線に流れない (ADR N-26 の延長。ナビゲーターは装置を
+// 見ていないので突破を知らない)。プレイヤーが黙ったままだと、切れたのか
+// どうかも分からないまま時間だけが減る。
+func TestSilenceWatcherAfterStageCleared(t *testing.T) {
+	speaker := newRecordingSpeaker()
+	w := newTestWatcher(speaker, 200*time.Millisecond, 200*time.Millisecond)
+	session := newSilenceTestSession()
+
+	w.Start(context.Background(), session)
+	defer w.Stop(session.DeviceID)
+
+	noteStageCleared(session)
+
+	select {
+	case trigger := <-speaker.spoke:
+		if trigger != "silence_after_stage" {
+			t.Errorf("trigger = %q, want %q", trigger, "silence_after_stage")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("突破後に声を掛けなかった")
+	}
+}
+
+// TestSilenceWatcherStageClearedShortensWait は、突破後の初回だけ
+// 待ち時間が短くなることを確かめる。
+//
+// 通常の幅 (40〜60秒) のままだと、突破後に手が止まると最大60秒、
+// 無線が完全に無音になる。
+func TestSilenceWatcherStageClearedShortensWait(t *testing.T) {
+	const wait = 300 * time.Millisecond
+	speaker := newRecordingSpeaker()
+	w := newTestWatcher(speaker, wait, wait)
+	session := newSilenceTestSession()
+
+	start := time.Now()
+	w.Start(context.Background(), session)
+	defer w.Stop(session.DeviceID)
+
+	noteStageCleared(session)
+
+	select {
+	case <-speaker.spoke:
+	case <-time.After(2 * time.Second):
+		t.Fatal("突破後に声を掛けなかった")
+	}
+
+	elapsed := time.Since(start)
+	if elapsed >= wait {
+		t.Errorf("突破後も通常の待ち時間だった: %v (%v より短いはず)", elapsed, wait)
+	}
+	// 詰めすぎてもいけない — 突破直後は次の装置を見回している最中で、
+	// すぐ被せると考える時間を奪う。
+	floor := time.Duration(float64(wait) * stageClearedWaitScale)
+	if elapsed < floor {
+		t.Errorf("待ち時間を詰めすぎている: %v (%v 以上のはず)", elapsed, floor)
+	}
+}
+
+// TestSilenceWatcherStageClearedClearedByReply は、プレイヤーの声が届いたら
+// 突破の印が下りて通常の声掛けへ戻ることを確かめる。
+//
+// 報告を受けた以上「切れたか?」と尋ね直す意味は無い。
+func TestSilenceWatcherStageClearedClearedByReply(t *testing.T) {
+	speaker := newRecordingSpeaker()
+	w := newTestWatcher(speaker, 200*time.Millisecond, 200*time.Millisecond)
+	session := newSilenceTestSession()
+
+	w.Start(context.Background(), session)
+	defer w.Stop(session.DeviceID)
+
+	noteStageCleared(session)
+	// プレイヤーの声が届くと印が下りる (本番では NoteQuestion 経由)。
+	session.mu.Lock()
+	session.awaitingStageReport = false
+	session.mu.Unlock()
+	w.Notice(session.DeviceID)
+
+	select {
+	case trigger := <-speaker.spoke:
+		if trigger != "silence" {
+			t.Errorf("trigger = %q, want %q (報告を受けたら通常の声掛けへ戻る)",
+				trigger, "silence")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("声を掛けなかった")
+	}
+}
+
 // TestSilenceWatcherStopEndsWatch は Stop 後に発話しないことを確かめる。
 func TestSilenceWatcherStopEndsWatch(t *testing.T) {
 	speaker := newRecordingSpeaker()
@@ -183,5 +282,10 @@ func TestNavigatorSilenceConfigDefaults(t *testing.T) {
 	}
 	if cfg.Prompt.Triggers["silence"] == "" {
 		t.Error("silence トリガーの指示が空")
+	}
+	// 突破後の声掛けは尋ねる中身が違うため別トリガーにしてある。
+	// 未定義だと fallback の汎用文へ落ちる。
+	if cfg.Prompt.Triggers["silence_after_stage"] == "" {
+		t.Error("silence_after_stage トリガーの指示が空")
 	}
 }

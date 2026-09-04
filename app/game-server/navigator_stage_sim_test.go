@@ -357,7 +357,7 @@ func simulateStage(
 
 		tr := simTurnResult{
 			Level: turn.HintLevel, Trigger: turn.Trigger,
-			Player: player, Reply: reply, Runes: countRunes(stripTTSTags(reply)),
+			Player: player, Reply: reply, Runes: countBodyRunes(reply, character.Name),
 		}
 		result.Turns = append(result.Turns, tr)
 
@@ -371,7 +371,7 @@ func simulateStage(
 		entryBudget := script.entryTurnBudget()
 
 		result.Findings = append(result.Findings,
-			simCheckTurn(id, stage, turn, reply, script, vars,
+			simCheckTurn(id, stage, turn, reply, script, vars, character.Name,
 				playerSaidCut, revealedAtL4, entryTurns < entryBudget)...)
 
 		// 入り口の発話 (session_start と最初の player_message) で
@@ -666,10 +666,16 @@ var simColorToldByDesign = map[string]bool{}
 // (205 速さくらべは「報告を照合して復唱する」のが正規の手順)。
 func simCheckTurn(
 	id string, stage *BuiltStage, turn simTurn, reply string,
-	script simScript, vars map[string]string, playerSaidCut, revealedAtL4, firstReply bool,
+	script simScript, vars map[string]string, characterName string,
+	playerSaidCut, revealedAtL4, firstReply bool,
 ) []simFinding {
 	findings := make([]simFinding, 0)
 	body := stripTTSTags(reply)
+	// 発話長の検査は**名乗りを除いて**数える。名乗りは緊迫時を除いて毎回
+	// 入れる方針 (ADR N-21) で、目安の 60 字には含めないと決めてある
+	// (countBodyRunes)。含めて数えると名乗ったぶんが超過に見え、
+	// 本当に長い発話が埋もれる。
+	bodyRunes := countBodyRunes(reply, characterName)
 
 	// 1. 正解色の漏れ (L4 未満)
 	//
@@ -693,14 +699,14 @@ func simCheckTurn(
 	if revealedAtL4 && id != "203" {
 		checkLeak = false
 	}
-	// **課題突破後の完了報告も漏洩ではない。**
-	// `stage_cleared` は**その線が既に切られた**ことを意味する。
-	// 「赤い線が切れて」は起きたことの描写で、答えを教える発話ではない。
+	// **課題突破後の確認も漏洩ではない。**
+	// `silence_after_stage` は**その線が既に切られた**あとの場面。
+	// 「赤い線は切れたか」は起きたはずのことの確認で、答えを教える発話ではない。
 	//
 	// L4 経由の免除だけでは足りない — **ノーマル以上は `l4_pct = 0`**
-	// (ADR N-39) で L4 に到達しないため、正常な完了報告が毎回
+	// (ADR N-39) で L4 に到達しないため、正常な確認が毎回
 	// 漏洩として検出されてしまう。
-	if turn.Trigger == "stage_cleared" && id != "203" {
+	if isAfterStageTrigger(turn.Trigger) && id != "203" {
 		checkLeak = false
 	}
 	if checkLeak && cutJA != "" && strings.Contains(body, cutJA) {
@@ -726,10 +732,11 @@ func simCheckTurn(
 	if turn.Trigger == "session_start" {
 		guide = openingMaxRunes
 	}
-	if n := countRunes(body); n > excessiveRunes {
+	if bodyRunes > excessiveRunes {
 		findings = append(findings, simFinding{
 			StageID: id, Level: turn.HintLevel, Kind: "excessive_length",
-			Detail: fmt.Sprintf("%d字 (目安 %d を大きく超過)", n, guide), Reply: reply,
+			Detail: fmt.Sprintf("%d字 (目安 %d を大きく超過。名乗りを除く)", bodyRunes, guide),
+			Reply:  reply,
 		})
 	}
 
@@ -863,11 +870,11 @@ func simCheckTurn(
 
 	// 6. 課題突破を「解除完了」と取り違えていないか
 	//
-	// stage_cleared は課題を1つ抜けただけで、装置はまだ生きている。
+	// 課題を1つ抜けただけで、装置はまだ生きている。
 	// ここで「解除できました」と言うと、プレイヤーは終わったと誤解する。
 	// ヒバリのキャラシートに解除成功時の台詞があり、それを
 	// ステージ突破の場面で使っていた (実ログで発覚)。
-	if turn.Trigger == "stage_cleared" {
+	if isAfterStageTrigger(turn.Trigger) {
 		for _, word := range prematureCompletionWords {
 			if strings.Contains(body, word) {
 				findings = append(findings, simFinding{
@@ -892,11 +899,12 @@ func simCheckTurn(
 				Detail: "マネージャーへの応答で装置の状態に言及している", Reply: reply,
 			})
 		}
-		if n := countRunes(body); n > readyMaxRunes {
+		if bodyRunes > readyMaxRunes {
 			findings = append(findings, simFinding{
 				StageID: id, Level: turn.HintLevel, Kind: "ready_too_long",
-				Detail: fmt.Sprintf("%d字 (待機完了の応答は %d 字程度に収める)", n, readyMaxRunes),
-				Reply:  reply,
+				Detail: fmt.Sprintf("%d字 (待機完了の応答は %d 字程度に収める。名乗りを除く)",
+					bodyRunes, readyMaxRunes),
+				Reply: reply,
 			})
 		}
 	}
@@ -921,7 +929,17 @@ const readyMaxRunes = 30
 // isStageOpening は「課題の入り口」の発話かを判定する。
 // セッション開始と、課題突破の直後 (次の課題の入り口) が対象。
 func isStageOpening(turn simTurn) bool {
-	return turn.Trigger == "session_start" || turn.Trigger == "stage_cleared"
+	return turn.Trigger == "session_start" || isAfterStageTrigger(turn.Trigger)
+}
+
+// isAfterStageTrigger は「線が1本切られた直後」の場面かを判定する。
+//
+// **突破そのものでは発話しなくなった** (ADR N-26 の延長)。装置を見ていない
+// ナビゲーターは突破を知らないため、代わりに無応答の声掛けが
+// `silence_after_stage` で状況を尋ねる。`stage_cleared` は現在は使っていない
+// が、将来使う場合に検査から漏れないよう残してある。
+func isAfterStageTrigger(trigger string) bool {
+	return trigger == "silence_after_stage" || trigger == "stage_cleared"
 }
 
 // lampQuestionForms はランプの状態を尋ねていると見なす語。
@@ -937,7 +955,7 @@ var metaOutputForms = []string{
 }
 
 // prematureCompletionWords は「装置を解除しきった」ことを意味する語。
-// 課題を1つ突破しただけの場面 (stage_cleared) で使うと、
+// 課題を1つ突破しただけの場面 (silence_after_stage) で使うと、
 // プレイヤーが終わったと誤解する。
 // **「ボタン解除成功」のような部分的な解除は含めない** — 201 の押下列が
 // 通ったことを指す正しい表現で、装置全体の完了ではない。

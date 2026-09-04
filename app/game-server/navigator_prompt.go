@@ -27,6 +27,9 @@ type NavigatorPromptInput struct {
 	HintLevel int
 	// RecentEvent は直近のゲームイベントの説明 (stage_cleared 等)。空でもよい
 	RecentEvent string
+	// AnnounceUrgent は「残り時間が僅少になったことを、この発話で初めて伝える」
+	// かどうか。セッション中に1回だけ true になる (GameSession.urgentNoticed)。
+	AnnounceUrgent bool
 	// History は直近の無線のやり取り
 	History string
 }
@@ -65,6 +68,18 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+
+	// 残り時間が僅少になったことを**この発話で初めて伝える**場合だけ足す。
+	//
+	// **独立したブロックにする。** 交信スタイルの中に混ぜると、口調の
+	// 指示に紛れて落ちる (N-51: 長い指針は末尾が落ちる)。
+	//
+	// **字数の目安に数えない**と明記する。数えに含めると、この一言を
+	// 入れたぶん手順や警告が削られる (N-22 と同じ構図)。
+	if in.AnnounceUrgent {
+		b.WriteString(urgentNoticeBlock(in.RemainingMS))
+		b.WriteString("\n")
+	}
 
 	// [D] セッション状態 (動的)
 	b.WriteString("# 現在の状況\n")
@@ -234,4 +249,34 @@ func (in NavigatorPromptInput) currentStage() *BuiltStage {
 		return nil
 	}
 	return in.Session.Stages[in.StageIndex]
+}
+
+// urgentNoticeBlock は「残り時間が僅少になった」ことを一度だけ伝えさせる指示。
+//
+// **セッション中に1回しか渡らない** (GameSession.urgentNoticed)。以前は
+// `time_warning` という独立した発話トリガーを定義していたが、鳴らす実装が
+// 無いまま残っていた。単独で鳴らすと**プレイヤーの手を止めて無線を塞ぐ**ため、
+// **次の返答へ一言添える**形にした。返答はどのみち流れるので、無線の占有が増えない。
+//
+// **例文は置かない** (ADR N-21c)。ここは全キャラ共通に渡るブロックなので、
+// 台詞を書くとその口調に全員が寄る (方言のキャラが標準語に戻る)。
+// 言い方はキャラシートの「残り60秒」の例に委ねる。
+//
+// **字数の目安から外す**と明記する。含めると、この一言を足したぶん
+// 手順や危険の警告が削られる (ADR N-22)。
+func urgentNoticeBlock(remainingMS int) string {
+	var b strings.Builder
+	b.WriteString("# 残り時間の告知 (この発話で1回だけ)\n")
+	b.WriteString(fmt.Sprintf(
+		"残り時間は約 %d 秒です。**プレイヤーはまだこれを知りません** — "+
+			"時間の表示は装置の前でしか読めず、手元を見ていない間は気づけません。\n",
+		remainingMS/1000))
+	b.WriteString("**この発話に、残り時間が少ないことを伝える一言を添えてください。**\n")
+	b.WriteString("- **添えるだけです。** 本来の受け答えと次にやることは、そのまま伝えてください。\n")
+	b.WriteString("- **この一言は発話の長さの目安に数えません。** " +
+		"添えるために手順・数字・危険の警告を削らないでください。\n")
+	b.WriteString("- **急かすだけにしないでください。** 手を止めさせると逆に遅くなります。\n")
+	b.WriteString("- **言い方はキャラシートの「残り60秒」の例に従ってください** — " +
+		"ここに例文は置きません。\n")
+	return b.String()
 }

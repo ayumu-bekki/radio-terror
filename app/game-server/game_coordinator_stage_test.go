@@ -173,19 +173,20 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 				Type: tc.msgType, DeviceID: "0001", RemainingMS: 10000,
 			})
 
-			// 発話は非同期なので、解放されるまで待つ
-			deadline := time.Now().Add(2 * time.Second)
-			for time.Now().Before(deadline) {
-				if game.SessionForBridge("bridge-1") == nil {
-					break
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-
+			// **引き継ぎは終了した瞬間に起きる** (finishSession で Finished を
+			// 立てる)。以前は最終メッセージを流し終えてから立てていたため、
+			// 生成と送出にかかる十数秒の間にプレイヤーが喋ると通常の指示が
+			// 返っていた。ここが同期でなくなると、その穴が戻る。
 			if game.SessionForBridge("bridge-1") != nil {
 				t.Fatal("終了後もバインドが残っている — ナビゲーターが応答し続ける")
 			}
-			// 最終メッセージは解放前に流れていること
+
+			// 最終メッセージ自体は非同期なので、流れるまで待つ。
+			// 引き継ぎの印とは無関係に必ず流れること。
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) && len(speaker.triggers) == 0 {
+				time.Sleep(10 * time.Millisecond)
+			}
 			if len(speaker.triggers) == 0 || speaker.triggers[0] != tc.trigger {
 				t.Errorf("最終メッセージ %q が流れていない: %v", tc.trigger, speaker.triggers)
 			}
@@ -193,16 +194,17 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 	}
 }
 
-// TestFinalStageClearedDoesNotSpeak は**最終ステージのクリアで発話しない**ことを
-// 確かめる。
+// TestStageClearedDoesNotSpeak は**課題の突破では発話しない**ことを確かめる
+// (ADR N-26 の延長)。最終ステージでも中間ステージでも同じ。
 //
-// デバイスは最後の1本を切ると stage_cleared に続けて defused を送る。
-// stage_cleared で「次の課題へ進む」と促すと、次のステージが無いため
-// プロンプトにステージ知識が入らず、**生成AIが課題を捏造する**。
-// 実運用では解除成功の直後に
-// 「あと60秒!もう一本、赤の線を切ってください!」と、
-// 既に解除済みの装置へ存在しない指示を出した (docs/navigator_design.md §6 決定26)。
-func TestFinalStageClearedDoesNotSpeak(t *testing.T) {
+// ナビゲーターは無線の向こうにいて装置を見ていない。線が切れたことも
+// 次の課題へ移ったことも知りようがないため、突破を契機に切り出すと
+// 押下の進捗・色合わせの完了に反応しないと決めた線が、
+// **ステージの区切りでだけ破れる**。
+//
+// 代わりに「突破したがまだ声を聞いていない」印を立て、プレイヤーが黙った
+// ままなら無応答の声掛けが `silence_after_stage` で状況を尋ねる。
+func TestStageClearedDoesNotSpeak(t *testing.T) {
 	lib := loadTestLibrary(t)
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
 	built, err := builder.Build("s-1", difficultyEasy)
@@ -240,26 +242,35 @@ func TestFinalStageClearedDoesNotSpeak(t *testing.T) {
 	// 非同期発話が走らないことを確かめるため少し待つ
 	time.Sleep(200 * time.Millisecond)
 
-	for _, trigger := range speaker.triggers {
-		if trigger == "stage_cleared" {
-			t.Fatal("最終ステージのクリアで発話した — 存在しない課題を促す危険がある")
-		}
+	if len(speaker.triggers) != 0 {
+		t.Fatalf("最終ステージのクリアで発話した: %v", speaker.triggers)
 	}
 
-	// 中間ステージのクリアでは従来どおり発話すること (抑制しすぎていない)
+	// **中間ステージでも発話しない。** 装置を見ていない以上、突破を知る
+	// 手立ては無い。切れたかどうかはプレイヤーの報告で初めて分かる。
 	if last > 0 {
-		speaker.triggers = nil
 		session.StageIndex = 0
+		session.mu.Lock()
+		session.awaitingStageReport = false
+		session.mu.Unlock()
+
 		game.HandleDeviceMessage(context.Background(), &deviceMessage{
 			Type: msgStageCleared, DeviceID: "0001",
 			StageIndex: 0, RemainingMS: 100000,
 		})
-		deadline := time.Now().Add(time.Second)
-		for time.Now().Before(deadline) && len(speaker.triggers) == 0 {
-			time.Sleep(10 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
+
+		if len(speaker.triggers) != 0 {
+			t.Errorf("中間ステージのクリアで発話した: %v", speaker.triggers)
 		}
-		if len(speaker.triggers) == 0 || speaker.triggers[0] != "stage_cleared" {
-			t.Errorf("中間ステージのクリアで発話していない: %v", speaker.triggers)
+
+		// 代わりに「突破したがまだ声を聞いていない」印が立つこと。
+		// この印が無応答の声掛けを silence_after_stage へ切り替える。
+		session.mu.Lock()
+		awaiting := session.awaitingStageReport
+		session.mu.Unlock()
+		if !awaiting {
+			t.Error("突破の印 (awaitingStageReport) が立っていない — 声掛けが通常の silence に落ちる")
 		}
 	}
 }

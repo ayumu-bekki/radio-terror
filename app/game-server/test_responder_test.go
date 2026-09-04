@@ -132,3 +132,48 @@ func TestSearchScopedToCrow(t *testing.T) {
 		t.Error("ナビゲーターが検索版を使っている (応答が遅くなる)")
 	}
 }
+
+// 開始申告の差し戻しは**カラス**が返す (ADR P-10)。
+//
+// この時点ではセッションが無く、ナビゲーターのキャラクターも決まって
+// いない (難易度の抽選前) ため、ナビゲーターには喋らせられない。
+func TestRejectPromptKeepsCrowOutOfTheGame(t *testing.T) {
+	// **カラスの立場をここだけ崩している** — 平時は装置もゲームも
+	// 知らない相手だが、差し戻しでは管理する側として振る舞う。
+	// 崩しても矛盾しないのは「中身を説明しない」制約があるから。
+	for _, want := range []string{"カラス", "受理できません", "1文"} {
+		if !strings.Contains(testResponderRejectPrompt, want) {
+			t.Errorf("差し戻しプロンプトに %q が無い", want)
+		}
+	}
+
+	// **中身を説明させない**のが崩しを成立させている条件。
+	// ここが緩むと、カラスがゲームを知っている相手になってしまう。
+	for _, want := range []string{"装置", "解除手順", "触れない"} {
+		if !strings.Contains(testResponderRejectPrompt, want) {
+			t.Errorf("中身を説明しない制約 (%q) が無い — カラスがゲームを知る相手になる", want)
+		}
+	}
+
+	// 運営マニュアル §4.4 の文言をそのまま読み上げさせる。
+	// 言い換えられるとマネージャーが表から原因を引けない。
+	if !strings.Contains(testResponderRejectPrompt, "そのまま伝えて") {
+		t.Error("理由をそのまま伝える指示が無い")
+	}
+}
+
+// 差し戻しの理由は運営マニュアル §4.4 の表と一致させる。
+// マネージャーは聞こえた文言で原因を引くため、ずれると表が引けない。
+func TestStartRejectReasonsMatchManual(t *testing.T) {
+	source, err := os.ReadFile("game_coordinator.go")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	for _, reason := range []string{
+		"接続されていません", "準備が完了していません", "他のチームが使用中です",
+	} {
+		if !strings.Contains(string(source), reason) {
+			t.Errorf("差し戻し理由 %q が実装から消えている (manager_manual.md §4.4 と不一致)", reason)
+		}
+	}
+}

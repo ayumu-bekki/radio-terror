@@ -15,10 +15,15 @@ import (
 // ヒントレベルは L1 から始め、ターンが進むにつれ上げる (実際は経過時間で上がる)。
 //
 // **ターン順は実機で起こりうる並びにする。** トリガーには前提がある —
-// `stage_cleared` は課題を解いたあとにしか届かないので、台本でも最後に置く。
-// `session_start` の直後に置いたことがあり、「まだ何も突破していないのに
-// 『やりましたね、ナイスです!』」という**実機では起こりえない場面**を
-// 検証していた (docs/navigator_design.md 決定32)。
+// `silence_after_stage` は課題を解いたあとにしか届かないので、台本でも
+// 最後に置く。かつて `stage_cleared` を `session_start` の直後に置いたことが
+// あり、「まだ何も突破していないのに『やりましたね、ナイスです!』」という
+// **実機では起こりえない場面**を検証していた (docs/navigator_design.md 決定32)。
+//
+// **突破そのものでは発話しなくなった** (ADR N-26 の延長)。ナビゲーターは
+// 装置を見ていないので突破を知らない。線を切ったあとプレイヤーが黙っている
+// と、無応答の声掛けが `silence_after_stage` で「切れたか・ランプはどう
+// 見えるか」を尋ねる。台本の最後はその場面を回す。
 
 // simDefaultScript は個別の台本を持たないステージの共通台本。
 // 「観察 → 報告 → 指示待ち」の最小の往復を回す。
@@ -36,12 +41,11 @@ func simDefaultScript(id string) simScript {
 			{Trigger: "silence", HintLevel: HintL3},
 			{Trigger: "player_message", HintLevel: HintL4,
 				Player: "手順は分かりました。切る線はどれですか。どうぞ"},
-			// **台本の最後に置く**。課題を解いたあとの遷移なので、
-			// これより前に置くと「まだ何も突破していないのに称賛する」
-			// ありえない場面になる (実際に一度そう書いてしまった)。
-			// 次の課題も「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			// **台本の最後に置く**。線を切ったあとの場面なので、
+			// これより前に置くと「まだ何も突破していないのに『切れたか?』」
+			// というありえない場面になる。
+			// 突破を断定せず、ランプの状態を尋ね直せるかを見る (決定32)。
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	}
 }
@@ -88,8 +92,7 @@ var simScripts = map[string]simScript{
 				Player: "ランプが1つ光っています。この色の線を切ればいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -118,8 +121,7 @@ var simScripts = map[string]simScript{
 				Player: "このまま切っていいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -140,8 +142,7 @@ var simScripts = map[string]simScript{
 				Player: "どの線を切りますか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -162,8 +163,7 @@ var simScripts = map[string]simScript{
 				Player: "速いほうの色を切ればいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -196,8 +196,7 @@ var simScripts = map[string]simScript{
 				Player: "ランプの色が変わりました。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -224,8 +223,7 @@ var simScripts = map[string]simScript{
 				Player: "基準色が白のときはどう見ればいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -247,8 +245,7 @@ var simScripts = map[string]simScript{
 				Player: "頭文字を対照表で引きました。この色でいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -270,8 +267,7 @@ var simScripts = map[string]simScript{
 				Player: "どの端子の線を切りますか。色で教えてください。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -300,8 +296,7 @@ var simScripts = map[string]simScript{
 				Player: "その色の線を切ればいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -331,8 +326,7 @@ var simScripts = map[string]simScript{
 				Player: "もう一度数え直しました。${cut}色でした。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -363,8 +357,7 @@ var simScripts = map[string]simScript{
 				Player: "どの線を切りますか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -385,8 +378,7 @@ var simScripts = map[string]simScript{
 				Player: "それを切ればいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -418,8 +410,7 @@ var simScripts = map[string]simScript{
 				Player: "${sim_panel_release}まで回しました。今度は${sim_panel_cut}が点滅しています。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -442,8 +433,7 @@ var simScripts = map[string]simScript{
 				Player: "構えました。合図をください。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -506,8 +496,7 @@ var simScripts = map[string]simScript{
 				Player: "5に合わせました。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -533,8 +522,7 @@ var simScripts = map[string]simScript{
 				Player: "構えています。合図をください。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -556,8 +544,7 @@ var simScripts = map[string]simScript{
 				Player: "全部読めました。色の名前になっています。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 
@@ -591,8 +578,7 @@ var simScripts = map[string]simScript{
 				Player: "確かめ直しました。${navi_word_guess}でした。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
-			{Trigger: "stage_cleared", HintLevel: HintL1,
-				Event: "プレイヤーが1番目の課題を突破した。次の課題へ進む。"},
+			{Trigger: "silence_after_stage", HintLevel: HintL1},
 		},
 	},
 }

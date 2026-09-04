@@ -44,6 +44,31 @@ type GameSession struct {
 	// progress はヒントレベル判定用のステージ内進捗 (永続化しない)
 	progress StageProgress
 
+	// awaitingStageReport は「課題を突破したが、プレイヤーからまだ何も
+	// 聞いていない」状態を示す (永続化しない)。
+	//
+	// ナビゲーターは装置を見ていないので、**突破そのものを知らない**
+	// (ADR N-26。stage_cleared では発話しない)。プレイヤーが報告して
+	// くれれば `player_message` で次へ進めるが、黙ったまま手が止まると
+	// **こちらには何も届かない**。無応答の声掛け (SilenceWatcher) で
+	// 「切れたか、ランプはどうなっているか」を尋ねる必要があるかの判定に使う。
+	//
+	// プレイヤーの声が届いた時点で下ろす (Notice 経由)。以後は通常の
+	// 状況確認へ戻す。
+	awaitingStageReport bool
+
+	// urgentNoticed は「残り時間が僅少になったことを一度伝えた」印
+	// (永続化しない)。
+	//
+	// 残り60秒を切ったことは**プレイヤーに伝わらない** — 7セグの表示は
+	// 装置の前でしか読めず、手元を見ていない間は気づけない。
+	// そこで**セッション中に1回だけ**、次の発話へ一言添える。
+	//
+	// **毎回言わせない。** 残り時間が減るたびに催促すると、急かすだけで
+	// 情報量が無く、無線を塞いで手を止めさせる。閾値を跨いだ最初の1回で
+	// 十分で、以後は交信スタイル「緊迫」が口調として効き続ける。
+	urgentNoticed bool
+
 	mu sync.Mutex
 }
 
@@ -178,20 +203,20 @@ func (c *GameCoordinator) StartSessionWith(
 	// 3. 検証: 該当 device_id の Core が WS 接続中かつ Ready 状態か
 	if !c.devices.IsConnected(deviceID) {
 		log.Printf("[game] start rejected: device %s not connected", deviceID)
-		return c.replyStartRejected(ctx, sender, deviceID, "接続されていません")
+		return c.replyStartRejected(ctx, sender, "接続されていません")
 	}
 
 	status := c.devices.Status(deviceID)
 	if !status.IsReady() {
 		log.Printf("[game] start rejected: device %s is %s (not ready)", deviceID, status.State)
-		return c.replyStartRejected(ctx, sender, deviceID, "準備が完了していません")
+		return c.replyStartRejected(ctx, sender, "準備が完了していません")
 	}
 
 	// 競合: 既に他 bridge にバインドされ Playing 中なら拒否する (§5)
 	if existing := c.sessionFor(deviceID); existing != nil {
 		if existing.BridgeID != bridgeID && status.IsPlaying() {
 			log.Printf("[game] start rejected: device %s in use by bridge %s", deviceID, existing.BridgeID)
-			return c.replyStartRejected(ctx, sender, deviceID, "他のチームが使用中です")
+			return c.replyStartRejected(ctx, sender, "他のチームが使用中です")
 		}
 	}
 
@@ -400,6 +425,9 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 }
 
 // NoteQuestion はプレイヤーの質問回数を1つ数える (ヒントレベルの前倒し用)。
+//
+// あわせて「課題を突破したが、まだ何も聞いていない」印を下ろす。
+// 声が届いた以上、報告の中身が何であれ「切れたか?」と尋ね直す場面ではない。
 func (c *GameCoordinator) NoteQuestion(deviceID string) {
 	session := c.sessionFor(deviceID)
 	if session == nil {
@@ -407,6 +435,7 @@ func (c *GameCoordinator) NoteQuestion(deviceID string) {
 	}
 	session.mu.Lock()
 	session.progress.Questions++
+	session.awaitingStageReport = false
 	session.mu.Unlock()
 }
 
@@ -474,9 +503,20 @@ func (c *GameCoordinator) sessionFor(deviceID string) *GameSession {
 }
 
 // finishSession はセッション終了時のスコア確定と混線停止を行う。
+//
+// **`Finished` をここで立てる。** 以前は最終メッセージを流し終えてから
+// `releaseAfterFinish` で立てていたが、爆発・解除の発話は生成と送出に
+// 十数秒かかる。その間 `SessionForBridge` はセッションを返し続けるため、
+// **プレイヤーが何か喋ると通常の指示 (`player_message`) が返っていた** —
+// 爆発した装置に対して次の手順を指示する交信が成立してしまう。
+// 終わった瞬間に印を付け、以後の応答はカラスへ引き継ぐ。
+//
+// 最終メッセージ自体は `speakAsyncThen` が**この印とは無関係に**流すので、
+// ここで立てても爆発・解除の締めは消えない。
 func (c *GameCoordinator) finishSession(ctx context.Context, session *GameSession, score int) {
 	session.mu.Lock()
 	session.Score = score
+	session.Finished = true
 	session.mu.Unlock()
 
 	if c.crosstalk != nil {
@@ -571,36 +611,54 @@ func (c *GameCoordinator) speakAsyncThen(ctx context.Context, sender *AudioSende
 	}()
 }
 
-// releaseAfterFinish はゲーム終了後、無線の応答相手をカラスへ戻す。
+// releaseAfterFinish はゲーム終了後の後始末を行う。
 //
-// 印を付けるだけで**セッションは binder に残す**。消してしまうと
-// Management Console の進行表から消えて結果を確認できなくなり、
-// マネージャーが状況を把握できない (実運用で発生)。
+// **セッションは binder に残す**。消してしまうと Management Console の
+// 進行表から消えて結果を確認できなくなり、マネージャーが状況を把握できない
+// (実運用で発生)。
 //
-// 印を付けないと**終了後もナビゲーターが応答し続ける**。実運用では爆発後に
+// 無線の応答相手をカラスへ戻す印 (`Finished`) は `finishSession` が
+// **終了した瞬間に**立てている。ここまで待つと、最終メッセージを流している
+// 十数秒の間にプレイヤーが喋ると通常の指示が返ってしまう。
+// 印が無いと**終了後もナビゲーターが応答し続ける** — 実運用では爆発後に
 // 「もう一度ランプの状態を教えてくれ」と促し続け、マネージャーのリセット申告にも
 // ナビゲーターが反応していた (docs/operation_flow.md §6)。
 //
-// **ここで履歴 (`history:{id}`) も確定させる。** `session:{id}` はこの後の
+// **ここで履歴 (`history:{id}`) を確定させる。** `session:{id}` はこの後の
 // リセットで無条件に消えるので (P-4b)、Management Console の履歴に残す分は
 // リセットのタイミングに関係なく、終了した瞬間にここで書いておく必要がある
 // (§9)。
 func (c *GameCoordinator) releaseAfterFinish(ctx context.Context, session *GameSession) {
-	session.mu.Lock()
-	session.Finished = true
-	session.mu.Unlock()
 	log.Printf("[game] session finished, navigator handed over to crow: device=%s",
 		session.DeviceID)
 	c.persistHistory(ctx, session)
 }
 
-// replyStartRejected は開始申告を拒否した旨を無線で返す。
-func (c *GameCoordinator) replyStartRejected(ctx context.Context, sender *AudioSender, deviceID, reason string) error {
-	if c.speaker == nil {
+// replyStartRejected は開始申告を受理できなかった旨を無線で返す。
+//
+// **返すのはカラス**。この時点ではセッションが無く、ナビゲーターの
+// キャラクターも決まっていない (難易度の抽選前) ため、ナビゲーターには
+// 喋らせられない。カラスは開始前の無線を担当している相手でもある。
+//
+// **カラスの立場をここだけ崩している** — 平時は装置もゲームも知らない
+// 相手だが、差し戻しでは管理する側として振る舞う。中身は説明しない
+// 制約を課してあるので、知っているのは「受理できるかどうか」だけになる
+// (test_responder.go の testResponderRejectPrompt)。
+//
+// reason は運営マニュアル §4.4 の表と一致させること。マネージャーは
+// 聞こえた文言で原因を引く。
+//
+// **発話に失敗しても拒否は拒否のまま返す。** 無線が無言になるのは痛いが、
+// 受理できない申告を通すわけにはいかない。
+func (c *GameCoordinator) replyStartRejected(ctx context.Context, sender *AudioSender, reason string) error {
+	// 拒否の事実と詳細 (どの状態だったか・どの bridge が使用中か) は
+	// 呼び出し元が既に記録している。ここでは無線へ返す分だけを担う。
+	if c.testResponder == nil {
 		return nil
 	}
-	// セッションがまだ無いため、キャラクター未確定の簡易応答として扱う
-	log.Printf("[game] reply start rejected: device=%s reason=%s", deviceID, reason)
+	if err := c.testResponder.RespondStartRejected(ctx, sender, reason); err != nil {
+		log.Printf("[game] reply start rejected speak error: %v", err)
+	}
 	return nil
 }
 

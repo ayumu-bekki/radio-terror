@@ -700,8 +700,10 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 
-	// 表情が出やすいトリガーで試す
-	triggers := []string{"session_start", "defused", "wrong_action", "time_warning"}
+	// 表情が出やすいトリガーで試す。
+	// 残り時間の告知 (旧 time_warning) は独立したトリガーではなくなったので、
+	// AnnounceUrgent を立てた player_message で代用する (下)。
+	triggers := []string{"session_start", "defused", "wrong_action", "player_message"}
 
 	tagPattern := regexp.MustCompile(`\[([^\[\]]*)\]`)
 	totals := map[string]int{}
@@ -721,9 +723,11 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 					Character:  character,
 					Session:    built,
 					StageIndex: 0,
-					// time_warning のため残り時間は少なめに
+					// 緊迫時の口調を出すため残り時間は少なめに
 					RemainingMS: 45000,
 					HintLevel:   HintL1,
+					// 残り時間の告知を添えた発話も表情が出やすい
+					AnnounceUrgent: trigger == "player_message",
 				})
 				gen, err := processor.GenerateNavigatorReply(
 					ctx, prompt, navCfg.Prompt.TriggerInstruction(trigger))

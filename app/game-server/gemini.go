@@ -276,6 +276,14 @@ func (p *GeminiProcessor) GenerateReplyWithSearch(ctx context.Context, systemPro
 	return p.generateReply(ctx, systemPrompt, instruction, true)
 }
 
+// GenerateReply は検索なしで発話を1つ生成する。
+//
+// 検索が要らない相手 (開始申告の差し戻しなど) 向け。マネージャーを
+// 待たせる場面なので、1往復ぶんのレイテンシを足さない。
+func (p *GeminiProcessor) GenerateReply(ctx context.Context, systemPrompt, instruction string) (string, error) {
+	return p.generateReply(ctx, systemPrompt, instruction, false)
+}
+
 func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instruction string, useSearch bool) (string, error) {
 	contents := []*genai.Content{
 		genai.NewContentFromText(instruction, genai.RoleUser),

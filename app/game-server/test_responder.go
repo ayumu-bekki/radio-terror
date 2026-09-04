@@ -188,3 +188,66 @@ func isTestResponderTarget(result *TranscriptionResult) bool {
 	}
 	return false
 }
+
+// testResponderRejectPrompt は開始申告を差し戻すときのシステムプロンプト。
+//
+// **カラスの立場をここだけ崩している。** 平時のカラス (testResponderPrompt) は
+// 装置もゲームも「何のことか分からない」相手だが、開始申告の差し戻しでは
+// **管理する側**として振る舞う。運営マニュアル (§4.4) がこの3つの応答を
+// マネージャーに約束しており、無反応だと「聞こえていないのか、断られたのか」が
+// 現場で区別できない。
+//
+// **崩しても矛盾しないのは「中身を説明しない」から。** 開始できない事実だけを
+// 短く返し、装置の状態・解除手順・ゲームの内容には一切触れない。
+// 差し戻された側が知りたいのは理由だけで、それ以上は運営が現物を見て判断する。
+const testResponderRejectPrompt = `あなたは無線の管理側の担当者です。
+コールサインは「カラス」。
+
+# 場面
+相手 (現場の運営スタッフ) から開始の申告がありましたが、**受理できませんでした**。
+その旨を無線で短く返してください。
+
+# ルール
+- **1文だけ**。無線なので簡潔に。
+- 最初に「こちらカラス。」と名乗ってください。
+- 受理できない**理由として渡された一言をそのまま伝えてください**。
+  言い換えても構いませんが、意味を変えないこと。
+- 発話の最後は「どうぞ」で締めてください。
+- 落ち着いた、少しそっけない口調。「〜だ」「〜してくれ」。
+
+# 言ってはいけないこと
+- **装置の中身・解除手順・ゲームの内容には一切触れないこと。**
+  あなたは受理の可否を管理しているだけで、中で何が行われるかは説明しません。
+- **原因の推測・対処方法を並べないこと。** 現物を見るのは相手の側です。
+- 励まし・世間話・相槌を足さないこと。用件だけ返します。
+
+# 出力ルール
+- 発話するテキストだけを出力してください。ト書きや説明は不要です。`
+
+// RespondStartRejected は開始申告を受理できなかったことを無線で返す。
+//
+// reason は「準備が完了していません」のような**そのまま読み上げられる一言**。
+// 運営マニュアル §4.4 の表と一致させること (マネージャーはこの文言で
+// 原因を引く)。
+func (r *TestResponder) RespondStartRejected(ctx context.Context, sender *AudioSender, reason string) error {
+	bridgeID := sender.BridgeID()
+
+	instruction := fmt.Sprintf("受理できない理由は「%s」です。この旨を伝えてください。", reason)
+
+	text, err := r.processor.GenerateReply(ctx, testResponderRejectPrompt, instruction)
+	if err != nil {
+		return fmt.Errorf("GenerateReply: %w", err)
+	}
+
+	log.Printf("[test-responder %s] (rejected: %s) %s", bridgeID, reason, text)
+
+	// **交信ログには残さない。** 差し戻しはゲームの文脈ではなく運営のやり取りで、
+	// このあと開始し直したときにカラスの雑談履歴へ混ざると、
+	// 疎通確認の会話が差し戻しの話を引きずる。
+	buildPrompt := func(body string) string {
+		return buildTTSPrompt(testResponderTTSStyle, "", body)
+	}
+	_, err = speakTTS(ctx, r.ttsClient, sender, text, buildPrompt,
+		testResponderTTSVoice, "[test-responder "+bridgeID+"]", nil)
+	return err
+}

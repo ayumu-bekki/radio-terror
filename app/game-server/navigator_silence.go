@@ -35,6 +35,19 @@ type SilenceWatcher struct {
 	lastHeard map[string]time.Time
 }
 
+// stageClearedWaitScale は課題突破の直後に待ち時間を詰める割合。
+//
+// **突破は無線に何も流れない** (ADR N-26 の延長。ナビゲーターは装置を
+// 見ていないので突破を知らない)。プレイヤーが自分から報告してくれば
+// player_message で応じるが、黙って次の課題を眺め始めると、通常の幅
+// (40〜60秒) では**最大60秒、無線が完全に無音**になる。切れたかどうかも
+// 分からないまま時間だけが減るので、最初の1回だけ早めに声を掛ける。
+//
+// **詰めすぎない。** 突破直後は次の装置を見回している最中で、
+// そこへすぐ被せると考える時間を奪う (silence_min_ms と同じ理由)。
+// 0.55 は 40〜60秒 → 22〜33秒。
+const stageClearedWaitScale = 0.55
+
 func NewSilenceWatcher(
 	speaker NavigatorSpeaker,
 	bridges *BridgeRegistry,
@@ -106,6 +119,33 @@ func (w *SilenceWatcher) Notice(deviceID string) {
 	w.lastHeard[deviceID] = time.Now()
 }
 
+// silenceTickMax は無応答の判定を見直す間隔の上限。
+//
+// 待ち時間 (wait) は眠りに入る前に引くが、**眠っている間に課題が突破される**
+// ことがある。突破すると閾値が縮む (stageClearedWaitScale) ので、引いた時点の
+// 値のまま眠り続けると縮んだ意味が無い。刻んで起き、そのつど現在の閾値と
+// 突き合わせる。
+//
+// 2秒あれば十分。閾値は数十秒の単位なので、この粒度のずれは体感に出ない。
+const silenceTickMax = 2 * time.Second
+
+// tick は判定を見直す間隔を返す。
+//
+// 設定された待ち時間が短い場合 (テスト) は、上限そのままだと最初の判定が
+// 待ち時間より後になり、いつまでも声を掛けられない。閾値を割り込まない
+// 細かさまで落とす。
+func (w *SilenceWatcher) tick() time.Duration {
+	// 突破後は閾値が縮むので、縮んだ側に合わせる
+	shortest := time.Duration(float64(w.minWait) * stageClearedWaitScale)
+	if step := shortest / 4; step < silenceTickMax {
+		if step < time.Millisecond {
+			step = time.Millisecond
+		}
+		return step
+	}
+	return silenceTickMax
+}
+
 // run は無応答を監視し、待ち時間を超えたら声を掛ける。
 func (w *SilenceWatcher) run(ctx context.Context, session *GameSession) {
 	defer func() {
@@ -114,19 +154,23 @@ func (w *SilenceWatcher) run(ctx context.Context, session *GameSession) {
 		}
 	}()
 
-	for {
-		wait := w.nextWait()
+	wait := w.nextWait()
+	tick := w.tick()
 
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(wait):
+		case <-time.After(tick):
 		}
 
 		// 終了済みのセッションでは声を掛けない。爆発・解除の最終メッセージの
 		// あとに「どうした?」と続くと、締めた交信が台無しになる。
 		session.mu.Lock()
 		finished := session.Finished
+		// 「課題を突破したが、まだプレイヤーの声を聞いていない」印。
+		// **セッション側が正本**で、プレイヤーの発話 (NoteReply) で下りる。
+		cleared := session.awaitingStageReport
 		session.mu.Unlock()
 		if finished {
 			return
@@ -138,7 +182,15 @@ func (w *SilenceWatcher) run(ctx context.Context, session *GameSession) {
 		if !watching {
 			return
 		}
-		if silent < wait {
+
+		// 課題を突破したのに何も聞こえてこない場合は早めに声を掛ける。
+		// 突破そのものは無線に流れないため (ADR N-26 の延長)、
+		// 通常の幅で待つと最大60秒、無線が無音になる。
+		threshold := wait
+		if cleared {
+			threshold = time.Duration(float64(wait) * stageClearedWaitScale)
+		}
+		if silent < threshold {
 			continue
 		}
 
@@ -150,20 +202,40 @@ func (w *SilenceWatcher) run(ctx context.Context, session *GameSession) {
 			}
 		}
 
-		log.Printf("[silence] no reply for %v: device=%s", silent.Round(time.Second), session.DeviceID)
+		// **突破の直後かどうかでトリガーを分ける。**
+		//
+		// 突破後にプレイヤーが黙っている場合、ナビゲーターが知りたいのは
+		// 「切れたのか」「次のランプはどうなっているか」で、通常の
+		// 「どこで止まっている?」とは尋ねる中身が違う。
+		trigger := "silence"
+		if cleared {
+			trigger = "silence_after_stage"
+		}
+
+		log.Printf("[silence] no reply for %v: device=%s trigger=%s",
+			silent.Round(time.Second), session.DeviceID, trigger)
 
 		sender := NewAudioSender(w.bridges, session.BridgeID)
-		if err := w.speaker.Speak(ctx, sender, session, "silence", ""); err != nil {
+		if err := w.speaker.Speak(ctx, sender, session, trigger, ""); err != nil {
 			log.Printf("[silence] speak error: %v", err)
 			continue
 		}
 
-		// 声を掛けた時点から数え直す。掛け直すまでの間隔も同じ幅で引く。
+		// **突破の印はここで下ろす。** 尋ね終えた以上、次も同じ問いかけを
+		// 繰り返すのは無意味 (返事が無いのは装置の話ではなく、
+		// 聞こえていないか手が離せないかのどちらか)。
+		session.mu.Lock()
+		session.awaitingStageReport = false
+		session.mu.Unlock()
+
+		// 声を掛けた時点から数え直す。掛け直すまでの間隔も同じ幅で引き直す。
 		w.mu.Lock()
 		if _, watching := w.cancels[session.DeviceID]; watching {
 			w.lastHeard[session.DeviceID] = time.Now()
 		}
 		w.mu.Unlock()
+
+		wait = w.nextWait()
 	}
 }
 

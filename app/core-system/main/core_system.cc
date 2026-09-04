@@ -28,8 +28,6 @@ System::System()
 System::~System() = default;
 
 void System::Start() {
-  ESP_LOGI(TAG, "Start device_id=%s", CONFIG_CORE_SYSTEM_DEVICE_ID);
-
   // 起動インジケータを最優先で点ける。
   // 電源投入直後から「生きている」ことが目視で分かるようにする。
   // 紫点灯 = 初期化中、紫点滅 = 初期化失敗 (§4.0)。
@@ -184,14 +182,10 @@ void System::StartTasks() {
         game_task_.PostEvent(event);
       });
   battery_monitor_task_->Start();
-#else
-  ESP_LOGW(TAG, "battery monitor disabled (CONFIG_CORE_SYSTEM_BATTERY_MONITOR=n)");
 #endif
-
-#if !CONFIG_CORE_SYSTEM_BUZZER
-  // 無音で動く設定は現場で気づきにくいため起動時に明示する
-  ESP_LOGW(TAG, "buzzer disabled (CONFIG_CORE_SYSTEM_BUZZER=n)");
-#endif
+  // バッテリー監視・ブザーの有効無効は起動ログで出している
+  // (startup_banner.h)。無音・無監視で動く設定は現場で気づきにくいため、
+  // 他の設定と並べて必ず目に入る場所に置いた
 }
 
 /// 起動時の kLine A-E の状態を GameTask へ通知する。

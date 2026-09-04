@@ -90,12 +90,20 @@ func NewAnnounceScheduler(assetDir string, binder *SessionBinder, bridges *Bridg
 	return s
 }
 
-// Enabled はアナウンス音声が使える状態かを返す (Web画面・起動ログ用)。
+// Enabled はアナウンス音声が使える状態かを返す。
+//
+// **現在の呼び出し元はテストだけ。** 有効・無効の判断は Run/broadcast が
+// 自前で行い、運用へは起動ログ (`[announce] ...`) で伝えている。
+// それでも残すのは、「音声が未配置なら黙って無効になる」という
+// 運用上の約束 (CLAUDE.md) を検査する足場がここしか無いため。
 func (s *AnnounceScheduler) Enabled() bool {
 	return s != nil && s.path != ""
 }
 
-// Interval は送出周期を返す (Web画面用)。
+// Interval は送出周期を返す。
+//
+// Enabled と同じくテスト専用。未設定・0以下を既定値へ倒す挙動を
+// 外から確かめられるようにしてある。
 func (s *AnnounceScheduler) Interval() time.Duration {
 	if s == nil {
 		return 0

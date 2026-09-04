@@ -20,23 +20,19 @@ import (
 
 // HandleDeviceMessage は Core からの進行イベントを受け、ナビゲーター演出へ接続する
 // (docs/game_session_design.md §7.2 / docs/navigator_design.md §3.5)。
-// onStageCleared はステージ突破の演出を組み立てる。
+// onStageCleared はステージ突破を記録する。
+//
+// **発話は伴わない** (下のコメント参照)。そのため sender を取らない。
 //
 // msg.StageIndex は**クリアした**ステージの番号 (デバイスは送信後に進める)。
-func (c *GameCoordinator) onStageCleared(
-	ctx context.Context, sender *AudioSender, session *GameSession, msg *deviceMessage,
-) {
+func (c *GameCoordinator) onStageCleared(session *GameSession, msg *deviceMessage) {
 	c.logEvent(session, EventStageCleared,
 		fmt.Sprintf("✓ ステージ%d クリア: %s", msg.StageIndex+1, c.stageName(session, msg.StageIndex)),
 		msg.StageIndex, msg.RemainingMS)
 
-	// **最終ステージのクリアでは何も喋らない。**
+	// **最終ステージのクリアでは何も起こさない。**
 	//
 	// デバイスは最後の1本を切ると stage_cleared に続けて defused を送る。
-	// ここで「次の課題へ進む」と促すと、次のステージが無いためプロンプトに
-	// ステージ知識が入らず、**生成AIが課題を捏造する**
-	// (実運用で「あと60秒!もう一本、赤の線を切ってください!」と、
-	// 解除済みの装置に対して存在しない指示を出した)。
 	// 完了の演出は直後に届く defused が担当する。
 	nextName := c.stageName(session, msg.StageIndex+1)
 	if nextName == "" {
@@ -48,8 +44,28 @@ func (c *GameCoordinator) onStageCleared(
 		fmt.Sprintf("ステージ%d開始: %s", msg.StageIndex+2, nextName),
 		msg.StageIndex+1, msg.RemainingMS)
 
-	c.speakAsync(ctx, sender, session, "stage_cleared",
-		fmt.Sprintf("プレイヤーが%d番目の課題を突破した。次の課題へ進む。", msg.StageIndex+1))
+	// **突破では発話しない** (ADR N-26 の延長)。
+	//
+	// ナビゲーターは無線の向こうにいて装置を見ていない。線が切れたことも
+	// 次の課題に移ったことも**知りようがない**。ここで「切れたか?
+	// 次のランプはどうだ?」と切り出すと、突破の瞬間を見ていることになり、
+	// 押下の進捗・色合わせの完了に反応しないと決めた線が、
+	// **ステージの区切りでだけ破れる**。テストプレイでも違和感が出た。
+	//
+	// 代わりに「突破したがまだ何も聞いていない」印を立てる。プレイヤーが
+	// 報告してくれば player_message で応じ、黙ったままなら無応答の
+	// 声掛け (SilenceWatcher) が状況を尋ねる (ADR P-9)。
+	// 声掛けの待ち時間もここから短縮する — 突破直後に手が止まると、
+	// 通常の幅では最大60秒、無線に何も流れない。
+	//
+	// **無応答の計測はやり直さない。** 突破の直前にプレイヤーが喋っていれば、
+	// その時点からの経過をそのまま引き継ぐ。ここで数え直すと、線を切る前の
+	// 交信で稼いだ時間が捨てられ、声を掛けるのが遅れる。
+	session.mu.Lock()
+	session.awaitingStageReport = true
+	session.mu.Unlock()
+
+	log.Printf("[game] stage cleared (発話しない): device=%s next=%s", msg.DeviceID, nextName)
 }
 
 // onWrongAction は誤操作の演出を組み立てる。
@@ -140,7 +156,7 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		return
 
 	case msgStageCleared:
-		c.onStageCleared(ctx, sender, session, msg)
+		c.onStageCleared(session, msg)
 
 	case msgColorMatchCompleted:
 		c.logEvent(session, EventColorMatchDone, "色合わせ完了", msg.StageIndex, msg.RemainingMS)

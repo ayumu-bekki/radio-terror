@@ -27,7 +27,21 @@ const (
 // 敬語・高テンションのキャラは要素が増えると超える。
 // **これは想定内**で、超過ゼロを目指して指示を締めると
 // 安心させる一言のような「後から足したもの」が削られる (決定24・31・34・37)。
+//
+// **名乗り (コールサイン) はこの数えに含めない** (countBodyRunes)。
+// 名乗りは緊迫時を除いて毎回入れる方針 (ADR N-21) なので、含めると
+// 名乗ったぶんだけ本文が削られる。
 const navigatorMaxRunes = 60
+
+// urgentNoticeAllowanceRunes は残り時間の告知を添える発話にだけ足す猶予。
+//
+// 告知はセッション中1回だけ本来の受け答えへ**添える**もので、
+// 目安の文字数には数えないと決めてある (navigator/prompt.toml)。
+// ただし文言が自由なため、名乗り (countBodyRunes) のように位置で
+// 切り出して引き算できない。**引けない以上、その1回だけ枠を広げる**。
+//
+// 20字は「時間がねえ、あと1分だ」程度の一言を見込んだ幅。
+const urgentNoticeAllowanceRunes = 20
 
 // navigatorSpeakReserve は発話の生成中に無線を押さえておく見込み時間。
 //
@@ -112,6 +126,17 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		}
 	}
 	level := HintLevel(&session.progress, budget, hints, time.Now())
+
+	// 残り時間が僅少になったことを、この発話で初めて伝えるか
+	// (セッション中に1回だけ。旧 time_warning トリガーの置き換え)。
+	//
+	// **ここでは印を立てない。** 生成に失敗した発話でも立ててしまうと、
+	// 一度も伝えないまま「伝えた」ことになる。送出できてから立てる (下)。
+	//
+	// **終幕の発話では告知しない** — 爆発・解除はもう時間の話をする場面ではない。
+	announceUrgent := !session.urgentNoticed &&
+		remainingMS > 0 && remainingMS <= n.config.Prompt.UrgentThresholdMS &&
+		trigger != "exploded" && trigger != "defused"
 	session.mu.Unlock()
 
 	history := ""
@@ -128,6 +153,8 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		HintLevel:   level,
 		RecentEvent: event,
 		History:     history,
+
+		AnnounceUrgent: announceUrgent,
 	})
 
 	instruction := n.config.Prompt.TriggerInstruction(trigger)
@@ -162,11 +189,29 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 
 	// 文字数を併記する。無線を塞ぐ長さになっていないか運用中に確認するため
 	// (出力ルールで 60 文字以内を指示しているが、生成AIが守るとは限らない)。
-	log.Printf("[navigator %s/%s] (%s L%d, %d runes) %s",
-		session.DeviceID, session.Character.Name, trigger, level, countRunes(text), text)
-	if n := countRunes(text); n > navigatorMaxRunes {
-		log.Printf("[navigator %s] WARN reply too long: %d runes (limit %d)",
-			session.DeviceID, n, navigatorMaxRunes)
+	//
+	// **名乗りは数えない** (countBodyRunes)。名乗りは毎回入れる方針
+	// (ADR N-21) なので、数えに含めると常時それだけ本文が圧迫され、
+	// 警告が「名乗ったから長い」で埋まって本当の超過が見えなくなる。
+	// ログには全長も併記して、実際に無線を塞ぐ長さは追えるようにする。
+	bodyRunes := countBodyRunes(text, session.Character.Name)
+	log.Printf("[navigator %s/%s] (%s L%d, %d runes / %d total) %s",
+		session.DeviceID, session.Character.Name, trigger, level,
+		bodyRunes, countRunes(text), text)
+
+	// **残り時間の告知を添えた発話は目安を広げる。**
+	//
+	// 告知の文言は自由なので、名乗りのように位置で切り出して引き算できない。
+	// 「数えない」と言いながら数えていると、告知を入れたぶんだけ警告が出て、
+	// 次に指示を締める材料にされる — 削られるのは手順や警告のほうになる
+	// (ADR N-22)。**引けない以上、その1回だけ枠を広げる**方が実態に合う。
+	limit := navigatorMaxRunes
+	if announceUrgent {
+		limit += urgentNoticeAllowanceRunes
+	}
+	if bodyRunes > limit {
+		log.Printf("[navigator %s] WARN reply too long: %d runes (limit %d, 名乗りを除く)",
+			session.DeviceID, bodyRunes, limit)
 	}
 
 	// 生成AIが角括弧の演技指示を付けてくることがあるため、記録前に取り除く
@@ -204,6 +249,16 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]", sfxPCM)
 	if err != nil {
 		return err
+	}
+
+	// **送出できてから印を立てる。** 生成・送出に失敗した発話で立てると、
+	// 一度も伝えないまま「伝えた」ことになり、残り時間の告知が消える。
+	if announceUrgent {
+		session.mu.Lock()
+		session.urgentNoticed = true
+		session.mu.Unlock()
+		log.Printf("[navigator %s] urgent notice delivered (remaining %ds)",
+			session.DeviceID, remainingMS/1000)
 	}
 
 	// 実際の再生時間で押さえ直す。ここから鳴り終わるまでが「無線が塞がっている」

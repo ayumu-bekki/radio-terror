@@ -103,7 +103,7 @@ func TestNavigatorTriggerInstructions(t *testing.T) {
 	for _, trigger := range []string{
 		"session_start", "stage_cleared", "color_match_completed", "push_progress",
 		"wrong_action", "exploded", "defused", "player_message",
-		"silence", "time_warning",
+		"silence", "silence_after_stage",
 	} {
 		got := cfg.Prompt.TriggerInstruction(trigger)
 		if got == "" {

@@ -68,7 +68,7 @@ func (e ConversationEntry) IsEvent() bool { return e.Kind == EntryKindEvent }
 type ConversationLog struct {
 	mu      sync.RWMutex
 	entries []ConversationEntry
-	max     int // 0=無制限。将来のウィンドウ化(直近N件のみ保持)用
+	max     int // 直近 max 件のみ保持する。0=無制限
 }
 
 // NewConversationLog は共有会話ログを生成する。max=0 で無制限。

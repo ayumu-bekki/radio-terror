@@ -27,6 +27,8 @@ app/game-server/config-mac-docker.toml
 app/game-server/game-server
 
 # esp32
+# CMake が git describe から生成する (app/core-system/main/version.h.in)
+app/core-system/main/version.h
 **/sdkconfig
 **/sdkconfig.old
 **/build/

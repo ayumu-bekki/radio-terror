@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -455,21 +454,4 @@ func (s *CrosstalkScheduler) play(sender *AudioSender, path, deviceID string) {
 
 func (s *CrosstalkScheduler) isSpeaking(deviceID string) bool {
 	return s.BusyFor(deviceID) > 0
-}
-
-// AssetSummary はアセットの読み込み状況を返す (Web画面用)。
-func (l *CrosstalkLibrary) AssetSummary() map[string]int {
-	if l == nil {
-		return map[string]int{}
-	}
-	return map[string]int{
-		crosstalkJamming: len(l.jamming),
-		crosstalkAmbient: len(l.ambient),
-		crosstalkUneasy:  len(l.uneasy),
-	}
-}
-
-// AssetPathHint は未制作アセットの配置先をログに出すためのヒント文を返す。
-func (l *CrosstalkLibrary) AssetPathHint() string {
-	return fmt.Sprintf("place crosstalk assets under %s/{jamming,ambient,uneasy}/", l.root)
 }
