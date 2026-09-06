@@ -550,6 +550,32 @@ func TestClosingMessagesHaveNoDouzo(t *testing.T) {
 	}
 }
 
+// TestClosingMessagesHaveNoCallsign は、交信を終える場面 (解除成功・失敗) で
+// **名乗らない**指示があることを確かめる。
+//
+// コールサインは平時毎回名乗る方針 (N-21) だが、終幕は「もう返事を
+// 求めない締めくくり」であって新しい呼びかけではない。この例外が
+// 抜けていたため、爆発時に「こちらヒバリです……失敗、ですね」のように
+// 律儀に名乗ってから結果を告げ、事務連絡のように聞こえる事象が実機で出た
+// (2026-09-06)。
+func TestClosingMessagesHaveNoCallsign(t *testing.T) {
+	cfg := loadTestNavigator(t)
+
+	// 出力ルールに例外が書かれていること
+	if !strings.Contains(cfg.Prompt.Output, "新しい呼びかけではありません") {
+		t.Error("output に名乗りの例外が書かれていない — " +
+			"平時毎回名乗るルールだけだと締めくくりにも名乗る")
+	}
+
+	// 終了トリガーが明示的に禁じていること
+	for _, trigger := range []string{"defused", "exploded"} {
+		inst := cfg.Prompt.TriggerInstruction(trigger)
+		if !strings.Contains(inst, "名乗らないでください") {
+			t.Errorf("%s に名乗らない指示が無い", trigger)
+		}
+	}
+}
+
 // TestAllCharactersHaveClosingLines は、全キャラクターが
 // **解除成功の台詞例**を持っていることを確かめる (決定46)。
 //
