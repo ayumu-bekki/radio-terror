@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -63,6 +64,37 @@ func validateStartup(cfg *Config, library *ScenarioLibrary) {
 	}
 }
 
+// warmupGemini は Transcribe・Reasoning・TTS の3経路をダミー呼び出しで温める。
+//
+// 初回リクエストにだけ接続確立コストが乗り、2秒前後で済むはずの呼び出しが
+// 6〜10秒かかる事象を確認した (2026-09-06実測)。プレイヤーの最初の発話で
+// この遅延を踏ませないよう、受付開始前に潰しておく。
+//
+// 3経路は並行に温める (直列だと合計で最大30秒近く起動が延びるため)。
+// 失敗しても起動は止めない — ウォームアップの失敗は本番中の失敗を
+// 意味しない。次のリクエストがコールドスタートの遅延を引き受けるだけ。
+func warmupGemini(ctx context.Context, processor *GeminiProcessor, ttsClient *TTSClient) {
+	start := time.Now()
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		if err := processor.Warmup(ctx); err != nil {
+			log.Printf("[boot] warmup gemini failed (次のリクエストが肩代わりする): %v", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := ttsClient.Warmup(ctx); err != nil {
+			log.Printf("[boot] warmup tts failed (次のリクエストが肩代わりする): %v", err)
+		}
+	}()
+
+	wg.Wait()
+	log.Printf("[boot] warmup complete: %v", time.Since(start))
+}
+
 func main() {
 	configPath := "config.toml"
 	if len(os.Args) > 1 {
@@ -96,6 +128,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("NewTTSClient: %v", err)
 	}
+
+	warmupGemini(ctx, processor, ttsClient)
 
 	// --- シナリオテンプレート ---
 	scenarioDir := orDefault(cfg.Scenario.Dir, defaultScenarioDir)

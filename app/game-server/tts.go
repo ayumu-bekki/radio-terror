@@ -106,6 +106,20 @@ func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice 
 	return nil, fmt.Errorf("TTS failed after %d attempts: %w", attempts, lastErr)
 }
 
+// Warmup は起動直後にダミー発話を1回生成し、初回リクエストにだけ乗る
+// 接続確立コストを前払いする。詳細は GeminiProcessor.Warmup 参照。
+// 生成した音声は破棄する。リトライはしない (起動をそれ以上待たせないため)。
+func (t *TTSClient) Warmup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, warmupTimeout)
+	defer cancel()
+
+	_, err := t.generateOnce(ctx, "ok", defaultTTSVoice)
+	if err != nil {
+		return fmt.Errorf("warmup tts: %w", err)
+	}
+	return nil
+}
+
 // generateOnce は TTS を1回だけ呼ぶ。
 //
 // **応答はストリーミングで受け取る** (GenerateContentStream)。

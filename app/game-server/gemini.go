@@ -82,6 +82,65 @@ func (p *GeminiProcessor) Close() {
 	// 新SDKの Client には Close メソッドがないためno-op
 }
 
+// warmupTimeout はウォームアップ1回あたりの上限。
+//
+// 通常のタイムアウト (既定20秒) をそのまま使うと、コールドスタートが
+// 想定以上に長い日に起動そのものが遅延し、Docker の healthcheck
+// (5s間隔×5回=25秒の猶予) より先に倒れかねない。実測のコールドスタートは
+// 最大 10秒程度 (2026-09-06) なので、余裕を見つつ健全性チェックの
+// 猶予内に収まる値にしてある。超えたら諦めて本番の初回リクエストに委ねる。
+const warmupTimeout = 15 * time.Second
+
+// Warmup は起動直後にダミー呼び出しを行い、初回リクエストにだけ乗る
+// 接続確立コストを前払いする。
+//
+// 実測 (2026-09-06、Raspberry Pi): プロセス起動後の1回目だけ
+// Transcribe が 6〜10秒、2回目以降は 2秒前後に落ちる。DNS・TLS・CPU
+// (RSA署名) はいずれも数百ms未満で健全なため、原因は genai.Client の
+// 内部初期化 (認証トークン取得やコネクション確立) にあると見ている。
+// 本番中にプレイヤーへこの遅延を負わせないため、受付開始前に潰す。
+//
+// transcribeModel と reasoningModel は別モデルなので、片方だけ叩いても
+// もう片方の初回コストが残る可能性がある。両方を軽いテキストのみの
+// 呼び出しで温める (Transcribe は音声必須なため、代わりに
+// transcribeModel へ直接テキストを投げて経路だけ温める)。**並行に呼ぶ**
+// (直列だと最悪 warmupTimeout の2倍、起動が延びる)。
+//
+// 失敗しても起動は止めない。ウォームアップの失敗は本番の障害率
+// (APIHealth) に混ぜたくないため noteResult は呼ばない。
+func (p *GeminiProcessor) Warmup(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, warmupTimeout)
+	defer cancel()
+
+	contents := []*genai.Content{
+		genai.NewContentFromText("ok", genai.RoleUser),
+	}
+
+	errCh := make(chan error, 2)
+	go func() {
+		_, err := p.client.Models.GenerateContent(ctx, p.cfg.TranscribeModel, contents, nil)
+		if err != nil {
+			err = fmt.Errorf("warmup transcribe model: %w", err)
+		}
+		errCh <- err
+	}()
+	go func() {
+		_, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, nil)
+		if err != nil {
+			err = fmt.Errorf("warmup reasoning model: %w", err)
+		}
+		errCh <- err
+	}()
+
+	var firstErr error
+	for range 2 {
+		if err := <-errCh; err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func (p *GeminiProcessor) Transcribe(ctx context.Context, oggData []byte) (*TranscriptionResult, error) {
 	contents := []*genai.Content{
 		genai.NewContentFromParts([]*genai.Part{
