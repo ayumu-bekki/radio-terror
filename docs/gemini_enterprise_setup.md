@@ -233,6 +233,25 @@ cd ../ && docker compose up game-server
 | `aiplatform.googleapis.com is not enabled` | 手順 2-1 の API 有効化が済んでいない |
 | `models/... is not found` | **そのリージョンでモデルが提供されていない**。`location` を変える (下記) |
 | `[gemini] project が未設定です` | `config.toml` に `project`/`location` が無い。環境変数 `GOOGLE_CLOUD_PROJECT` でも可 |
+| 起動直後の1回だけ応答が異常に遅い (6〜10秒) | **既知の現象で対処済み**。下記「起動直後だけ応答が遅い」参照 |
+
+### 起動直後だけ応答が遅い (コールドスタート)
+
+**2026-09-06 実測 (Raspberry Pi)。** プロセス起動後の1回目のリクエストだけ
+Transcribe/TTS が数秒遅く、2回目以降は正常 (2〜3秒) に戻る。
+
+まず疑うべきは DNS。特にルーターのIPv6 (AAAA) 転送が遅い環境で、
+名前解決自体に数秒かかることがある (`docker compose exec game-server
+getent ahosts aiplatform.googleapis.com` で計測できる)。これは
+`compose.yaml` の `dns: [8.8.8.8, 1.1.1.1]` で対処済み。
+
+DNSを直しても残る遅延は、`genai.Client` の内部初期化 (認証トークン
+取得やコネクション確立) が初回リクエストにだけ乗るためと見ている。
+**起動時に3経路 (Transcribe/Reasoning/TTS) をダミー呼び出しで温める
+ウォームアップを実装済み** (`docs/adr.md` T-13)。起動ログの
+`[boot] warmup complete: <秒数>` で所要時間を確認できる。数秒以上
+かかっている場合は、ウォームアップ自体がまだコールドスタートの
+影響を受けている (通常は2秒未満で終わる)。
 
 ### モデルの提供リージョン
 
