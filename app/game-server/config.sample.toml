@@ -53,30 +53,6 @@ tts_timeout_sec        = 10
 # 通常は1回で成功する。通信エラー時の保険。
 tts_attempts = 3
 
-# API 呼び出しの優先度 (service tier)。省略・空欄なら Gemini 側の既定 (standard)。
-#   "priority" … 低レイテンシ優先。**課金が標準の75〜100%増し**、
-#                 レート上限は標準の0.3倍。容量超過時は失敗せず
-#                 standard へ自動降格し、その分は標準料金で課金される
-#   "standard" … 既定
-#   "flex"     … 安価だが遅延が大きい。無線の体験には向かない
-#
-# 文字起こし・発話生成・TTS の**3経路すべて**に適用される。
-# 綴りを間違えると起動時に落ちる (黙って standard に落ちると
-# priority のつもりで課金だけ標準、という取り違えになるため)。
-# 実際に効いているかは起動ログ `[boot] gemini service tier:` で確認する。
-# **Vertex/Enterprise (このプロジェクトの接続先) は受け付けない。**
-# 実測 (2026-08-20): "priority" / "standard" / "flex" のいずれでも
-# 400 INVALID_ARGUMENT になり、**全API呼び出しが失敗する**。
-# 空にしておくこと。将来 Vertex 側が対応したら使える。
-service_tier = ""
-
-# TTS だけ別のティアにしたい場合に指定する。空なら service_tier に従う。
-#
-# **TTS はレイテンシが体験に直結する** — 生成が遅れるとその間ずっと無線が
-# 沈黙する (ADR T-1・T-4)。文字起こし・発話生成は多少遅れても間が空くだけなので、
-# **TTS だけ priority にする**という使い分けができる。
-# tts_service_tier = "priority"
-
 [scenario]
 # シナリオテンプレートの配置 (stages/ と difficulty/ を含むディレクトリ)
 dir = "scenarios"

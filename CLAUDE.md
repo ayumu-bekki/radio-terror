@@ -241,7 +241,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | 迷いには「待て」 | 「たぶん」「忘れた」に「切れ」と返さない。切った線は戻せず即爆発する | N-37 |
 | 60文字は目安 | 締めると危険の警告・数字といった情報が先に削られる。切り詰めない・止めない | N-22 |
 | TTS はストリーミング | `GenerateContent` に戻すと応答待ちが跳ねる(最大56.51秒) | T-1 |
-| `service_tier` は空にする | Vertex/Enterprise は**どの値でも400**。指定すると全API呼び出しが失敗する(実測2026-08-20)。TTSだけ別にするなら `tts_service_tier` | G-5 |
+| `service_tier` は使わない | Vertex/Enterprise は**どの値でも400**。実装ごと削除済み。公式docの「使える」は Developer API の話で接続先が違う。再追加しない | G-5 |
 | Interactions API は使えない | Go SDK v1.68.0 に `client.Interactions` が無い。APIキー系エンドポイントでもあり G-4 と衝突する | G-6 |
 | 表情タグは6語 | `allowedTTSTags` と `prompt.toml` の両方に書く。片方だけでは効かない | T-5 |
 | ノートに場面を書かない | TTS が場面を演じて相手の発話まで作る | T-6 |

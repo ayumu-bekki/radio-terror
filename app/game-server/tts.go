@@ -41,9 +41,6 @@ type TTSClient struct {
 	timeout  time.Duration
 	attempts int
 
-	// serviceTier は呼び出しの優先度。空なら送らず Gemini 側の既定に委ねる。
-	serviceTier genai.ServiceTier
-
 	// health は外部APIの成否を記録し、マネージャー向け Web 画面で
 	// 障害を検知できるようにする (docs/game_session_design.md §9)。
 	// TTS の失敗は発話が丸ごと無音になる形で表れるため、
@@ -66,11 +63,10 @@ func NewTTSClient(ctx context.Context, cfg GeminiConfig) (*TTSClient, error) {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
 	return &TTSClient{
-		client:      client,
-		model:       model,
-		timeout:     cfg.TTSTimeout(),
-		attempts:    cfg.TTSAttemptCount(),
-		serviceTier: cfg.GenAITTSServiceTier(),
+		client:   client,
+		model:    model,
+		timeout:  cfg.TTSTimeout(),
+		attempts: cfg.TTSAttemptCount(),
 	}, nil
 }
 
@@ -135,7 +131,6 @@ func (t *TTSClient) generateOnce(ctx context.Context, prompt, voice string) ([]i
 
 	genConfig := &genai.GenerateContentConfig{
 		ResponseModalities: []string{"audio"},
-		ServiceTier:        t.serviceTier,
 		SpeechConfig: &genai.SpeechConfig{
 			VoiceConfig: &genai.VoiceConfig{
 				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{

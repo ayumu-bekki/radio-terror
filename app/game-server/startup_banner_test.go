@@ -82,23 +82,3 @@ func TestBuildIdentityShortensFullHash(t *testing.T) {
 		}
 	}
 }
-
-// 起動ログに service tier が説明付きで出ること。
-//
-// priority は課金が跳ねるため、**意図せず有効なまま運用する事故**を
-// ログで気づけるようにしてある。
-func TestDescribeServiceTier(t *testing.T) {
-	cases := map[string]string{
-		// tts 側では「service_tier に従う」、共通側では「Gemini の既定」を意味する。
-		// どちらとも読めるよう素の "unset" にしてある。
-		"":         "unset",
-		"priority": "priority (課金は標準の75〜100%増し)",
-		"standard": "standard",
-		"flex":     "flex",
-	}
-	for in, want := range cases {
-		if got := describeServiceTier(in); got != want {
-			t.Errorf("describeServiceTier(%q) = %q, want %q", in, got, want)
-		}
-	}
-}

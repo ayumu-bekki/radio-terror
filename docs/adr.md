@@ -1849,7 +1849,7 @@ L1 で落ちても救える。
 遅延はモデルの推論ではなく**一括応答の待ち受け側**にあった。入力内容・並行数・出力量の
 いずれとも無関係なことは実測で確認済み (`tts_latency_probe_test.go`。`-ttsprobe`)。
 
-なお `service_tier` は **Vertex/Enterprise では使えない** (G-5)。
+なお `service_tier` は **Vertex/Enterprise では使えない** ため実装ごと削除した (G-5)。
 レイテンシ対策はストリーミング (T-1) とタイムアウト・リトライ (T-4) で行う。
 
 > 出典: NV 決定15
@@ -2742,10 +2742,11 @@ SDK 定数は `genai.BackendEnterprise` を使う。`api_key` 設定項目は廃
 
 > 出典: GE 決定8・9・10
 
-### G-5. `service_tier` は空にする (Vertex/Enterprise は受け付けない)
+### G-5. `service_tier` は使わない (実装ごと削除)
 
-**2026-08-20 の実測で撤回。** Priority を狙って `service_tier` を入れたが、
-**Vertex/Enterprise はどの値も受け付けない**。
+**2026-09-06 に設定・実装ごと削除した。** Vertex/Enterprise は
+`service_tier` を**どの値でも受け付けない**ため、残しておくと
+「設定できるように見えて、指定すると全滅する」罠にしかならない。
 
 ```
 Error 400: Invalid value at 'service_tier'
@@ -2753,16 +2754,44 @@ Error 400: Invalid value at 'service_tier'
 ```
 
 `"priority"` / `"standard"` / `"flex"` のいずれでも 400 になり、**未指定だけが通る**。
-指定したままにすると文字起こし・発話生成・TTS が全滅してゲームが成立しない。
 
-SDK (`google.golang.org/genai`) がリクエストに載せることと、
-**サーバーが受理することは別**。送信の検証 (`service_tier_wire_test.go`) だけでは
-足りず、実APIを叩くまで気づけなかった。
+**公式ドキュメントに「使える」と書いてあるのは Developer API の話。**
+[Priority Inference](https://ai.google.dev/gemini-api/docs/generate-content/priority-inference)
+は「ティア2・ティア3のユーザーが GenerateContent API と Interactions API で利用できる」
+と書いているが、この「ティア」は **Gemini Developer API (APIキー認証) の課金ティア**で、
+Vertex/Enterprise には無い概念である。ページは `ai.google.dev` にあり Vertex の記述が無い。
 
-設定項目自体は残してある (将来 Vertex 側が対応したら使えるため)。
-`tts_service_tier` で **TTS だけ別のティア**を指定することもできる —
-TTS はレイテンシが体験に直結する (T-1・T-4) 一方、文字起こし・発話生成は
-多少遅れても間が空くだけなので、使い分けの余地を残した。
+400 のエラー型がそれを示している — `aiplatform.v1beta1.ServiceTier`、
+つまり **Vertex 側の列挙型に `"priority"` という値が存在しない**。
+Developer API で有効な値が、Vertex では受理されない。
+
+| | Priority | このプロジェクト |
+|---|---|---|
+| Gemini Developer API (APIキー) | 使える (ティア2・3) | レート制限が厳しく**移行元として捨てた** |
+| Vertex / Enterprise | 400 で不可 | **現在の接続先** |
+
+Priority を取りに戻ると、移行の理由だったレート制限が再発し、G-4 とも衝突する。
+**ドキュメントを見て「使えるはず」と再挑戦しないための記録**としてここに残す。
+
+**実際に事故を起こしている。** 2026-08-20 に共通の `service_tier` を空へ戻したとき、
+`tts_service_tier = "priority"` が残っていた。TTS だけが 400 で全滅し、
+発話が `speech dropped` で丸ごと落ちた (2026-09-06 に再発を確認)。
+**逃がし口を2つ用意したこと自体が原因**なので、両方まとめて削除した。
+
+削除したもの: `GeminiConfig.ServiceTier` / `TTSServiceTier`、
+`GenAIServiceTier()` / `GenAITTSServiceTier()` / `toGenAIServiceTier()` /
+`validateServiceTier()`、`describeServiceTier()` と起動ログの
+`[boot] gemini service tier:` 行、`service_tier_wire_test.go` (ファイルごと)、
+`config*.toml` の設定項目。
+
+**再導入するなら実APIで確かめてから。** SDK
+(`google.golang.org/genai`) がリクエストに載せることと、**サーバーが受理することは別**。
+当時あった送信の検証 (`service_tier_wire_test.go`) は「載っている」ことしか見ておらず、
+実APIを叩くまで 400 に気づけなかった。同じ検証を復活させても同じ穴が空く。
+
+なお `serviceTier` は `generationConfig` の**中ではなくリクエストのトップレベル**に載り、
+`genai.ServiceTierUnspecified` の実体は文字列 `"unspecified"` で `omitempty` に
+落ちない (未設定を空文字で表す必要があった)。再導入時に踏み直さないよう記録しておく。
 
 以下は Gemini Developer API (APIキー認証) 側の性質。**この構成では使えない**が、
 将来の判断材料として残す:
@@ -2771,31 +2800,7 @@ TTS はレイテンシが体験に直結する (T-1・T-4) 一方、文字起こ
 - レート上限は標準の **0.3倍**
 - 容量超過時は**失敗せず standard へ自動降格**
 
-（以下は当初の記述。実測で覆るまでの経緯として残す）
-
-文字起こし・発話生成・TTS の**3経路すべて**を Priority で呼ぶ。
-無線越しの体験はレイテンシがそのまま沈黙になるため、費用より応答速度を採る。
-
-**代償を承知の上での選択**である:
-
-- 課金は標準の **75〜100%増し**
-- レート上限は標準の **0.3倍**
-- 容量超過時は**失敗せず standard へ自動降格**する(その分は標準料金)
-
-`config.toml` で切り替えられる。当日に費用が問題になったら
-**再ビルドなしで `"standard"` へ落とせる**ようにしてある。
-綴りを間違えると黙って標準ティアに落ちる — 「priority のつもりで課金だけ標準」を
-避けるため、**不正値は起動時に落とす**。
-
-実際に効いているかは起動ログ `[boot] gemini service tier:` で確認する。
-
-**未設定は空文字にすること。** `genai.ServiceTierUnspecified` の実体は文字列
-`"unspecified"` で、`omitempty` に落ちず**そのまま送信されてしまう**
-(回帰: `TestServiceTierOmittedWhenUnset`)。
-
-`serviceTier` は `generationConfig` の**中ではなくリクエストのトップレベル**に載る。
-送信されることは実リクエストを捕まえて検証済み
-(`service_tier_wire_test.go`。一括・ストリーミングの両経路)。
+Priority を使いたければ Interactions API 経由になるが、こちらは G-6 で見送っている。
 
 ### G-6. Interactions API へは移行しない (2026-08 時点)
 
