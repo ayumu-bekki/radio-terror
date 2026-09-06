@@ -10,6 +10,12 @@ services:
     ports:
       - 8080:8080   # 通信用WebSocket (/ws) + マネージャー向け Web 画面 (/manager)
       - 50051:50051 # gRPC (radio-bridge からのダイヤルイン)
+    # ルーターのDNS転送(特にIPv6/AAAA解決)が遅い環境で、Gemini呼び出しの
+    # 初回だけ約4〜9秒の名前解決待ちが乗る事象を確認した(2026-09-06実測)。
+    # 公開DNSを直接指定して回避する。ルーターが変わる本番でも効くようにしてある。
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       - type: bind
         source: ./game-server/config.toml
