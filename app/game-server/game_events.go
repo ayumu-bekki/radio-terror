@@ -58,12 +58,20 @@ func (c *GameCoordinator) onStageCleared(session *GameSession, msg *deviceMessag
 	// 声掛けの待ち時間もここから短縮する — 突破直後に手が止まると、
 	// 通常の幅では最大60秒、無線に何も流れない。
 	//
-	// **無応答の計測はやり直さない。** 突破の直前にプレイヤーが喋っていれば、
-	// その時点からの経過をそのまま引き継ぐ。ここで数え直すと、線を切る前の
-	// 交信で稼いだ時間が捨てられ、声を掛けるのが遅れる。
+	// **無応答の計測は突破の瞬間から数え直す。**
+	//
+	// 以前は「突破の直前にプレイヤーが喋っていれば、その時点からの経過を
+	// そのまま引き継ぐ」設計だった。しかし手を止めてから
+	// (装置を眺める・資料を読むなどで) stageClearedWaitScale による
+	// 短縮後の閾値をとうに超えていた場合、**突破の直後にいきなり
+	// 声を掛けてしまう** (実測: 突破の2秒後に発話。2026-09-06)。
+	// プレイヤーは次の課題を眺め始めたばかりで、急かされたように感じる。
+	// 突破そのものは装置からの通知なので、ここでリセットしても
+	// 「ナビ自身の発話では計測を延ばさない」原則には触れない。
 	session.mu.Lock()
 	session.awaitingStageReport = true
 	session.mu.Unlock()
+	c.silence.NoticeStageCleared(msg.DeviceID)
 
 	log.Printf("[game] stage cleared (発話しない): device=%s next=%s", msg.DeviceID, nextName)
 }

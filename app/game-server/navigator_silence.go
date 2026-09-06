@@ -102,6 +102,29 @@ func (w *SilenceWatcher) Stop(deviceID string) {
 	delete(w.lastHeard, deviceID)
 }
 
+// NoticeStageCleared は課題突破の瞬間に無応答の計測をやり直す。
+//
+// 通常の無応答計測は**やり直さない** — 突破の直前にプレイヤーが喋っていれば、
+// その時点からの経過をそのまま引き継ぐ設計だった。しかしこれだと、
+// プレイヤーが手を止めてから (装置を眺める・資料を読むなどで)
+// stageClearedWaitScale による短縮後の閾値を超えるまで黙っていた場合、
+// **突破の直後にいきなり声を掛けてしまう** (実測: 突破の2秒後に発話。
+// 2026-09-06)。プレイヤーは次の課題を眺め始めたばかりで、急かされたように
+// 感じる。突破そのものは装置からの通知であってナビゲーターの発話ではないため、
+// Notice (プレイヤーの発話でのみ呼ぶ) とは別に、ここでも計測をリセットする。
+func (w *SilenceWatcher) NoticeStageCleared(deviceID string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if _, watching := w.cancels[deviceID]; !watching {
+		return
+	}
+	w.lastHeard[deviceID] = time.Now()
+}
+
 // Notice は「プレイヤーの声が届いた」ことを記録し、無応答の計測を最初からやり直す。
 //
 // **ナビゲーター自身の発話では呼ばない。** ナビが喋ったことを応答と見なすと、

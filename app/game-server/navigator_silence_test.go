@@ -45,12 +45,14 @@ func newTestWatcher(speaker NavigatorSpeaker, min, max time.Duration) *SilenceWa
 		rand.New(rand.NewSource(1)))
 }
 
-// noteStageCleared は「課題を突破したが、まだ声を聞いていない」印を立てる。
-// 本番では onStageCleared が立てる (game_events.go)。
-func noteStageCleared(session *GameSession) {
+// noteStageCleared は「課題を突破したが、まだ声を聞いていない」印を立て、
+// 無応答の計測を突破の瞬間からやり直す。本番では onStageCleared が行う
+// (game_events.go)。
+func noteStageCleared(w *SilenceWatcher, session *GameSession) {
 	session.mu.Lock()
 	session.awaitingStageReport = true
 	session.mu.Unlock()
+	w.NoticeStageCleared(session.DeviceID)
 }
 
 func newSilenceTestSession() *GameSession {
@@ -143,7 +145,7 @@ func TestSilenceWatcherAfterStageCleared(t *testing.T) {
 	w.Start(context.Background(), session)
 	defer w.Stop(session.DeviceID)
 
-	noteStageCleared(session)
+	noteStageCleared(w, session)
 
 	select {
 	case trigger := <-speaker.spoke:
@@ -170,7 +172,7 @@ func TestSilenceWatcherStageClearedShortensWait(t *testing.T) {
 	w.Start(context.Background(), session)
 	defer w.Stop(session.DeviceID)
 
-	noteStageCleared(session)
+	noteStageCleared(w, session)
 
 	select {
 	case <-speaker.spoke:
@@ -202,7 +204,7 @@ func TestSilenceWatcherStageClearedClearedByReply(t *testing.T) {
 	w.Start(context.Background(), session)
 	defer w.Stop(session.DeviceID)
 
-	noteStageCleared(session)
+	noteStageCleared(w, session)
 	// プレイヤーの声が届くと印が下りる (本番では NoteQuestion 経由)。
 	session.mu.Lock()
 	session.awaitingStageReport = false
@@ -265,7 +267,47 @@ func TestSilenceWatcherNilSafe(t *testing.T) {
 	var w *SilenceWatcher
 	w.Start(context.Background(), newSilenceTestSession())
 	w.Notice("core-1")
+	w.NoticeStageCleared("core-1")
 	w.Stop("core-1")
+}
+
+// TestSilenceWatcherStageClearedDoesNotFireImmediatelyIfAlreadySilent は、
+// **突破の前から**長く黙っていた場合でも、突破の直後にすぐ声を掛けない
+// ことを確かめる。
+//
+// 以前は「突破の直前にプレイヤーが喋っていれば、その時点からの経過を
+// そのまま引き継ぐ」設計だった。しかし手を止めてから
+// stageClearedWaitScale 短縮後の閾値をとうに超えていた場合、
+// **突破の直後にいきなり声を掛けてしまっていた**
+// (実測: 突破の2秒後に発話。2026-09-06)。
+func TestSilenceWatcherStageClearedDoesNotFireImmediatelyIfAlreadySilent(t *testing.T) {
+	wait := 200 * time.Millisecond
+	speaker := newRecordingSpeaker()
+	w := newTestWatcher(speaker, wait, wait)
+	session := newSilenceTestSession()
+
+	w.Start(context.Background(), session)
+	defer w.Stop(session.DeviceID)
+
+	// 突破の前から、短縮後の閾値 (wait * stageClearedWaitScale) を
+	// 超えるほど長く黙っていた状態を作る。
+	floor := time.Duration(float64(wait) * stageClearedWaitScale)
+	time.Sleep(floor + 50*time.Millisecond)
+
+	start := time.Now()
+	noteStageCleared(w, session)
+
+	select {
+	case <-speaker.spoke:
+	case <-time.After(2 * time.Second):
+		t.Fatal("突破後に声を掛けなかった")
+	}
+
+	elapsed := time.Since(start)
+	if elapsed < floor {
+		t.Errorf("突破前からの無応答を引き継いで即座に発話した: %v (%v 以上のはず)",
+			elapsed, floor)
+	}
 }
 
 // TestNavigatorSilenceConfigDefaults は prompt.toml の既定値を確かめる。

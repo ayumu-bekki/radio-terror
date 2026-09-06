@@ -2248,8 +2248,22 @@ commit id は `go build` が `.git` から自動で埋め込むため、
 **印の正本は `GameSession.awaitingStageReport`** (SilenceWatcher 側に
 同じ状態を持たせない)。
 
-> 回帰: `go test -run TestSilenceWatcher -race`
-> 出典: 実装 2026-09-05 (テストプレイでの所見)
+**2026-09-06 訂正: 無応答の計測は突破の瞬間から数え直す。**
+当初は「突破の直前にプレイヤーが喋っていれば、その時点からの経過を
+そのまま引き継ぐ」設計だった(線を切る前の交信で稼いだ時間を捨てないため)。
+しかし実機で、**プレイヤーが突破の少し前(短縮後の閾値を超えるほど前)から
+黙っていた**場合に、**突破の直後にいきなり声を掛けてしまう**事象が出た
+(「線は切れたか、ランプはどうなっている?」が突破の2秒後に発話。
+ユーザーには「以前廃止したはずの問いかけが復活した」ように見えた)。
+
+`onStageCleared` (game_events.go) から `SilenceWatcher.NoticeStageCleared`
+を呼び、突破の瞬間に計測をリセットする。`Notice` (プレイヤーの発話でのみ
+呼ぶ) とは別のメソッドにした — 突破は装置からの通知であってナビゲーターの
+発話ではないため、「ナビ自身の発話では計測を延ばさない」原則には触れない。
+
+> 回帰: `go test -run TestSilenceWatcher -race`、
+> `TestSilenceWatcherStageClearedDoesNotFireImmediatelyIfAlreadySilent`
+> 出典: 実装 2026-09-05 (テストプレイでの所見) / 訂正 2026-09-06 (実機ログ)
 
 ### P-10. 開始申告の差し戻しはカラスが返す(中身は説明させない)
 
