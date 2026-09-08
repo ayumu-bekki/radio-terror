@@ -176,6 +176,27 @@ inline Pl9823Task::Command MakeBurstFlashCommand() {
   return command;
 }
 
+/// ペナルティ (誤操作) の瞬間の閃光 (強い赤点灯)。
+///
+/// Playing中の通常表示 (kLookPlaying) は 50ms しか光らない短い点滅なので、
+/// ミスの瞬間だけ**最高光度で点灯**させて区別する。破裂の白 (kLookBurst) とは
+/// 「まだ続く」か「終わる」かで意味が違うため、色を変えて演出を分ける。
+inline constexpr Appearance kLookPenalty = {{255, 0, 0}, 255};
+
+/// ペナルティ閃光の点灯時間。破裂の閃光と揃えておく。
+inline constexpr uint32_t kPenaltyFlashMs = 100;
+
+/// ペナルティ閃光コマンドを組み立てる。
+///
+/// 状態から導けない**一瞬の演出**なので MakeCommand とは分けてある。
+/// 消灯は呼び出し側 (ApplyPenalty) が通常表示への復帰で行う。
+inline Pl9823Task::Command MakePenaltyFlashCommand() {
+  Pl9823Task::Command command;
+  command.pattern = Pl9823Task::PATTERN_SOLID;
+  ApplyLook(command, kLookPenalty);
+  return command;
+}
+
 /// Setup中にサーバーを待っている間の表示 (§4.0)。
 ///
 /// wifi_failed が真なら紫点滅 (接続に失敗した)、偽なら紫点灯 (接続待ち)。

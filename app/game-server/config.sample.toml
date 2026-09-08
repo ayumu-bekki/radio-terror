@@ -132,18 +132,18 @@ panel    = "資料4"   # ロータリー対照表 (209 配電盤照合)
 # 銘板の下1桁が奇数の個体
 [mission_sheet.terminal_map_x]
 X1 = "A"  # 赤
-X2 = "B"  # 黄
-X3 = "C"  # 緑
-X4 = "D"  # 青
-X5 = "E"  # 白
+X2 = "C"  # 緑
+X3 = "E"  # 白
+X4 = "B"  # 黄
+X5 = "D"  # 青
 
 # 銘板の下1桁が偶数の個体 (X とは別の対応)
 [mission_sheet.terminal_map_y]
-Y1 = "C"  # 緑
-Y2 = "E"  # 白
-Y3 = "A"  # 赤
-Y4 = "B"  # 黄
-Y5 = "D"  # 青
+Y1 = "B"  # 黄
+Y2 = "D"  # 青
+Y3 = "C"  # 緑
+Y4 = "E"  # 白
+Y5 = "A"  # 赤
 
 [log]
 level = "info"

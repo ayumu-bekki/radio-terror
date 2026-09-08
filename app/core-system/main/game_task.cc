@@ -664,12 +664,20 @@ void GameTask::ApplyPenalty(int32_t penalty_ms) {
   remaining_ms_ -= penalty_ms;
   buzzer_.Beep(1);
 
+  // 誤操作の瞬間に強い赤の閃光を焚く。Playing の通常点滅 (50ms点灯) では
+  // ミスの瞬間だけ目立たせられないため、破裂の閃光 (FireSolenoid) と
+  // 同じ手法で一瞬だけ最高光度に上書きしてから通常表示へ戻す。
+  pl9823_task_->SendCommand(StatusIndicator::MakePenaltyFlashCommand());
+  vTaskDelay(pdMS_TO_TICKS(StatusIndicator::kPenaltyFlashMs));
+
   ESP_LOGI(TAG, "penalty %d ms -> remaining=%d", static_cast<int>(penalty_ms),
            static_cast<int>(remaining_ms_));
 
   if (remaining_ms_ <= 0) {
     remaining_ms_ = 0;
     EnterDetonating("timeout", nullptr, COLOR_NONE);
+  } else {
+    UpdateFullColorLed();
   }
 }
 

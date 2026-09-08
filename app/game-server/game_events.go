@@ -76,38 +76,20 @@ func (c *GameCoordinator) onStageCleared(session *GameSession, msg *deviceMessag
 	log.Printf("[game] stage cleared (発話しない): device=%s next=%s", msg.DeviceID, nextName)
 }
 
-// onWrongAction は誤操作の演出を組み立てる。
-func (c *GameCoordinator) onWrongAction(
-	ctx context.Context, sender *AudioSender, session *GameSession, msg *deviceMessage,
-) {
+// onWrongAction は誤操作を記録する。
+//
+// **発話しない** (決定48の拡張)。ナビゲーターは装置を見ていないので、
+// どの色が光っていたかも押し間違えたかも分からない。ミスは上面LEDの
+// 赤い閃光とブザー・残り時間の減りで既に伝わっている。ログには残すので、
+// 後から何が起きたかは追える。
+func (c *GameCoordinator) onWrongAction(session *GameSession, msg *deviceMessage) {
 	session.mu.Lock()
 	session.progress.WrongActions++
 	session.mu.Unlock()
 
-	event := "プレイヤーが誤操作をした。"
-	if msg.Detail == "precondition_unmet" {
-		event = "プレイヤーが手順を満たさないまま線を切ってしまった。"
-	} else if msg.Detail == "wrong_line" {
-		event = "プレイヤーが違う線を切ってしまった。"
-	}
-	if msg.PenaltyMS > 0 {
-		event += fmt.Sprintf("ペナルティで残り時間が%d秒減った。", msg.PenaltyMS/1000)
-	}
-
 	c.logEvent(session, EventWrongAction,
 		fmt.Sprintf("✗ %s%s", describeWrongAction(msg), describePenalty(msg.PenaltyMS)),
 		msg.StageIndex, msg.RemainingMS)
-
-	// **色合わせのミスでは発話しない** (決定48)。
-	//
-	// ナビゲーターは装置を見ていないので、どの色が光っていたかも
-	// 押し間違えたかも分からない。ミスはブザーと残り時間の減りで
-	// 既に伝わっている。ログには残すので、後から何が起きたかは追える。
-	if msg.Detail == "color_match" {
-		return
-	}
-
-	c.speakAsync(ctx, sender, session, "wrong_action", event+"叱咤しつつ励まし、注意を促す。")
 }
 
 func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMessage) {
@@ -196,7 +178,7 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		// プレイヤーが報告してきたときに `player_message` で応じればよい。
 
 	case msgWrongAction:
-		c.onWrongAction(ctx, sender, session, msg)
+		c.onWrongAction(session, msg)
 
 	case msgExploded:
 		log.Printf("[game] exploded: device=%s reason=%s", msg.DeviceID, msg.Reason)

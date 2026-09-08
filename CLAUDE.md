@@ -358,7 +358,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | `docs/bridge_connection_design.md` | 接続反転・bridge レジストリ・音声バインド |
 | `docs/scenario_design.md` | テンプレート形式・組み立てフロー・Valkeyキー設計 |
 | `docs/navigator_design.md` | キャラクター・プロンプト構成・ヒントレベル |
-| `docs/navigator_decisions.md` | ナビゲーターの決定記録(実測値・失敗の経緯。111件) |
+| `docs/navigator_decisions.md` | ナビゲーターの決定記録(実測値・失敗の経緯。115件) |
 | `docs/puzzle_stage_ideas.md` | 全ステージの内容と構成ルール |
 | `docs/operation_flow.md` | 運用フロー・混線演出・音声コマンド |
 | `docs/printed_materials.md` | 紙資料の印刷内容(実装と一致させる値) |
