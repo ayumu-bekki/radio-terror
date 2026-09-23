@@ -86,6 +86,11 @@ type ManagerWeb struct {
 	// (HTTP層だけを検証するテストでは渡されない)。
 	library   *ScenarioLibrary
 	navigator *NavigatorConfig
+
+	// navigatorSpeaker はコンソールモードのテキスト入力欄から
+	// SpeakText を直接呼ぶために使う。nil を許容する
+	// (HTTP層だけを検証するテストでは渡されない)。
+	navigatorSpeaker *GeminiNavigator
 }
 
 func NewManagerWeb(
@@ -98,17 +103,19 @@ func NewManagerWeb(
 	store SessionStore,
 	library *ScenarioLibrary,
 	navigator *NavigatorConfig,
+	navigatorSpeaker *GeminiNavigator,
 ) *ManagerWeb {
 	return &ManagerWeb{
-		devices:   devices,
-		bridges:   bridges,
-		game:      game,
-		logs:      logs,
-		crosstalk: crosstalk,
-		health:    health,
-		store:     store,
-		library:   library,
-		navigator: navigator,
+		devices:          devices,
+		bridges:          bridges,
+		game:             game,
+		logs:             logs,
+		crosstalk:        crosstalk,
+		health:           health,
+		store:            store,
+		library:          library,
+		navigator:        navigator,
+		navigatorSpeaker: navigatorSpeaker,
 	}
 }
 
@@ -135,6 +142,13 @@ func (w *ManagerWeb) Register(mux *http.ServeMux) {
 	// デバッグ用。**既存ページからリンクは張らない** (URLを直接叩いて使う)
 	mux.HandleFunc("/manager/debug", w.handleDebugPage)
 	mux.HandleFunc("/manager/api/debug-start", w.handleDebugStart)
+
+	// コンソールモード用 (ADR M-7)。実機・無線を使わないデバッグ専用の系統。
+	mux.HandleFunc("/manager/console/", w.handleConsolePage)
+	mux.HandleFunc("/manager/api/console-message", w.handleConsoleMessage)
+	mux.HandleFunc("/manager/api/console-stage-clear", w.handleConsoleStageClear)
+	mux.HandleFunc("/manager/api/console-explode", w.handleConsoleExplode)
+	mux.HandleFunc("/manager/api/console-forget", w.handleConsoleForget)
 }
 
 // --- ダッシュボード ---
@@ -167,11 +181,12 @@ type logTabView struct {
 // partial=live のときは進行中の部分だけを返す。画面側が2秒ごとに取得して
 // 差し替えるため、ページ全体をリロードせずスクロール位置を保てる。
 func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
-	sessions := buildSessionViews(w.game.Sessions())
+	// コンソールモードの疑似デバイスはダッシュボードに混ぜない (ADR M-7)。
+	sessions := buildSessionViews(w.game.NonConsoleSessions())
 
 	data := dashboardData{
 		Sessions: sessions,
-		Devices:  buildDeviceViews(w.devices.AllStatus(), w.devices.IsConnected),
+		Devices:  buildDeviceViews(nonConsoleDeviceStatus(w.devices.AllStatus()), w.devices.IsConnected),
 		Bridges:  buildBridgeViews(w.bridges.IDs(), w.game.Bindings()),
 		Health:   buildHealthView(w.health.Snapshot(), w.crosstalk.Counts()),
 	}
@@ -621,6 +636,9 @@ var (
 	//go:embed manager_debug.gohtml
 	managerDebugHTML string
 
+	//go:embed manager_console.gohtml
+	managerConsoleHTML string
+
 	//go:embed manager.css
 	managerCSS string
 )
@@ -632,4 +650,5 @@ var (
 	managerHistoryTmpl = template.Must(template.New("history").Parse(managerHistoryHTML))
 	managerSessionTmpl = template.Must(template.New("session").Parse(managerSessionHTML))
 	managerDebugTmpl   = template.Must(template.New("debug").Parse(managerDebugHTML))
+	managerConsoleTmpl = template.Must(template.New("console").Parse(managerConsoleHTML))
 )

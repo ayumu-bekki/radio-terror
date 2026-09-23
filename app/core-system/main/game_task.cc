@@ -138,9 +138,10 @@ void GameTask::EnterPlaying() {
   ResetStageProgress();
 
   // 開始の合図。無線越しでは画面が見えないので**音**で始まりを伝える。
-  // ミス音 (Beep(1) = 200ms) より短くして、開始と失敗を耳で区別できるようにする。
+  // 短くして失敗音と区別しようとしたが、短すぎて聞こえないことがあったため
+  // ミス音 (Beep(1) = 200ms) と同じ長さにした。
   buzzer_.Off();
-  buzzer_.Beep(1, 1);
+  buzzer_.Beep(1);
 
   // 点滅の段階を今の残り時間で確定させる (前セッションの値を持ち越さない)
   last_blink_off_ms_ = StatusIndicator::PlayingBlinkOffMs(remaining_ms_);

@@ -30,8 +30,9 @@
 <form method="post" action="/manager/api/debug-start" onsubmit="lock(this)">
   <div class="filters">
     <label>Core
-      <select name="device_id" required>
+      <select name="device_id" required onchange="toggleConsole(this)">
         <option value="">選択してください</option>
+        <option value="__console__">(コンソールモード — 実機・無線なしでキー操作のみ)</option>
         {{range .Devices}}
           <option value="{{.DeviceID}}">{{.DeviceID}}{{if not .Connected}} (未接続){{else if .State}} ({{.State}}){{end}}</option>
         {{end}}
@@ -52,8 +53,8 @@
         {{end}}
       </select>
     </label>
-    <label>無線
-      <select name="bridge_id" required>
+    <label id="bridge-field">無線
+      <select name="bridge_id" id="bridge-select" required>
         <option value="">選択してください</option>
         {{range .Bridges}}
           <option value="{{.}}">{{.}}</option>
@@ -86,6 +87,16 @@
 </form>
 
 <script>
+// コンソールモードを選んだら無線の指定を不要にする。
+// 実機・無線を使わないデバッグ用の分岐 (ADR M-7)
+function toggleConsole(select) {
+  const isConsole = select.value === '__console__';
+  const bridgeSelect = document.getElementById('bridge-select');
+  bridgeSelect.required = !isConsole;
+  bridgeSelect.disabled = isConsole;
+  document.getElementById('bridge-field').style.opacity = isConsole ? '.5' : '1';
+}
+
 // 開始は準備完了の発話とカウントダウン猶予で数秒かかる。
 // 二重送信を防ぎ、待っていることを画面に出す
 function lock(form) {

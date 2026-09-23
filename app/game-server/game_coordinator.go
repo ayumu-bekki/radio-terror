@@ -69,6 +69,15 @@ type GameSession struct {
 	// 十分で、以後は交信スタイル「緊迫」が口調として効き続ける。
 	urgentNoticed bool
 
+	// ConsoleMode はキーボード操作だけでステージ進行を確認するデバッグ用
+	// セッションであることを示す (実機・無線を使わない `/manager/console`)。
+	//
+	// **本番の発話生成ロジック (プロンプト組み立て・ヒントレベル計算・
+	// ログ記録) は完全に共有**し、TTS生成・無線送出・混線演出・永続化だけを
+	// 迂回する。ここが崩れると「コンソールで直った」が本番の保証にならない
+	// (ADR M-7)。
+	ConsoleMode bool `json:"-"`
+
 	mu sync.Mutex
 }
 
@@ -183,6 +192,8 @@ type StartOptions struct {
 	StageIDs []string
 	// CharacterID はナビゲーター。空ならランダムに選ぶ
 	CharacterID string
+	// ConsoleMode はコンソールモード (実機・無線なしのデバッグ) で開始することを示す。
+	ConsoleMode bool
 }
 
 // StartSession はマネージャーの開始申告を受けてセッションを開始する
@@ -249,14 +260,16 @@ func (c *GameCoordinator) StartSessionWith(
 	}
 
 	session := &GameSession{
-		SessionID:  sessionID,
-		DeviceID:   deviceID,
-		BridgeID:   bridgeID,
-		Difficulty: difficulty,
-		Character:  character,
-		Built:      built,
-		State:      deviceStatePlaying,
-		StartedAt:  time.Now(),
+		SessionID:   sessionID,
+		DeviceID:    deviceID,
+		BridgeID:    bridgeID,
+		Difficulty:  difficulty,
+		Character:   character,
+		Built:       built,
+		State:       deviceStatePlaying,
+		StartedAt:   time.Now(),
+		RemainingMS: built.CountdownMS,
+		ConsoleMode: opts.ConsoleMode,
 	}
 	session.progress.Reset(time.Now())
 
@@ -315,8 +328,8 @@ func (c *GameCoordinator) StartSessionWith(
 		c.testResponder.Reset(bridgeID)
 	}
 
-	// 混線のスケジュールを開始する
-	if c.crosstalk != nil {
+	// 混線のスケジュールを開始する (コンソールモードは無線演出を使わない)
+	if c.crosstalk != nil && !session.ConsoleMode {
 		c.crosstalk.Start(ctx, session, sender)
 	}
 
@@ -485,6 +498,21 @@ func (c *GameCoordinator) SessionForBridge(bridgeID string) *GameSession {
 
 // Sessions は進行中の全セッションを返す (マネージャー向け Web 画面用)。
 func (c *GameCoordinator) Sessions() []*GameSession { return c.binder.Sessions() }
+
+// NonConsoleSessions はコンソールモードのデバッグセッションを除いた
+// 進行中セッションを返す。Management Console のダッシュボード
+// (`/manager`) はここから一覧を作り、疑似デバイスを実機と混ぜて表示しない。
+func (c *GameCoordinator) NonConsoleSessions() []*GameSession {
+	all := c.binder.Sessions()
+	filtered := make([]*GameSession, 0, len(all))
+	for _, session := range all {
+		if session.ConsoleMode {
+			continue
+		}
+		filtered = append(filtered, session)
+	}
+	return filtered
+}
 
 // Bindings は現在のバインド表を返す (Web画面用)。
 func (c *GameCoordinator) Bindings() map[string]string { return c.binder.Bindings() }
@@ -663,7 +691,13 @@ func (c *GameCoordinator) replyStartRejected(ctx context.Context, sender *AudioS
 }
 
 // persist はセッション状態を Valkey へ保存する。
+//
+// コンソールモードのセッションは実在しない Core/無線を持つデバッグ用の
+// ダミーデータなので、永続化しない (再起動すれば消えて構わない)。
 func (c *GameCoordinator) persist(ctx context.Context, session *GameSession) {
+	if session.ConsoleMode {
+		return
+	}
 	if c.store == nil {
 		return
 	}
@@ -678,6 +712,9 @@ func (c *GameCoordinator) persist(ctx context.Context, session *GameSession) {
 // 消える (P-4b) が、履歴はいつリセットされるかに関係なく残す必要があるため
 // (§9)。
 func (c *GameCoordinator) persistHistory(ctx context.Context, session *GameSession) {
+	if session.ConsoleMode {
+		return
+	}
 	if c.store == nil {
 		return
 	}

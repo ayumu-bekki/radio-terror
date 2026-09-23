@@ -244,7 +244,7 @@ func main() {
 	ttsClient.SetHealth(health)
 
 	managerWeb := NewManagerWeb(devices, bridges, game, sessionLogs, crosstalkLib, health, store,
-		library, navigatorCfg)
+		library, navigatorCfg, navigator)
 
 	wsServer := NewWSServer(devices, game, managerWeb)
 	go func() {

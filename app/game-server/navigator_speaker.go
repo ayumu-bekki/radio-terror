@@ -86,29 +86,14 @@ func (n *GeminiNavigator) SetCrosstalkScheduler(scheduler *CrosstalkScheduler) {
 	n.crosstalk = scheduler
 }
 
-// Speak はトリガーに応じたナビゲーターの発話を生成し、TTS で無線へ送出する
-// (docs/navigator_design.md §3.5 の発話トリガー)。
-func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) error {
-	// spoke は音声を送出できたか。混線の予約を解放するかの判断に使う。
-	spoke := false
-
-	// 発話中は混線を止める (§5.1: ナビゲーターの発話と重ならないようにする)。
-	//
-	// 生成にかかる時間は事前に分からないので、まず見込みで押さえておき、
-	// 送出後に**実際の再生時間**で上書きする。生成に失敗した場合は取り消す。
-	// フラグを送出完了で落とすと、bridge がこれから再生する十数秒の間に
-	// 混線が割り込む (実運用で発生)。
-	if n.crosstalk != nil {
-		n.crosstalk.MarkBusy(session.DeviceID, navigatorSpeakReserve)
-		defer func() {
-			// 送出まで到達しなかった場合に予約を解放する。
-			// 成功時は下で実測値に置き換わっているので、ここでは触らない。
-			if !spoke {
-				n.crosstalk.ClearBusy(session.DeviceID)
-			}
-		}()
-	}
-
+// generateReply はプロンプト組み立て・生成AI呼び出し・ヒントレベル反映・
+// ログ追記までを行う (Speak と SpeakText の共有部分)。
+//
+// TTS生成・SFX連結・無線送出はここには含まない。**Speak(TTS込み)と
+// SpeakText(テキストのみ)が完全に同じ発話内容を得られる**ことが要点 —
+// ここが分岐すると「コンソールで見た応答」が本番の応答と一致する保証が
+// なくなる (ADR M-7)。
+func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSession, trigger, event string) (text string, announceUrgent bool, remainingMSOut int, err error) {
 	session.mu.Lock()
 	stageIndex := session.StageIndex
 	remainingMS := session.RemainingMS
@@ -131,10 +116,10 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	// (セッション中に1回だけ。旧 time_warning トリガーの置き換え)。
 	//
 	// **ここでは印を立てない。** 生成に失敗した発話でも立ててしまうと、
-	// 一度も伝えないまま「伝えた」ことになる。送出できてから立てる (下)。
+	// 一度も伝えないまま「伝えた」ことになる。送出できてから立てる (呼び出し側)。
 	//
 	// **終幕の発話では告知しない** — 爆発・解除はもう時間の話をする場面ではない。
-	announceUrgent := !session.urgentNoticed &&
+	announceUrgent = !session.urgentNoticed &&
 		remainingMS > 0 && remainingMS <= n.config.Prompt.UrgentThresholdMS &&
 		trigger != "exploded" && trigger != "defused"
 	session.mu.Unlock()
@@ -166,9 +151,9 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	if err != nil {
 		// 生成AIの障害時は自動フォールバックを設けず、マネージャー介入で運用する
 		// (docs/game_session_design.md §9)。Web画面で検知できるようログに残す。
-		return fmt.Errorf("GenerateNavigatorReply: %w", err)
+		return "", false, remainingMS, fmt.Errorf("GenerateNavigatorReply: %w", err)
 	}
-	text := reply.Reply
+	text = reply.Reply
 
 	// 観察の報告があったら記録する。次の発話からヒントレベルが前倒しされる
 	// (docs/navigator_design.md §3.2 / 決定54)。
@@ -222,6 +207,68 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 			Receiver: senderPlayer,
 			Message:  stripTTSTags(text),
 		})
+	}
+
+	return text, announceUrgent, remainingMS, nil
+}
+
+// SpeakText はテキスト入力に対する応答をテキストのみで生成する
+// (コンソールモード専用。TTS/無線送出を行わない)。
+//
+// generateReply を直接呼ぶだけで、Speak と全く同じプロンプト組み立て・
+// ヒントレベル計算・ログ追記を経る。
+func (n *GeminiNavigator) SpeakText(ctx context.Context, session *GameSession, trigger, event string) (string, error) {
+	text, announceUrgent, _, err := n.generateReply(ctx, session, trigger, event)
+	if err != nil {
+		return "", err
+	}
+	if announceUrgent {
+		session.mu.Lock()
+		session.urgentNoticed = true
+		session.mu.Unlock()
+	}
+	return stripTTSTags(text), nil
+}
+
+// Speak はトリガーに応じたナビゲーターの発話を生成し、TTS で無線へ送出する
+// (docs/navigator_design.md §3.5 の発話トリガー)。
+func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) error {
+	session.mu.Lock()
+	consoleMode := session.ConsoleMode
+	session.mu.Unlock()
+
+	// **コンソールモードはここで完結させる。** TTS生成・SFX連結・無線送出・
+	// 混線のbusy予約は無線演出そのものなので、テキストのみのデバッグでは
+	// 一切不要 (ADR M-7)。発話内容自体は generateReply を通して本番と
+	// 完全に共有するので、ここで応答テキストを捨てても検証結果は変わらない。
+	if consoleMode {
+		_, _, _, err := n.generateReply(ctx, session, trigger, event)
+		return err
+	}
+
+	// spoke は音声を送出できたか。混線の予約を解放するかの判断に使う。
+	spoke := false
+
+	// 発話中は混線を止める (§5.1: ナビゲーターの発話と重ならないようにする)。
+	//
+	// 生成にかかる時間は事前に分からないので、まず見込みで押さえておき、
+	// 送出後に**実際の再生時間**で上書きする。生成に失敗した場合は取り消す。
+	// フラグを送出完了で落とすと、bridge がこれから再生する十数秒の間に
+	// 混線が割り込む (実運用で発生)。
+	if n.crosstalk != nil {
+		n.crosstalk.MarkBusy(session.DeviceID, navigatorSpeakReserve)
+		defer func() {
+			// 送出まで到達しなかった場合に予約を解放する。
+			// 成功時は下で実測値に置き換わっているので、ここでは触らない。
+			if !spoke {
+				n.crosstalk.ClearBusy(session.DeviceID)
+			}
+		}()
+	}
+
+	text, announceUrgent, remainingMS, err := n.generateReply(ctx, session, trigger, event)
+	if err != nil {
+		return err
 	}
 
 	// 成功・失敗は効果音を**メッセージと1つの音声に連結して**送る (§6)。

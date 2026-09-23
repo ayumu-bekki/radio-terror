@@ -83,6 +83,10 @@ func (w *ManagerWeb) handleDebugPage(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, status := range w.devices.AllStatus() {
+		// コンソールモードの疑似デバイスは実機一覧に混ぜない
+		if isConsoleDeviceID(status.DeviceID) {
+			continue
+		}
 		data.Devices = append(data.Devices, debugDeviceView{
 			DeviceID:  status.DeviceID,
 			Connected: w.devices.IsConnected(status.DeviceID),
@@ -216,6 +220,14 @@ func (w *ManagerWeb) handleDebugStart(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw,
 			fmt.Sprintf("ステージは最大%d個までです (指定: %d個)", maxStagesPerSession, len(stageIDs)),
 			http.StatusBadRequest)
+		return
+	}
+
+	// コンソールモード: 実機・無線を使わず、キー操作だけでステージ進行を
+	// 確認するデバッグ用の系統 (ADR M-7)。以降の bridge_id 必須チェックは
+	// 実機フロー専用なのでここで分岐する。
+	if deviceID == consoleDeviceSentinel {
+		w.startConsoleSession(rw, r, difficulty, stageIDs)
 		return
 	}
 

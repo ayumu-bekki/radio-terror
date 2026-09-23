@@ -1,0 +1,172 @@
+{{define "page"}}<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>📡 RADIO TERROR — コンソールモード</title>
+<link rel="stylesheet" href="/manager/manager.css">
+</head>
+<body>
+<div class="nav"><a href="/manager/debug">← デバッグ開始</a></div>
+<h1>コンソールモード</h1>
+<p class="muted" style="font-size:.78rem;margin:0 0 .7rem">
+  実機・無線を使わないデバッグ用セッション。ナビゲーターの応答はテキストのみで、
+  TTS・無線送出・混線演出・永続化は行われない (ADR M-7)。
+</p>
+
+<div id="live">{{template "live" .}}</div>
+
+<script>
+// IME変換中かどうかの印。live を丸ごと差し替えると DOM ごと入力欄が
+// 作り直され、ブラウザの変換セッションが強制的に打ち切られる
+// (変換候補が消える・変換確定前の文字が乱れる)。変換中は refresh を
+// スキップし、確定 (compositionend) を待ってから再開する。
+let imeComposing = false;
+
+// 入力中の文字は refresh の差し替えで消さない。
+// live の中身は毎回作り直されるため、テキスト入力欄の値を退避 → 復元する。
+async function refresh() {
+  if (imeComposing) return;
+  const live = document.getElementById('live');
+  const prevInput = document.getElementById('msg');
+  const draft = prevInput ? prevInput.value : '';
+  const hadFocus = prevInput === document.activeElement;
+  try {
+    const res = await fetch(location.pathname + '?partial=live');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    live.innerHTML = await res.text();
+    scrollLog();
+    const nextInput = document.getElementById('msg');
+    if (nextInput && draft) {
+      nextInput.value = draft;
+    }
+    if (nextInput && hadFocus) {
+      nextInput.focus();
+    }
+  } catch (e) {
+    // 通信断は交信ログをそのまま残す (直前の表示を消さない)
+  }
+}
+
+function scrollLog() {
+  const log = document.getElementById('logs');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+async function sendMessage(deviceId) {
+  const input = document.getElementById('msg');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  input.disabled = true;
+  await fetch('/manager/api/console-message?device_id=' + encodeURIComponent(deviceId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'text=' + encodeURIComponent(text),
+  });
+  input.disabled = false;
+  input.focus();
+  refresh();
+}
+
+async function stageClear(deviceId) {
+  await fetch('/manager/api/console-stage-clear?device_id=' + encodeURIComponent(deviceId), { method: 'POST' });
+  refresh();
+}
+
+async function explode(deviceId) {
+  if (!confirm('CoreID ' + deviceId + ' を即爆発させます。よろしいですか?')) return;
+  await fetch('/manager/api/console-explode?device_id=' + encodeURIComponent(deviceId), { method: 'POST' });
+  refresh();
+}
+
+async function forget(deviceId) {
+  if (!confirm('CoreID ' + deviceId + ' を片付けます。よろしいですか?')) return;
+  await fetch('/manager/api/console-forget?device_id=' + encodeURIComponent(deviceId), { method: 'POST' });
+  location.href = '/manager/debug';
+}
+
+// live は refresh のたびに作り直されるため、入力欄へ直接
+// addEventListener すると差し替え後に失効する。親要素で委譲する。
+//
+// **IME変換中のEnter(確定)を送信として扱わない。** e.isComposing に加えて
+// e.keyCode === 229 も見る — Safari 等一部ブラウザは変換確定の keydown で
+// isComposing が既に false に落ちているため、229 判定を併用しないと
+// 「変換を確定した瞬間に送信される」誤動作が残る。
+document.getElementById('live').addEventListener('keydown', function(e) {
+  if (e.key !== 'Enter' || !e.target || e.target.id !== 'msg') return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  sendMessage('{{.DeviceID}}');
+});
+
+// IME変換の開始・終了を追跡する (refresh のスキップ判定に使う)。
+document.getElementById('live').addEventListener('compositionstart', function(e) {
+  if (e.target && e.target.id === 'msg') imeComposing = true;
+});
+document.getElementById('live').addEventListener('compositionend', function(e) {
+  if (e.target && e.target.id === 'msg') imeComposing = false;
+});
+
+// **Backspace で前のページへ戻ってしまう事故を防ぐ。**
+// input が disabled の間 (sendMessage の送信中) に refresh が入力欄を
+// 差し替えると、フォーカスが本文 (body) へ落ちる。その状態で Backspace を
+// 押すと、フォーカス中の編集可能要素が無いためブラウザ既定の「戻る」操作
+// として解釈されてしまう。編集可能要素の外での Backspace は常に無効化する。
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Backspace') return;
+  const t = e.target;
+  const editable = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  if (!editable) {
+    e.preventDefault();
+  }
+});
+
+scrollLog();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
+{{end}}
+
+{{define "live"}}
+<h2>{{.Session.Character}} — {{.Session.Difficulty}} — {{.Session.Progress}}</h2>
+<table><thead><tr>
+  <th>CoreID</th><th>状態</th><th>残り</th><th>現在の正解</th>
+</tr></thead><tbody>
+  <tr>
+    <td>{{.Session.DeviceID}}</td>
+    <td><span class="state {{.Session.State}}">{{.Session.State}}</span></td>
+    <td>{{.Session.Remaining}}</td>
+    <td class="answer">{{.Session.Answer}}</td>
+  </tr>
+</tbody></table>
+
+<div class="log" id="logs">
+{{- if .Entries}}
+{{- range .Entries}}
+<span class="t">{{.Time}}</span>
+{{- if .IsEvent}}<span class="{{.Class}}">{{.Message}}</span>
+{{- else}}<span class="who {{.WhoClass}}">{{.Who}}</span>{{.Message}}
+{{- end}}<br>
+{{- end}}
+{{- else}}—{{end}}
+</div>
+
+<div class="row-actions" style="margin:.6rem 0">
+  {{if .Finished}}
+    <span class="muted">セッションは終了しています</span>
+  {{else}}
+    <button onclick="stageClear('{{.Session.DeviceID}}')">{{if .IsFinalStage}}解除成功{{else}}ステージ成功{{end}}</button>
+    <button class="danger" onclick="explode('{{.Session.DeviceID}}')">即爆発</button>
+  {{end}}
+  <button onclick="forget('{{.Session.DeviceID}}')">片付ける</button>
+</div>
+
+{{if not .Finished}}
+<div class="filters">
+  <input type="text" id="msg" placeholder="プレイヤーとして発言 (Enterで送信)" style="flex:1">
+  <button onclick="sendMessage('{{.Session.DeviceID}}')">送信</button>
+</div>
+{{end}}
+{{end}}

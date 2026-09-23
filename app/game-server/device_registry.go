@@ -103,6 +103,18 @@ func (r *DeviceRegistry) UpdateStatus(msg *deviceMessage) *DeviceStatus {
 	return status
 }
 
+// ForgetStatus は device_id の接続と最新状態を両方消す。
+//
+// 実機は WS が切れても Status は残す設計 (再接続時の参照用) だが、
+// コンソールモードの疑似デバイスは実際に切断されることが無いため、
+// 「片付ける」操作で明示的に消せる口が別途必要になる。
+func (r *DeviceRegistry) ForgetStatus(deviceID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.conns, deviceID)
+	delete(r.status, deviceID)
+}
+
 // Status は device_id の最新状態を返す。
 func (r *DeviceRegistry) Status(deviceID string) *DeviceStatus {
 	r.mu.RLock()

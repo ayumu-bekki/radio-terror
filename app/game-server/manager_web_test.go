@@ -24,7 +24,7 @@ func newTestManagerWeb(t *testing.T) (*ManagerWeb, *http.ServeMux, SessionStore)
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
 	logs := NewSessionLogStore(store)
 
-	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil)
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 	return web, mux, store
@@ -491,7 +491,7 @@ func TestManagerPageShowsRotary(t *testing.T) {
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
 	logs := NewSessionLogStore(store)
 
-	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil)
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -561,7 +561,7 @@ func TestManagerPageBridgeTable(t *testing.T) {
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
 	logs := NewSessionLogStore(store)
 
-	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil)
+	web := NewManagerWeb(devices, bridges, game, logs, nil, &APIHealth{}, store, nil, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -637,7 +637,7 @@ func TestFinishedSessionKeepsResetButton(t *testing.T) {
 	devices := NewDeviceRegistry()
 	bridges := NewBridgeRegistry()
 	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
-	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), nil, &APIHealth{}, store, nil, nil)
+	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), nil, &APIHealth{}, store, nil, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -798,7 +798,7 @@ func TestHealthPanelRenders(t *testing.T) {
 	lib := LoadCrosstalkLibrary("assets/crosstalk")
 
 	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), lib,
-		health, store, nil, nil)
+		health, store, nil, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -852,7 +852,7 @@ func TestStageGroupRender(t *testing.T) {
 	bridges := NewBridgeRegistry()
 	game := NewGameCoordinator(devices, bridges, nil, store, nil)
 	web := NewManagerWeb(devices, bridges, game, NewSessionLogStore(store), nil,
-		&APIHealth{}, store, lib, nil)
+		&APIHealth{}, store, lib, nil, nil)
 	mux := http.NewServeMux()
 	web.Register(mux)
 
@@ -898,7 +898,7 @@ func TestStageGroupKeepsUnknownTag(t *testing.T) {
 	store := NewMemoryStore()
 	web := NewManagerWeb(NewDeviceRegistry(), NewBridgeRegistry(),
 		NewGameCoordinator(NewDeviceRegistry(), NewBridgeRegistry(), nil, store, nil),
-		NewSessionLogStore(store), nil, &APIHealth{}, store, lib, nil)
+		NewSessionLogStore(store), nil, &APIHealth{}, store, lib, nil, nil)
 
 	groups := web.buildStageGroups()
 	var last debugStageGroup
