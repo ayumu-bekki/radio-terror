@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -158,7 +159,7 @@ func (p *GeminiProcessor) Transcribe(ctx context.Context, oggData []byte) (*Tran
 	defer cancel()
 
 	start := time.Now()
-	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.TranscribeModel, contents, config)
+	resp, err := p.generateContent(ctx, p.cfg.TranscribeModel, contents, config)
 	log.Printf("[gemini] Transcribe latency: %v", time.Since(start))
 	p.noteResult(err)
 	if err != nil {
@@ -248,30 +249,60 @@ func convertSchema(raw map[string]any) (*genai.Schema, error) {
 
 // NavigatorReply はナビゲーターの1発話ぶんの生成結果。
 //
-// Observed を**発話生成と同じ呼び出しで**返させる (決定54)。
-// 判定を別の呼び出しに分けるとプレイヤー発話ごとに API 往復が2回になり、
-// カウントダウン中の応答待ちが伸びる (ADR T-1 と同じ理由で避ける)。
-// モデルは会話ログと「観察」の定義を既に読んでいるので、
-// 発話を作るついでに判定できる。
+// 以前は観察の報告の判定 (observed) も同じ呼び出しで返させていたが、
+// ヒントレベルの前倒しにしか使っていなかったため、レベルごと廃止した (決定129)。
 type NavigatorReply struct {
 	// Reply は無線へ流す発話本文
 	Reply string `json:"reply"`
-	// Observed は、そのステージが要求する観察をプレイヤーが報告済みかどうか。
-	// ステージに observation の定義が無い場合は常に false でよい。
-	Observed bool `json:"observed"`
 }
 
 // navigatorReplySchema は GenerateNavigatorReply の構造化出力スキーマ。
-//
-// 音声にするのは reply だけで、observed はヒントレベルの前倒しに使う
-// (docs/navigator_design.md §3.2)。
 var navigatorReplySchema = &genai.Schema{
 	Type: genai.TypeObject,
 	Properties: map[string]*genai.Schema{
-		"reply":    {Type: genai.TypeString},
-		"observed": {Type: genai.TypeBoolean},
+		"reply": {Type: genai.TypeString},
 	},
-	Required: []string{"reply", "observed"},
+	Required: []string{"reply"},
+}
+
+// rateLimitRetryDelay は 429 (Resource exhausted) を受けてから再試行するまでの待ち時間。
+//
+// Vertex の共有クォータは混雑で一時的に 429 を返す。すぐ撃ち直すと
+// 同じ混雑に当たりやすいので少し空ける。長く待つとプレイヤーの応答待ちが
+// 延びるだけなので1秒に留める。
+const rateLimitRetryDelay = time.Second
+
+// generateContent は GenerateContent を呼び、**429 のときだけ1回再試行**する。
+//
+// 429 は一時的な混雑で、1回撃ち直せば通ることが多い (シミュレーションで
+// 1回に数件出ていた)。それ以外のエラーは再試行しない — 504 は ctx の期限
+// (reply_timeout_sec) をサーバー側で使い切った結果で、撃ち直しても
+// 残り時間が無い。再試行も呼び出し元の ctx の期限内で行う。
+func (p *GeminiProcessor) generateContent(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	resp, err := p.client.Models.GenerateContent(ctx, model, contents, config)
+	if !isRateLimited(err) {
+		return resp, err
+	}
+	log.Printf("[gemini] 429 (resource exhausted), retrying once after %v", rateLimitRetryDelay)
+	select {
+	case <-ctx.Done():
+		return nil, err
+	case <-time.After(rateLimitRetryDelay):
+	}
+	return p.client.Models.GenerateContent(ctx, model, contents, config)
+}
+
+// isRateLimited は err が 429 (Resource exhausted) かを返す。
+func isRateLimited(err error) bool {
+	var apiErr genai.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == 429
+	}
+	var apiErrPtr *genai.APIError
+	if errors.As(err, &apiErrPtr) {
+		return apiErrPtr.Code == 429
+	}
+	return false
 }
 
 // GenerateNavigatorReply はナビゲーターの発話を1つ生成する
@@ -280,8 +311,6 @@ var navigatorReplySchema = &genai.Schema{
 // systemPrompt は BuildNavigatorPrompt が組み立てた [A]〜[F] の全ブロック、
 // instruction は発話トリガーごとの指示 (§3.5)。
 // 会話ターンごとに呼ぶため、低レイテンシの ReasoningModel を使う。
-//
-// 発話本文と併せて「観察の報告があったか」も返す (決定54)。
 func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemPrompt, instruction string) (*NavigatorReply, error) {
 	contents := []*genai.Content{
 		genai.NewContentFromText(instruction, genai.RoleUser),
@@ -296,7 +325,7 @@ func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemProm
 	defer cancel()
 
 	start := time.Now()
-	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, config)
+	resp, err := p.generateContent(ctx, p.cfg.ReasoningModel, contents, config)
 	log.Printf("[gemini] reply latency: %v", time.Since(start))
 	p.noteResult(err)
 	if err != nil {
@@ -361,7 +390,7 @@ func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instr
 	defer cancel()
 
 	start := time.Now()
-	resp, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, config)
+	resp, err := p.generateContent(ctx, p.cfg.ReasoningModel, contents, config)
 	// 検索の有無をログに残す (どちらの経路を通ったか運用中に判別できるように)
 	mode := "reply"
 	if useSearch {

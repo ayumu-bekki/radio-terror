@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 )
 
 // HandleDeviceMessage は Core からの進行イベントを受け、ナビゲーター演出へ接続する
@@ -83,10 +82,6 @@ func (c *GameCoordinator) onStageCleared(session *GameSession, msg *deviceMessag
 // 赤い閃光とブザー・残り時間の減りで既に伝わっている。ログには残すので、
 // 後から何が起きたかは追える。
 func (c *GameCoordinator) onWrongAction(session *GameSession, msg *deviceMessage) {
-	session.mu.Lock()
-	session.progress.WrongActions++
-	session.mu.Unlock()
-
 	c.logEvent(session, EventWrongAction,
 		fmt.Sprintf("✗ %s%s", describeWrongAction(msg), describePenalty(msg.PenaltyMS)),
 		msg.StageIndex, msg.RemainingMS)
@@ -122,11 +117,10 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 	stageChanged := nextStage != previousStage
 	session.mu.Unlock()
 
-	// ステージが切り替わったらヒントレベルを L1 にリセットする
-	// (docs/navigator_design.md §3.2)
+	// ステージが切り替わったら進行状態 (誤った報告の回数など) を戻す
 	if stageChanged {
 		session.mu.Lock()
-		session.progress.Reset(time.Now())
+		session.progress.Reset()
 		session.mu.Unlock()
 	}
 

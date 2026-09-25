@@ -118,8 +118,8 @@ func (p *AudioPipeline) handlePlayerMessage(ctx context.Context, sender *AudioSe
 			})
 		}
 
-		// 質問回数はヒントレベルの前倒し条件になる (docs/navigator_design.md §3.2)
-		p.game.NoteQuestion(session.DeviceID)
+		// 誤った報告の照合と、突破後の最初の報告の印 (ADR N-9b・決定127)
+		p.game.NotePlayerReport(session.DeviceID, item.Message)
 		// 声が届いたので無応答の計測をやり直す
 		p.game.SilenceWatcher().Notice(session.DeviceID)
 		spoke = true

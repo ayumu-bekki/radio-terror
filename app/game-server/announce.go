@@ -100,17 +100,6 @@ func (s *AnnounceScheduler) Enabled() bool {
 	return s != nil && s.path != ""
 }
 
-// Interval は送出周期を返す。
-//
-// Enabled と同じくテスト専用。未設定・0以下を既定値へ倒す挙動を
-// 外から確かめられるようにしてある。
-func (s *AnnounceScheduler) Interval() time.Duration {
-	if s == nil {
-		return 0
-	}
-	return s.interval
-}
-
 // Run は周期送出を開始する。ctx が終わるまで動き続ける。
 //
 // **周期はサーバー共通**にしてある。bridge ごとに独立させると同じ会場で

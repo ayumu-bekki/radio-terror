@@ -13,10 +13,10 @@ import (
 //
 // stage_cleared の stage_index は「クリアした」ステージの番号で、デバイスは
 // 送信後に AdvanceStage する (game_task.cc)。そのまま session.StageIndex へ
-// 代入すると、ナビゲーターがクリア済みステージの briefing / hint_l1 を持って
+// 代入すると、ナビゲーターがクリア済みステージの briefing / procedure を持って
 // 喋ることになり、**新しい課題の導入ヒントが一度も出ない**
 // (実運用で発生: ステージ2 ホールド&カットで「点灯・点滅しているランプが
-// あることに気づかせる」L1ヒントが出ず、プレイヤーがボタンの存在に
+// あることに気づかせる」導入ヒントが出ず、プレイヤーがボタンの存在に
 // 気づけないまま時間切れになった)。
 func TestStageClearedAdvancesStageIndex(t *testing.T) {
 	lib := loadTestLibrary(t)
@@ -43,7 +43,7 @@ func TestStageClearedAdvancesStageIndex(t *testing.T) {
 		State: deviceStatePlaying, StageIndex: 0, RemainingMS: 250000,
 		Built: built, StartedAt: time.Now(),
 	}
-	session.progress.Reset(time.Now())
+	session.progress.Reset()
 	game.binder.Bind("bridge-1", "0001", session)
 
 	// ステージ0をクリア → デバイスは stage_cleared{stage_index:0} を送る
@@ -96,7 +96,7 @@ func TestStageClearedOnFinalStageDoesNotPanic(t *testing.T) {
 		State: deviceStatePlaying, StageIndex: last, RemainingMS: 50000,
 		Built: built, StartedAt: time.Now(),
 	}
-	session.progress.Reset(time.Now())
+	session.progress.Reset()
 	game.binder.Bind("bridge-1", "0001", session)
 
 	game.HandleDeviceMessage(context.Background(), &deviceMessage{
@@ -162,7 +162,7 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 				State: deviceStatePlaying, StageIndex: 0, RemainingMS: 10000,
 				StartedAt: time.Now(),
 			}
-			session.progress.Reset(time.Now())
+			session.progress.Reset()
 			game.binder.Bind("bridge-1", "0001", session)
 
 			if game.SessionForBridge("bridge-1") == nil {
@@ -230,7 +230,7 @@ func TestStageClearedDoesNotSpeak(t *testing.T) {
 		State: deviceStatePlaying, StageIndex: last, RemainingMS: 54700,
 		Built: built, StartedAt: time.Now(),
 	}
-	session.progress.Reset(time.Now())
+	session.progress.Reset()
 	game.binder.Bind("bridge-1", "0001", session)
 
 	// 最終ステージのクリア
@@ -296,7 +296,7 @@ func TestFinishedSessionStaysVisibleButHandsOverRadio(t *testing.T) {
 		SessionID: "s-1", DeviceID: "0001", BridgeID: "bridge-1",
 		State: deviceStatePlaying, RemainingMS: 54700, StartedAt: time.Now(),
 	}
-	session.progress.Reset(time.Now())
+	session.progress.Reset()
 	game.binder.Bind("bridge-1", "0001", session)
 
 	game.HandleDeviceMessage(context.Background(), &deviceMessage{

@@ -17,17 +17,17 @@ import (
 // ステージ横断シミュレーション (文字のみ。TTS・音声は通さない)。
 //
 // 有効な全ステージについて、実際のプロンプト組み立て (BuildNavigatorPrompt) と
-// 実際の思考モデル (GenerateNavigatorReply) を使い、L1→L4 の各ヒントレベルで
+// 実際の思考モデル (GenerateNavigatorReply) を使い、
 // 台本どおりのプレイヤー発話を返しながら数ターン交信する。
 //
 // 目的は「意図どおりに動くか」の確認なので、失敗させずに**所見を集計する**。
 // 判定は次の4点:
 //
-//  1. 正解色の漏れ … L4 未満で cut の日本語色名を口に出していないか
+//  1. 正解色の漏れ … cut の日本語色名を口に出していないか
 //  2. 出力長        … 目安 (60字。第一声は80字) に対する分布を集計する。
 //     目安超えは所見にせず、大きく超えた場合だけ挙げる
 //  3. 表情タグ      … allowedTTSTags 以外のタグを使っていないか
-//  4. 必須情報      … 装置に現れない情報 (ボタン列・危険位置) を L1 で伝えているか
+//  4. 必須情報      … 装置に現れない情報 (ボタン列・危険位置) を課題の入り口で伝えているか
 //
 // 実行:
 //
@@ -56,8 +56,6 @@ type simTurn struct {
 	Event string
 	// Player はこのターンでプレイヤーが無線に流した発話。空なら発話なし
 	Player string
-	// HintLevel はこのターンの許可ヒントレベル
-	HintLevel int
 }
 
 // simScript はステージごとのプレイヤー台本。
@@ -77,7 +75,7 @@ type simScript struct {
 	// 危険位置を第一声で必ず伝える (MustMention 側)。
 	MustNotMention []string
 
-	// MustMention は L1 の発話に必ず含まれるべき語 (装置に現れない情報)。
+	// MustMention は課題の入り口の発話に必ず含まれるべき語 (装置に現れない情報)。
 	// ${var} で抽選変数を参照できる。
 	//
 	// **`|` 区切りで言い換えを並べられる**。1つでも出ていれば満たしたとみなす。
@@ -106,7 +104,6 @@ func (s simScript) entryTurnBudget() int {
 // simFinding は1件の所見。
 type simFinding struct {
 	StageID string
-	Level   int
 	Kind    string
 	Detail  string
 	Reply   string
@@ -124,7 +121,6 @@ type simStageResult struct {
 }
 
 type simTurnResult struct {
-	Level   int
 	Trigger string
 	Player  string
 	Reply   string
@@ -216,9 +212,7 @@ func simBuildStage(lib *ScenarioLibrary, sheet MissionSheet, id string, seed int
 	const simDifficulty = "__sim__"
 
 	// **ステージの difficulty タグに合った難易度で組む。**
-	// 常にノーマルで組むと、イージーのステージまで `l4_pct = 0` になり
-	// (ADR N-39)、L4 の台本が本番と食い違う。
-	// 102/103/104 は L4 (直言) が有効な難易度で検証したい。
+	// 入力量 ([load]) は難易度で変わるため、本番と同じ難易度で組む。
 	diff := difficultyNormal
 	if tmplStage, sErr := lib.Stage(id); sErr == nil && tmplStage.Difficulty != "" {
 		if _, err := lib.Difficulty(tmplStage.Difficulty); err == nil {
@@ -283,18 +277,21 @@ func simulateStage(
 
 	// プレイヤーが正解色を口にしたか。以降その色の復唱は漏洩と見なさない。
 	playerSaidCut := false
-	// L4 で正解色を明かしたか。以降の言及は完了報告なので漏洩と見なさない。
-	revealedAtL4 := false
 	// 課題の入り口の発話を数える。既定では `session_start` と**最初の**
 	// `player_message` の2つを入り口とみなし、MustMention は
 	// ここまでにしか要求しない (台本ごとに `EntryTurns` で広げられる)。
 	// 204 色合わせは注意事項を**観察報告への返し**で伝えるため
 	// (session_start の時点ではまだ装置を見ていない)、session_start だけでは足りない。
-	// 一方 3回目以降の L1 発話にまで要求すると毎回の復唱を強いることになる。
+	// 一方 3回目以降の発話にまで要求すると毎回の復唱を強いることになる。
 	entryTurns := 0
 	mentionSeen := map[string]bool{}
 	cutJA := colorNameJA[stage.Cut]
 
+	// simProgress はプレイヤー発話の色名検出だけに使う (1ステージ=1セッション)
+	var simProgress StageProgress
+	// simAfterStage は本番の firstReportAfterStage に当たる (決定127)。
+	// 台本では silence_after_stage の直後のプレイヤー発話を「突破後の最初の報告」とみなす。
+	simAfterStage := false
 	for _, turn := range script.Turns {
 		// session_ready は**セッション開始時に1回だけ**。実機では
 		// StartSession から1度呼ばれるきりで、ステージごとには鳴らない
@@ -309,6 +306,19 @@ func simulateStage(
 		}
 
 		player := expandSimText(turn.Player, vars)
+		// 本番と同じく、プレイヤー発話から誤った色を数える (決定124・決定135)。
+		// player_message 以外のトリガーでは渡さない (generateReply と同じ)。
+		wrongReport := ""
+		justAdvanced := false
+		if turn.Trigger == "player_message" {
+			simProgress.NoteReport(player, stageLampStates(built.Stages[0]))
+			wrongReport = simProgress.LastWrongReport
+			justAdvanced = simAfterStage
+			simAfterStage = false
+		}
+		if turn.Trigger == "silence_after_stage" {
+			simAfterStage = true
+		}
 		if cutJA != "" && strings.Contains(player, cutJA) {
 			playerSaidCut = true
 		}
@@ -318,36 +328,30 @@ func simulateStage(
 			})
 		}
 
-		// **台本のヒントレベルがステージ設定と矛盾していないか検査する。**
-		// `HintLevel` は台本が直接指定するため、`l4_pct = 0` で L4 を塞いだ
-		// ステージ (204 色合わせ / ADR N-36) でも台本が L4 と書けば L4 で走る。
-		// **本番では到達しない状態を検証していた**ことがあり、実際に
-		// 204 で「正解は緑色の線ですよ」と直言する所見を拾ってしまった。
-		if turn.HintLevel >= HintL4 && built.Hints.L4Pct == 0 {
-			result.Findings = append(result.Findings, simFinding{
-				StageID: id, Level: turn.HintLevel, Kind: "unreachable_hint_level",
-				Detail: "l4_pct = 0 のステージに L4 の台本がある。本番では到達しない",
-			})
-		}
-
 		prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 			Prompt:      &navCfg.Prompt,
 			Character:   character,
 			Session:     built,
 			StageIndex:  0,
 			RemainingMS: 120000,
-			HintLevel:   turn.HintLevel,
 			RecentEvent: expandSimText(turn.Event, vars),
 			History:     logs.Render(sessionID),
+
+			WrongReport:         wrongReport,
+			WrongReportCount:    simProgress.WrongReportCount,
+			WrongReportMismatch: simProgress.LastWrongIsMismatch,
+			CorrectedFrom:       simProgress.CorrectedFrom,
+			CorrectedTo:         simProgress.CorrectedTo,
+			JustAdvanced:        justAdvanced,
 		})
 
 		instruction := navCfg.Prompt.TriggerInstruction(turn.Trigger)
 		gen, err := processor.GenerateNavigatorReply(ctx, prompt, instruction)
 		if err != nil {
 			result.Findings = append(result.Findings, simFinding{
-				StageID: id, Level: turn.HintLevel, Kind: "api_error", Detail: err.Error(),
+				StageID: id, Kind: "api_error", Detail: err.Error(),
 			})
-			t.Logf("  L%d %-15s ERROR: %v", turn.HintLevel, turn.Trigger, err)
+			t.Logf("  %-15s ERROR: %v", turn.Trigger, err)
 			continue
 		}
 		reply := gen.Reply
@@ -356,27 +360,27 @@ func simulateStage(
 		})
 
 		tr := simTurnResult{
-			Level: turn.HintLevel, Trigger: turn.Trigger,
-			Player: player, Reply: reply, Runes: countBodyRunes(reply, character.Name),
+			Trigger: turn.Trigger,
+			Player:  player, Reply: reply, Runes: countBodyRunes(reply, character.Name),
 		}
 		result.Turns = append(result.Turns, tr)
 
 		if player != "" {
-			t.Logf("  L%d %-15s P> %s", turn.HintLevel, turn.Trigger, player)
+			t.Logf("  %-15s P> %s", turn.Trigger, player)
 			t.Logf("     %-15s N> %s (%d字)", "", reply, tr.Runes)
 		} else {
-			t.Logf("  L%d %-15s N> %s (%d字)", turn.HintLevel, turn.Trigger, reply, tr.Runes)
+			t.Logf("  %-15s N> %s (%d字)", turn.Trigger, reply, tr.Runes)
 		}
 
 		entryBudget := script.entryTurnBudget()
 
 		result.Findings = append(result.Findings,
 			simCheckTurn(id, stage, turn, reply, script, vars, character.Name,
-				playerSaidCut, revealedAtL4, entryTurns < entryBudget)...)
+				playerSaidCut, entryTurns < entryBudget)...)
 
 		// 入り口の発話 (session_start と最初の player_message) で
 		// MustMention の語が出たかを集計する。
-		if turn.HintLevel == HintL1 && entryTurns < entryBudget {
+		if entryTurns < entryBudget {
 			for _, want := range script.MustMention {
 				if simMentionHit(expandSimText(want, vars), stripTTSTags(reply)) {
 					mentionSeen[want] = true
@@ -387,17 +391,13 @@ func simulateStage(
 			entryTurns++
 		}
 
-		// L4 で色名を出したら、以降の言及は完了報告として扱う
-		if turn.HintLevel >= HintL4 && cutJA != "" && strings.Contains(stripTTSTags(reply), cutJA) {
-			revealedAtL4 = true
-		}
 	}
 
 	// 入り口の発話を通しても MustMention の語が出なかったら所見にする。
 	for _, want := range script.MustMention {
 		if w := expandSimText(want, vars); w != "" && !mentionSeen[want] {
 			result.Findings = append(result.Findings, simFinding{
-				StageID: id, Level: HintL1, Kind: "missing_required",
+				StageID: id, Kind: "missing_required",
 				Detail: fmt.Sprintf("課題の入り口で %q に触れていない", w),
 			})
 		}
@@ -492,6 +492,20 @@ func simStageVars(lib *ScenarioLibrary, stage *BuiltStage) map[string]string {
 			break
 		}
 	}
+
+	// 点灯している色 (「緑と青」)。**台本に固定の色を書かない** — 301 は
+	// 「黄色と緑が点いています」と固定で書いてあり、抽選値42の表示
+	// (緑と青) と食い違っていた。プレイヤーが誤った報告をしていたことになる
+	// (決定135 の誤検知テストで発覚)。
+	lit := []string{}
+	if leds, ok := stage.Core["leds"].(map[string]any); ok {
+		for _, code := range allColors {
+			if leds[code] == "on" {
+				lit = append(lit, colorNameJA[code])
+			}
+		}
+	}
+	vars["sim_lit_colors"] = strings.Join(lit, "と")
 
 	// モールス系ステージ (203/305) はプレイヤーが読み上げる語を台本で使う。
 	// 展開済みの answer から語を拾う (テンプレートは word/color_word を
@@ -650,15 +664,6 @@ func expandSimText(text string, vars map[string]string) string {
 // simTagPattern は発話中の角括弧タグ。
 var simTagPattern = regexp.MustCompile(`\[([a-zA-Z_]+)\]`)
 
-// simColorToldByDesign は「切る線の色を伝えるのが仕様」のステージ。
-// 装置から色を読み取れないため、伏せるとプレイヤーが手詰まりになる。
-//
-// **現在は該当なし。** これに当たる案は「色を教えるだけの工程が謎の隣に残る」
-// として採用を見送った (ADR S-5)。
-// 該当するステージを作った場合はここへ登録する — 登録しないと、
-// 仕様どおりに色を伝えた発話が「色漏れ」として検出される。
-var simColorToldByDesign = map[string]bool{}
-
 // simCheckTurn は1発話を4つの観点で検査する。
 //
 // playerSaidCut は、プレイヤーがこのステージで既に正解色を口にしているか。
@@ -667,7 +672,7 @@ var simColorToldByDesign = map[string]bool{}
 func simCheckTurn(
 	id string, stage *BuiltStage, turn simTurn, reply string,
 	script simScript, vars map[string]string, characterName string,
-	playerSaidCut, revealedAtL4, firstReply bool,
+	playerSaidCut, firstReply bool,
 ) []simFinding {
 	findings := make([]simFinding, 0)
 	body := stripTTSTags(reply)
@@ -677,41 +682,29 @@ func simCheckTurn(
 	// 本当に長い発話が埋もれる。
 	bodyRunes := countBodyRunes(reply, characterName)
 
-	// 1. 正解色の漏れ (L4 未満)
+	// 1. 正解色の漏れ (ヒントレベル廃止後は常に検査する。決定129)
 	//
-	// 203 ブループリントは L4 でも色名を言ってはいけないため、L4 も検査する。
-	// 逆に切る線の色が装置に現れないステージは検査しない
-	// (simColorToldByDesign。現在は該当なし)。
+	// 「切る線の色を伝えるのが仕様」のステージは作らない (ADR S-5) ので、
+	// 全ステージを検査する。
 	cutJA := colorNameJA[stage.Cut]
-	checkLeak := turn.HintLevel < HintL4 || id == "203"
-	if simColorToldByDesign[id] {
-		checkLeak = false
-	}
-	// プレイヤーが先に言った色の復唱は漏洩ではない (205 だけは例外で、
+	checkLeak := true
+	// プレイヤーが先に言った色の復唱は漏洩ではない (203 だけは例外で、
 	// 復唱すること自体が禁止されている)。
 	if playerSaidCut && id != "203" {
-		checkLeak = false
-	}
-	// **L4 で正当に明かしたあとは漏洩ではない。**
-	// 課題突破後の stage_cleared は L1 に戻るが、直前の L4 で
-	// 「赤色の線を切ってください」と伝えた以上、
-	// 「赤色の線を切断しましたね」は完了報告であって漏洩ではない。
-	if revealedAtL4 && id != "203" {
 		checkLeak = false
 	}
 	// **課題突破後の確認も漏洩ではない。**
 	// `silence_after_stage` は**その線が既に切られた**あとの場面。
 	// 「赤い線は切れたか」は起きたはずのことの確認で、答えを教える発話ではない。
 	//
-	// L4 経由の免除だけでは足りない — **ノーマル以上は `l4_pct = 0`**
-	// (ADR N-39) で L4 に到達しないため、正常な確認が毎回
-	// 漏洩として検出されてしまう。
+	// 免除しないと、正常な確認が毎回漏洩として検出されてしまう
+	// (以前は L4 経由で免除していたが、ヒントレベルは廃止した。決定129)。
 	if isAfterStageTrigger(turn.Trigger) && id != "203" {
 		checkLeak = false
 	}
 	if checkLeak && cutJA != "" && strings.Contains(body, cutJA) {
 		findings = append(findings, simFinding{
-			StageID: id, Level: turn.HintLevel, Kind: "answer_leak",
+			StageID: id, Kind: "answer_leak",
 			Detail: fmt.Sprintf("正解色 %q を直言", cutJA), Reply: reply,
 		})
 	}
@@ -734,7 +727,7 @@ func simCheckTurn(
 	}
 	if bodyRunes > excessiveRunes {
 		findings = append(findings, simFinding{
-			StageID: id, Level: turn.HintLevel, Kind: "excessive_length",
+			StageID: id, Kind: "excessive_length",
 			Detail: fmt.Sprintf("%d字 (目安 %d を大きく超過。名乗りを除く)", bodyRunes, guide),
 			Reply:  reply,
 		})
@@ -744,7 +737,7 @@ func simCheckTurn(
 	for _, m := range simTagPattern.FindAllStringSubmatch(reply, -1) {
 		if !allowedTTSTags[m[1]] {
 			findings = append(findings, simFinding{
-				StageID: id, Level: turn.HintLevel, Kind: "bad_tag",
+				StageID: id, Kind: "bad_tag",
 				Detail: fmt.Sprintf("許可外のタグ %q", m[0]), Reply: reply,
 			})
 		}
@@ -772,7 +765,7 @@ func simCheckTurn(
 		}
 		if strings.Contains(body, ng) {
 			findings = append(findings, simFinding{
-				StageID: id, Level: turn.HintLevel, Kind: "told_answer",
+				StageID: id, Kind: "told_answer",
 				Detail: fmt.Sprintf("資料から読ませるべき %q を言っている", ng), Reply: reply,
 			})
 		}
@@ -784,7 +777,7 @@ func simCheckTurn(
 	// プレイヤーが先回りして『同じ色のボタンを押せばいいですか?』と聞くと、
 	// 肯定するだけで返して**注意が落ちた**ため検査を広げた (実測 2026-08-25)。
 	// `firstReply` は課題の入り口 — session_start か、最初の player_message。
-	// **2回目以降の L1 発話には要求しない** (毎回の復唱を強いることになる)。
+	// **2回目以降の発話には要求しない** (毎回の復唱を強いることになる)。
 	// MustMention は**入り口の発話のどれかに1回出れば足りる**。
 	// 発話ごとに要求すると、まだ装置を見ていない session_start にまで
 	// 「覚えておけ」を求めることになり、毎回の復唱も強いてしまう。
@@ -798,7 +791,7 @@ func simCheckTurn(
 	// (docs/navigator_design.md 決定32)。
 	if isStageOpening(turn) && !mentionsLampQuestion(body) {
 		findings = append(findings, simFinding{
-			StageID: id, Level: turn.HintLevel, Kind: "no_observation_first",
+			StageID: id, Kind: "no_observation_first",
 			Detail: "課題の入り口でランプの状態を尋ねていない", Reply: reply,
 		})
 	}
@@ -813,7 +806,7 @@ func simCheckTurn(
 	// (危険位置のように装置に現れない情報とは扱いが違う。ADR N-10 / N-4)。
 	if isStageOpening(turn) && simPressBeforeLook.MatchString(body) {
 		findings = append(findings, simFinding{
-			StageID: id, Level: turn.HintLevel, Kind: "press_before_observation",
+			StageID: id, Kind: "press_before_observation",
 			Detail: "観察を求める前にボタンを押させている", Reply: reply,
 		})
 	}
@@ -829,7 +822,7 @@ func simCheckTurn(
 	// 台本が誤答を報告するターン (`sim_wrong_color`) の直後だけを見る。
 	if simPlayerReportedWrongColor(turn, vars, stage) && simAuthorizesCut(body) {
 		findings = append(findings, simFinding{
-			StageID: id, Level: turn.HintLevel, Kind: "cut_after_wrong_report",
+			StageID: id, Kind: "cut_after_wrong_report",
 			Detail: "誤った色の報告に対して切る指示を出している(即爆発)", Reply: reply,
 		})
 	}
@@ -848,7 +841,7 @@ func simCheckTurn(
 	// 206 で『ダイヤル2で止まるな。ランプはどうなってますか?』となった。
 	if turn.Trigger == "session_start" && simDialBeforeLook.MatchString(body) {
 		findings = append(findings, simFinding{
-			StageID: id, Level: turn.HintLevel, Kind: "procedure_before_observation",
+			StageID: id, Kind: "procedure_before_observation",
 			Detail: "第一声で手順(ダイヤル)を言っている", Reply: reply,
 		})
 	}
@@ -861,11 +854,21 @@ func simCheckTurn(
 	for _, form := range metaOutputForms {
 		if strings.Contains(body, form) {
 			findings = append(findings, simFinding{
-				StageID: id, Level: turn.HintLevel, Kind: "meta_output",
+				StageID: id, Kind: "meta_output",
 				Detail: fmt.Sprintf("指針をそのまま出力している (%q)", form), Reply: reply,
 			})
 			break
 		}
+	}
+
+	// 色を伏せる方針そのものを口にしていないか (決定130)。
+	// 「色はこっちからは言わん」のように、方針を方言や言い換えで写すことがある。
+	// 固定の語では拾えないので、色の直後の否定の形で見る。
+	if m := colorPolicyPattern.FindString(body); m != "" {
+		findings = append(findings, simFinding{
+			StageID: id, Kind: "meta_output",
+			Detail: fmt.Sprintf("色を伏せる方針を口にしている (%q)", m), Reply: reply,
+		})
 	}
 
 	// 6. 課題突破を「解除完了」と取り違えていないか
@@ -878,7 +881,7 @@ func simCheckTurn(
 		for _, word := range prematureCompletionWords {
 			if strings.Contains(body, word) {
 				findings = append(findings, simFinding{
-					StageID: id, Level: turn.HintLevel, Kind: "premature_completion",
+					StageID: id, Kind: "premature_completion",
 					Detail: fmt.Sprintf("課題突破の場面で完了を意味する %q を使っている", word),
 					Reply:  reply,
 				})
@@ -895,13 +898,13 @@ func simCheckTurn(
 	if turn.Trigger == "session_ready" {
 		if mentionsLampQuestion(body) {
 			findings = append(findings, simFinding{
-				StageID: id, Level: turn.HintLevel, Kind: "ready_asks_operation",
+				StageID: id, Kind: "ready_asks_operation",
 				Detail: "マネージャーへの応答で装置の状態に言及している", Reply: reply,
 			})
 		}
 		if bodyRunes > readyMaxRunes {
 			findings = append(findings, simFinding{
-				StageID: id, Level: turn.HintLevel, Kind: "ready_too_long",
+				StageID: id, Kind: "ready_too_long",
 				Detail: fmt.Sprintf("%d字 (待機完了の応答は %d 字程度に収める。名乗りを除く)",
 					bodyRunes, readyMaxRunes),
 				Reply: reply,
@@ -953,6 +956,11 @@ var metaOutputForms = []string{
 	"出力例", "言わないこと", "伝える必要がある", "してはいけません",
 	"という指示", "指針:", "ヒントレベル",
 }
+
+// colorPolicyPattern は「色は言わない」という方針の説明を拾う (決定130)。
+// 「分からない」「見えない」は知らない側の断り方 (ADR N-6) なので拾わない。
+var colorPolicyPattern = regexp.MustCompile(
+	`色[^。、!?]{0,8}(言わん|言わない|言いません|言えん|言えない|言えません|教えられ|教えへん|教えない|伏せ)`)
 
 // prematureCompletionWords は「装置を解除しきった」ことを意味する語。
 // 課題を1つ突破しただけの場面 (silence_after_stage) で使うと、
@@ -1010,7 +1018,7 @@ func simSummarize(t *testing.T, results []*simStageResult) {
 		}
 		t.Logf("  %-5s %-14s %-10s (%d発話)", r.StageID, r.StageName, status, len(r.Turns))
 		for _, f := range r.Findings {
-			t.Logf("        - L%d %s: %s", f.Level, f.Kind, f.Detail)
+			t.Logf("        - %s: %s", f.Kind, f.Detail)
 			if f.Reply != "" {
 				t.Logf("          発話: %s", f.Reply)
 			}
@@ -1051,13 +1059,13 @@ func simRenderReport(results []*simStageResult, character NavigatorCharacter) st
 			if turn.Player != "" {
 				fmt.Fprintf(&b, "- **P** %s\n", turn.Player)
 			}
-			fmt.Fprintf(&b, "- **N** (L%d/%s, %d字) %s\n",
-				turn.Level, turn.Trigger, turn.Runes, turn.Reply)
+			fmt.Fprintf(&b, "- **N** (%s, %d字) %s\n",
+				turn.Trigger, turn.Runes, turn.Reply)
 		}
 		if len(r.Findings) > 0 {
 			fmt.Fprintf(&b, "\n**所見**\n\n")
 			for _, f := range r.Findings {
-				fmt.Fprintf(&b, "- L%d `%s` — %s\n", f.Level, f.Kind, f.Detail)
+				fmt.Fprintf(&b, "- `%s` — %s\n", f.Kind, f.Detail)
 			}
 		}
 		fmt.Fprintf(&b, "\n")

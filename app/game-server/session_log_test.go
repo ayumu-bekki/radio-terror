@@ -47,7 +47,7 @@ func newTestSession(t *testing.T, game *GameCoordinator) *GameSession {
 		State:      deviceStatePlaying,
 		StartedAt:  time.Now(),
 	}
-	session.progress.Reset(time.Now())
+	session.progress.Reset()
 
 	game.binder.Bind(session.BridgeID, session.DeviceID, session)
 

@@ -119,14 +119,14 @@ func TestStageClass(t *testing.T) {
 // ナビゲーター知識は決まった順に並べ、未知のキーは後ろへ回す。
 func TestBuildNaviFields(t *testing.T) {
 	fields := buildNaviFields(map[string]string{
-		"hint_l2":  "ヒント2",
-		"answer":   "正解だ",
-		"briefing": "説明",
-		"zzz_未知":   "未知の項目",
-		"hint_l1":  "ヒント1",
+		"must_say":  "必ず",
+		"answer":    "正解だ",
+		"briefing":  "説明",
+		"zzz_未知":    "未知の項目",
+		"procedure": "手順",
 	})
 
-	wantLabels := []string{"ブリーフィング", "正解", "ヒント L1", "ヒント L2", "zzz_未知"}
+	wantLabels := []string{"ブリーフィング", "正解", "手順", "必ず言うこと", "zzz_未知"}
 	if len(fields) != len(wantLabels) {
 		t.Fatalf("len = %d, want %d", len(fields), len(wantLabels))
 	}

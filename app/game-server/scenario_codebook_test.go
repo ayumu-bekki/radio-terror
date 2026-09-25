@@ -210,7 +210,7 @@ func TestColorMatchCountNeverReachesNavigator(t *testing.T) {
 		}
 		for seed := int64(0); seed < 40; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Hints, diff.Load)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Load)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", difficulty, seed, err)
 			}
@@ -404,7 +404,7 @@ func TestForbiddenRotaryCountFollowsDifficulty(t *testing.T) {
 
 		for seed := int64(0); seed < 120; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Hints, diff.Load)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Load)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", difficulty, seed, err)
 			}
@@ -478,7 +478,7 @@ func TestForbiddenRotaryCoversAllLayouts(t *testing.T) {
 	kinds := map[string]int{}
 	for seed := int64(0); seed < 300; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Hints, diff.Load)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Load)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -534,7 +534,7 @@ func TestPushSeqLenFollowsDifficulty(t *testing.T) {
 
 		for seed := int64(0); seed < 150; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Hints, diff.Load)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Load)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", difficulty, seed, err)
 			}
@@ -624,7 +624,7 @@ func TestRevealCutOnCompleteReachesCore(t *testing.T) {
 
 	for seed := int64(0); seed < 120; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -677,7 +677,7 @@ func TestEasySpeedGapStaysReadable(t *testing.T) {
 
 	for seed := int64(0); seed < 60; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -754,7 +754,7 @@ func TestSpeedRanksFollowDifficulty(t *testing.T) {
 
 		for seed := int64(0); seed < 80; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Hints, diff.Load)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, diff.Load)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", difficulty, seed, err)
 			}
@@ -846,7 +846,7 @@ func TestPanelStageRotaryLeds(t *testing.T) {
 
 	for seed := int64(0); seed < 120; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -1097,7 +1097,7 @@ func TestPanelWorksFromAnyStartPosition(t *testing.T) {
 
 	for seed := int64(0); seed < 30; seed++ {
 		b := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := b.buildStage(tmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := b.buildStage(tmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1156,7 +1156,7 @@ func TestPanelCutColorDistribution(t *testing.T) {
 	seen := map[string]int{}
 	for seed := int64(0); seed < 200; seed++ {
 		b := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := b.buildStage(tmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := b.buildStage(tmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatal(err)
 		}

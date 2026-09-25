@@ -49,8 +49,8 @@ func TestAnnounceEnabledWhenAssetPresent(t *testing.T) {
 	if !s.Enabled() {
 		t.Fatal("音声を置いたのに無効のまま")
 	}
-	if s.Interval() != time.Minute {
-		t.Errorf("Interval() = %v, want 1m", s.Interval())
+	if s.interval != time.Minute {
+		t.Errorf("Interval() = %v, want 1m", s.interval)
 	}
 }
 
@@ -59,8 +59,8 @@ func TestAnnounceIntervalDefault(t *testing.T) {
 	assetDir := writeAnnounceAsset(t)
 	for _, given := range []time.Duration{0, -time.Minute} {
 		s := NewAnnounceScheduler(assetDir, NewSessionBinder(), NewBridgeRegistry(), given)
-		if s.Interval() != announceIntervalDefault {
-			t.Errorf("Interval(%v) = %v, want %v", given, s.Interval(), announceIntervalDefault)
+		if s.interval != announceIntervalDefault {
+			t.Errorf("Interval(%v) = %v, want %v", given, s.interval, announceIntervalDefault)
 		}
 	}
 

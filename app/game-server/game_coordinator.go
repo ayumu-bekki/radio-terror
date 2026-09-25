@@ -41,7 +41,7 @@ type GameSession struct {
 
 	StartedAt time.Time `json:"started_at"`
 
-	// progress はヒントレベル判定用のステージ内進捗 (永続化しない)
+	// progress はステージ内の進行状態。誤った報告の数え方 (永続化しない。ADR N-9b)
 	progress StageProgress
 
 	// awaitingStageReport は「課題を突破したが、プレイヤーからまだ何も
@@ -56,6 +56,16 @@ type GameSession struct {
 	// プレイヤーの声が届いた時点で下ろす (Notice 経由)。以後は通常の
 	// 状況確認へ戻す。
 	awaitingStageReport bool
+
+	// firstReportAfterStage は「課題の突破後、最初に届いたプレイヤー発話」への
+	// 返答であることを示す (永続化しない。決定127)。
+	//
+	// awaitingStageReport はプレイヤーの声が届いた時点 (NotePlayerReport) で下ろす
+	// ため、返答のプロンプトを組む頃には消えている。**下ろす直前に写しておき**、
+	// 次の返答1回でだけ使う。プレイヤーの「切れました」は**前の課題**の報告だが、
+	// ナビは今の課題の知識しか持たないので、「押す前に切った」と誤解して
+	// 叱る (201 で「馬鹿野郎」と返した) のを防ぐ。
+	firstReportAfterStage bool
 
 	// urgentNoticed は「残り時間が僅少になったことを一度伝えた」印
 	// (永続化しない)。
@@ -72,7 +82,7 @@ type GameSession struct {
 	// ConsoleMode はキーボード操作だけでステージ進行を確認するデバッグ用
 	// セッションであることを示す (実機・無線を使わない `/manager/console`)。
 	//
-	// **本番の発話生成ロジック (プロンプト組み立て・ヒントレベル計算・
+	// **本番の発話生成ロジック (プロンプト組み立て・誤った報告の照合・
 	// ログ記録) は完全に共有**し、TTS生成・無線送出・混線演出・永続化だけを
 	// 迂回する。ここが崩れると「コンソールで直った」が本番の保証にならない
 	// (ADR M-7)。
@@ -271,7 +281,7 @@ func (c *GameCoordinator) StartSessionWith(
 		RemainingMS: built.CountdownMS,
 		ConsoleMode: opts.ConsoleMode,
 	}
-	session.progress.Reset(time.Now())
+	session.progress.Reset()
 
 	// バインドを確立する (後勝ち。明示的な解除は設けない)
 	c.binder.Bind(bridgeID, deviceID, session)
@@ -437,17 +447,28 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 	return nil
 }
 
-// NoteQuestion はプレイヤーの質問回数を1つ数える (ヒントレベルの前倒し用)。
+// NotePlayerReport はプレイヤーの発話が届いたことを記録する。
 //
-// あわせて「課題を突破したが、まだ何も聞いていない」印を下ろす。
-// 声が届いた以上、報告の中身が何であれ「切れたか?」と尋ね直す場面ではない。
-func (c *GameCoordinator) NoteQuestion(deviceID string) {
+// 「課題を突破したが、まだ何も聞いていない」印を下ろす。声が届いた以上、
+// 報告の中身が何であれ「切れたか?」と尋ね直す場面ではない。下ろす前に
+// 突破後の最初の報告であることを写しておく (決定127)。
+//
+// 装置の表示と合わない報告 (5色以外の色名・この課題で光らない色・
+// 点灯と点滅の取り違え) を数える (ADR N-9b)。
+func (c *GameCoordinator) NotePlayerReport(deviceID, text string) {
 	session := c.sessionFor(deviceID)
 	if session == nil {
 		return
 	}
 	session.mu.Lock()
-	session.progress.Questions++
+	var stage *BuiltStage
+	if session.Built != nil && session.StageIndex < len(session.Built.Stages) {
+		stage = session.Built.Stages[session.StageIndex]
+	}
+	session.progress.NoteReport(text, stageLampStates(stage))
+	if session.awaitingStageReport {
+		session.firstReportAfterStage = true
+	}
 	session.awaitingStageReport = false
 	session.mu.Unlock()
 }
@@ -520,7 +541,7 @@ func (c *GameCoordinator) Bindings() map[string]string { return c.binder.Binding
 // Restore は Valkey から復元したセッションをレジストリへ戻す。
 func (c *GameCoordinator) Restore(sessions []*GameSession) {
 	for _, session := range sessions {
-		session.progress.Reset(time.Now())
+		session.progress.Reset()
 	}
 	c.binder.Restore(sessions)
 }
@@ -607,13 +628,9 @@ func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender
 	}
 }
 
-// speakAsync は発話生成をバックグラウンドで行う。
-// デバイスイベントの処理 (WS 読み取りループ) を TTS 生成でブロックしないため。
-func (c *GameCoordinator) speakAsync(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string) {
-	c.speakAsyncThen(ctx, sender, session, trigger, event, nil)
-}
-
-// speakAsyncThen は発話の**送出が終わってから** done を呼ぶ。
+// speakAsyncThen は発話生成をバックグラウンドで行い、**送出が終わってから**
+// done を呼ぶ。デバイスイベントの処理 (WS 読み取りループ) を TTS 生成で
+// ブロックしないため。
 //
 // 成功・失敗の最終メッセージのあとにバインドを解放する用途で使う。
 // 先に解放すると、その最終メッセージ自体がナビゲーター不在で流れなくなる。

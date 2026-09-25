@@ -151,17 +151,6 @@ type BuiltStage struct {
 
 	// Navigator は解決済みのナビゲーター向けステージ知識
 	Navigator map[string]string `json:"navigator"`
-
-	// KeepCutSecret は L4 でも切る線の色名を伏せ続けるか (ADR N-38)。
-	// 色名を言うと課題そのものが消えるステージで true。
-	KeepCutSecret bool `json:"keep_cut_secret"`
-
-	// Hints はこのステージに適用するヒント閾値 (解決済み)。
-	//
-	// 難易度テンプレートの値を基本に、ステージ定義の `[hints]` があれば
-	// それで上書きしてある。**ステージごとに引く**ため、
-	// 発話生成時はセッションではなくここを見る (ADR N-36)。
-	Hints HintRule `json:"hints"`
 }
 
 // BuiltSession は組み立て済みのセッション一式。
@@ -176,11 +165,6 @@ type BuiltSession struct {
 	DetonateDelayMS int           `json:"detonate_delay_ms"`
 	Stages          []*BuiltStage `json:"stages"`
 
-	// StageBudgetMS は 1ステージあたりの予算 (countdown ÷ ステージ数)。
-	// ヒント閾値はこれに対する比率で算出する (docs/scenario_design.md §4.1)。
-	StageBudgetMS int `json:"stage_budget_ms"`
-
-	Hints     HintRule      `json:"hints"`
 	Crosstalk CrosstalkRule `json:"crosstalk"`
 }
 
@@ -269,7 +253,6 @@ func (b *ScenarioBuilder) buildFrom(
 		Difficulty:      difficulty,
 		CountdownMS:     tmpl.CountdownMS,
 		DetonateDelayMS: tmpl.DetonateDelayMS,
-		Hints:           tmpl.Hints,
 		Crosstalk:       tmpl.Crosstalk,
 	}
 
@@ -286,16 +269,12 @@ func (b *ScenarioBuilder) buildFrom(
 		if err != nil {
 			return nil, err
 		}
-		stage, err := b.buildStage(stageTmpl, usedLines, tmpl.Hints, tmpl.Load)
+		stage, err := b.buildStage(stageTmpl, usedLines, tmpl.Load)
 		if err != nil {
 			return nil, fmt.Errorf("stage %s: %w", id, err)
 		}
 		usedLines[stage.Cut] = true
 		session.Stages = append(session.Stages, stage)
-	}
-
-	if len(session.Stages) > 0 {
-		session.StageBudgetMS = session.CountdownMS / len(session.Stages)
 	}
 
 	if err := ValidateSession(session); err != nil {
@@ -474,11 +453,8 @@ func japaneseColorList(value string) (string, bool) {
 }
 
 // buildStage は1ステージの抽選変数を解決し、Core向け要素とナビゲーター知識を生成する。
-//
-// hints は難易度テンプレートのヒント閾値。ステージ定義に `[hints]` があれば
-// それで上書きする (ADR N-36)。
 func (b *ScenarioBuilder) buildStage(
-	tmpl *StageTemplate, usedLines map[string]bool, hints HintRule, load LoadRule,
+	tmpl *StageTemplate, usedLines map[string]bool, load LoadRule,
 ) (*BuiltStage, error) {
 	vars, err := b.resolveVars(tmpl, usedLines, load)
 	if err != nil {
@@ -517,20 +493,12 @@ func (b *ScenarioBuilder) buildStage(
 		navigator[key] = expanded
 	}
 
-	// ステージ定義に [hints] があれば難易度の値を上書きする。
-	// **書かれた項目だけを差し替える** — 全項目を書かせると、
-	// L4 を塞ぎたいだけのステージが L2・L3 の閾値まで抱え込み、
-	// 難易度側を調整しても追従しなくなる。
-	hints = tmpl.Hints.Apply(hints)
-
 	return &BuiltStage{
-		TemplateID:    tmpl.ID,
-		Name:          tmpl.Name,
-		Core:          core,
-		Cut:           cut,
-		Navigator:     navigator,
-		Hints:         hints,
-		KeepCutSecret: tmpl.KeepCutSecret,
+		TemplateID: tmpl.ID,
+		Name:       tmpl.Name,
+		Core:       core,
+		Cut:        cut,
+		Navigator:  navigator,
 	}, nil
 }
 

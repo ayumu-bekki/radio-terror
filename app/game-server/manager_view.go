@@ -455,13 +455,11 @@ var naviFieldLabels = map[string]string{
 	"briefing":  "ブリーフィング",
 	"answer":    "正解",
 	"procedure": "手順",
-	"hint_l1":   "ヒント L1",
-	"hint_l2":   "ヒント L2",
-	"hint_l3":   "ヒント L3",
+	"must_say":  "必ず言うこと",
 }
 
 // naviFieldOrder は表示順。ここに無いキーは後ろへ回し、キー名のまま出す。
-var naviFieldOrder = []string{"briefing", "answer", "procedure", "hint_l1", "hint_l2", "hint_l3"}
+var naviFieldOrder = []string{"briefing", "answer", "procedure", "must_say"}
 
 // buildNaviFields はナビゲーター知識を表示順に並べる。
 func buildNaviFields(navi map[string]string) []naviFieldView {

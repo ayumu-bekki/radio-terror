@@ -17,12 +17,6 @@ jamming = 1
 ambient = 1
 uneasy = 1
 
-[hints]
-# ハードは L4 (正解の直言) を出さない (docs/navigator_design.md §3.2)
-l2_pct = 25
-l3_pct = 50
-l4_pct = 0 # 0 = L4無効
-
 # 難易度で変える入力量 (docs/scenario_design.md §4.2)。
 # **ステージ定義に数値を直書きしない** — 直書きすると難易度を跨いで
 # 同じ負荷になる。ステージ側は ${load_color_match_min} で参照する。

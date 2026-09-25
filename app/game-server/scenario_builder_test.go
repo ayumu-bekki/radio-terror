@@ -82,7 +82,7 @@ func TestBlueprintOffersBothTerminalSeries(t *testing.T) {
 
 	for seed := int64(0); seed < 60; seed++ {
 		builder := NewScenarioBuilder(lib, sheet, rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -99,8 +99,8 @@ func TestBlueprintOffersBothTerminalSeries(t *testing.T) {
 				seed, built.Cut, wantX, wantY)
 		}
 
-		// procedure / hint_l2 / answer に両系統の端子番号が出ること
-		for _, key := range []string{"procedure", "hint_l2", "answer"} {
+		// procedure / answer に両系統の端子番号が出ること
+		for _, key := range []string{"procedure", "answer"} {
 			text := built.Navigator[key]
 			if !strings.Contains(text, wantX) {
 				t.Errorf("seed=%d: navigator.%s に X系統 %q が無い:\n%s",
@@ -243,7 +243,7 @@ func TestNavigatorKnowledgeMatchesCore(t *testing.T) {
 		for seed := int64(0); seed < 60; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
 
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 			if err != nil {
 				t.Fatalf("stage %s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -296,7 +296,7 @@ func TestLedKeyExpansion(t *testing.T) {
 	}
 
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+	built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 	if err != nil {
 		t.Fatalf("buildStage: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestMorseStageWorksWithAnyRemainingColor(t *testing.T) {
 		}
 
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-		built, err := builder.buildStage(stageTmpl, usedLines, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, usedLines, stdLoad)
 		if err != nil {
 			t.Fatalf("remaining=%s: buildStage: %v", remaining, err)
 		}
@@ -405,7 +405,7 @@ func TestNoiseLedsAreSymmetric(t *testing.T) {
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -497,7 +497,7 @@ func TestSpeedRankingConsistency(t *testing.T) {
 
 	for seed := int64(0); seed < 100; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -630,7 +630,7 @@ func TestAsLineExcludesUsedLines(t *testing.T) {
 
 	for seed := int64(0); seed < 50; seed++ {
 		builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, used, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, used, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -649,7 +649,7 @@ func TestAsLineExcludesUsedLines(t *testing.T) {
 	// 残り1色でも組み立てられること
 	only := map[string]bool{"A": true, "B": true, "C": true, "D": true}
 	builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(1)))
-	built, err := builder.buildStage(stageTmpl, only, stdHints, stdLoad)
+	built, err := builder.buildStage(stageTmpl, only, stdLoad)
 	if err != nil {
 		t.Fatalf("残り1色: buildStage: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestMorseWordIsAlwaysString(t *testing.T) {
 		}
 		for seed := int64(0); seed < 30; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 			if err != nil {
 				t.Fatalf("stage %s seed=%d: %v", id, seed, err)
 			}
@@ -891,7 +891,7 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 		}
 		for seed := int64(0); seed < 300; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
 			}
@@ -908,8 +908,8 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 	}
 }
 
-// TestUnobservableInfoRevealedAtL1 は「**装置を見ても分からない情報**」を持つ
-// ステージが、L1 の時点でそれを伝えるようになっていることを確かめる。
+// TestUnobservableInfoInProcedure は「**装置を見ても分からない情報**」を持つ
+// ステージが、procedure でそれを伝えるようになっていることを確かめる。
 //
 // ボタンを押す順番 (102/201) や危険なダイヤル位置 (209) は装置に一切現れず、
 // ナビゲーターしか知らない。これを伏せるとプレイヤーは観察でも推理でも
@@ -919,10 +919,10 @@ func TestDistinctLedRolesNotCollapsed(t *testing.T) {
 //
 // 伏せてよいのは**推理できる情報**だけ。ヒント段階で調整するのは
 // 「一度に何色まで言うか」であって、言うか言わないかではない。
-func TestUnobservableInfoRevealedAtL1(t *testing.T) {
+func TestUnobservableInfoInProcedure(t *testing.T) {
 	lib := loadTestLibrary(t)
 
-	// ステージID → hint_l1 に必ず現れるべき抽選変数
+	// ステージID → procedure に必ず現れるべき抽選変数 (ヒントレベル廃止後。決定129)
 	want := map[string][]string{
 		"103": {"seq"},       // 列は最初から読み上げる (103 コール&レスポンス)
 		"201": {"seq"},       // 列は最初から読み上げる (長さは難易度で変わる)
@@ -940,39 +940,39 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 		if stageTmpl == nil {
 			continue
 		}
-		// テンプレート段階で ${変数} が hint_l1 に書かれているかを見る
+		// テンプレート段階で ${変数} が procedure に書かれているかを見る
 		// (展開後の値は他の語と紛れるため、定義そのものを検証する)
-		hintL1 := stageTmpl.Navigator["hint_l1"]
+		procedure := stageTmpl.Navigator["procedure"]
 		for _, v := range want[id] {
 			ref := "${" + v + "}"
-			if !strings.Contains(hintL1, ref) {
-				t.Errorf("%s: hint_l1 が %s を伝えていない — "+
+			if !strings.Contains(procedure, ref) {
+				t.Errorf("%s: procedure が %s を伝えていない — "+
 					"装置を見ても分からない情報を伏せるとプレイヤーが手詰まりになる:\n  %s",
-					id, ref, hintL1)
+					id, ref, procedure)
 			}
 		}
 
 		// 展開しても未解決の変数が残らないこと
 		for seed := int64(0); seed < 20; seed++ {
 			builder := NewScenarioBuilder(lib, testMissionSheet(), rand.New(rand.NewSource(seed)))
-			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+			built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 			if err != nil {
 				t.Fatalf("%s seed=%d: buildStage: %v", id, seed, err)
 			}
-			if varPattern.MatchString(built.Navigator["hint_l1"]) {
-				t.Fatalf("%s seed=%d: hint_l1 に未解決の変数: %s",
-					id, seed, built.Navigator["hint_l1"])
+			if varPattern.MatchString(built.Navigator["procedure"]) {
+				t.Fatalf("%s seed=%d: procedure に未解決の変数: %s",
+					id, seed, built.Navigator["procedure"])
 			}
 		}
 	}
 }
 
-// TestStagesAskForLampReportFirst は、全ステージの hint_l1 が
+// TestStagesAskForLampReportFirst は、全ステージの procedure が
 // 「まずランプの状態を報告させる」形で始まっていることを確かめる。
 //
 // 実プレイのログで、ナビゲーターが装置を見ないうちから手順
 // (ボタンの順番・ダイヤルの位置・点滅の速さ) を話し始めていた。
-// 原因は hint_l1 の多くが「〜に気づかせる」「〜を確認させる」と
+// 原因は当時の hint_l1 の多くが「〜に気づかせる」「〜を確認させる」と
 // **観察の結果だけ**を書いており、生成AIがそれを「自分で言う」と
 // 解釈していたこと。「報告させる」と**動作**で書く必要がある
 // (docs/navigator_design.md 決定32)。
@@ -982,7 +982,8 @@ func TestUnobservableInfoRevealedAtL1(t *testing.T) {
 func TestStagesAskForLampReportFirst(t *testing.T) {
 	lib := loadTestLibrary(t)
 
-	// 「報告させる」ことを求める語。いずれかが hint_l1 にあればよい。
+	// 「報告させる」ことを求める語。いずれかが procedure にあればよい
+	// (hint_l1 から procedure へ一本化した。決定129)。
 	askForms := []string{"報告させ", "尋ね", "確認を兼ねる"}
 
 	for id := range lib.stages {
@@ -990,23 +991,23 @@ func TestStagesAskForLampReportFirst(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Stage(%q): %v", id, err)
 		}
-		hintL1 := stageTmpl.Navigator["hint_l1"]
-		if hintL1 == "" {
-			t.Errorf("%s: hint_l1 が空", id)
+		procedure := stageTmpl.Navigator["procedure"]
+		if procedure == "" {
+			t.Errorf("%s: procedure が空", id)
 			continue
 		}
 
 		found := false
 		for _, form := range askForms {
-			if strings.Contains(hintL1, form) {
+			if strings.Contains(procedure, form) {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("%s: hint_l1 がプレイヤーに報告させる形になっていない — "+
+			t.Errorf("%s: procedure がプレイヤーに報告させる形になっていない — "+
 				"装置を見る前に手順を話し始める原因になる。%v のいずれかを含めること:\n  %s",
-				id, askForms, hintL1)
+				id, askForms, procedure)
 		}
 	}
 }
@@ -1030,7 +1031,7 @@ func TestCodebookStageResolves(t *testing.T) {
 
 	for seed := int64(0); seed < 200; seed++ {
 		builder := NewScenarioBuilder(lib, sheet, rand.New(rand.NewSource(seed)))
-		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdHints, stdLoad)
+		built, err := builder.buildStage(stageTmpl, map[string]bool{}, stdLoad)
 		if err != nil {
 			t.Fatalf("seed=%d: buildStage: %v", seed, err)
 		}
@@ -1110,57 +1111,6 @@ func TestCodebookTableIsValid(t *testing.T) {
 	}
 }
 
-// TestStagesDefineObservation は、全ステージが observation を定義していることを
-// 確かめる (docs/navigator_design.md §3.2 / ADR N-35)。
-//
-// observation はプレイヤーが報告すべき観察の定義で、これが無いステージは
-// ヒントレベルの前倒しが働かない。実運用で 104 早い者勝ち を完璧に報告したのに
-// 経過22秒では L1 のままとなり、「よく見比べてください」と空振りが返った。
-//
-// 報告そのものが答えの決め手になる観察系ステージ (105/204/207/208 など) で
-// 特に効くが、**全ステージが第一声でランプの報告を求める**設計
-// (TestStagesAskForLampReportFirst) なので、定義も全ステージに要る。
-func TestStagesDefineObservation(t *testing.T) {
-	lib := loadTestLibrary(t)
-
-	for id := range lib.stages {
-		stageTmpl, err := lib.Stage(id)
-		if err != nil {
-			t.Fatalf("Stage(%q): %v", id, err)
-		}
-		if stageTmpl.Navigator["observation"] == "" {
-			t.Errorf("%s: observation が未定義 — このステージだけ"+
-				"報告してもヒントレベルが前倒しされない", id)
-		}
-	}
-}
-
-// TestStagesObservationIsAQuestion は observation が「報告できたか」を問う形で
-// 書かれていることを確かめる。
-//
-// observation はプロンプトで「この観察を報告できているかを判定せよ」と
-// 使うため、**判定できる条件**として書く必要がある (ADR N-33)。
-// 装置の状態を書き写しただけ (「2つ点滅している」) だと、生成AIは
-// 自分の知識と照合してしまい、プレイヤーが何も言っていなくても true を返す。
-func TestStagesObservationIsAQuestion(t *testing.T) {
-	lib := loadTestLibrary(t)
-
-	for id := range lib.stages {
-		stageTmpl, err := lib.Stage(id)
-		if err != nil {
-			t.Fatalf("Stage(%q): %v", id, err)
-		}
-		observation := stageTmpl.Navigator["observation"]
-		if observation == "" {
-			continue // 未定義は TestStagesDefineObservation が報告する
-		}
-		if !strings.Contains(observation, "報告できたか") {
-			t.Errorf("%s: observation が判定条件の形になっていない — "+
-				"「〜を報告できたか」と書くこと:\n  %s", id, observation)
-		}
-	}
-}
-
 // TestBuildWithStages はステージを明示指定した組み立てを検証する
 // (Management Console のデバッグ開始で使う経路)。
 func TestBuildWithStages(t *testing.T) {
@@ -1192,10 +1142,6 @@ func TestBuildWithStages(t *testing.T) {
 	if session.CountdownMS != tmpl.CountdownMS {
 		t.Errorf("countdown_ms = %d, want %d (難易度テンプレートの値)",
 			session.CountdownMS, tmpl.CountdownMS)
-	}
-	if session.StageBudgetMS != tmpl.CountdownMS/len(want) {
-		t.Errorf("stage_budget_ms = %d, want %d",
-			session.StageBudgetMS, tmpl.CountdownMS/len(want))
 	}
 
 	// 弾くべき指定

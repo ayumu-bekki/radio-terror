@@ -23,8 +23,6 @@ type NavigatorPromptInput struct {
 	StageIndex int
 	// RemainingMS は Core から報告された残り時間
 	RemainingMS int
-	// HintLevel は現在の許可ヒントレベル
-	HintLevel int
 	// RecentEvent は直近のゲームイベントの説明 (stage_cleared 等)。空でもよい
 	RecentEvent string
 	// AnnounceUrgent は「残り時間が僅少になったことを、この発話で初めて伝える」
@@ -32,6 +30,24 @@ type NavigatorPromptInput struct {
 	AnnounceUrgent bool
 	// History は直近の無線のやり取り
 	History string
+
+	// WrongReport は直前のプレイヤー発話の、装置の表示と合わない報告
+	// (「茶色」「緑」「赤が点滅」。StageProgress.LastWrongReport)。
+	// 空なら該当なし。player_message のときだけ渡す。
+	WrongReport string
+	// WrongReportCount は同じ誤った報告が続いた回数 (決定138)。2 で不正解の線。
+	WrongReportCount int
+	// WrongReportMismatch は WrongReport が5色の中の色についての食い違い
+	// (光らない色・点灯と点滅の取り違え) か。偽なら5色以外の色名 (決定135・137)。
+	WrongReportMismatch bool
+	// CorrectedFrom / CorrectedTo は、確かめ直しのあとプレイヤーが色を言い直したとき、
+	// 取り消された色と新しい色 (決定136)。
+	CorrectedFrom string
+	CorrectedTo   string
+
+	// JustAdvanced は課題の突破後、最初のプレイヤー発話への返答であることを示す
+	// (決定127)。「切れました」を前の課題の報告として受けさせる。
+	JustAdvanced bool
 }
 
 // BuildNavigatorPrompt は思考モデルへ渡すプロンプトを組み立てる (§3.3)。
@@ -50,11 +66,10 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 	b.WriteString(in.Character.Sheet)
 	b.WriteString("\n\n")
 
-	// [C] ヒントポリシー + 交信スタイル (動的)
+	// [C] 進め方の方針 + 交信スタイル (ヒントレベルは廃止。決定129)
 	stage := in.currentStage()
 	if stage != nil {
-		b.WriteString(HintPolicyText(in.HintLevel, stage))
-		b.WriteString("\n")
+		b.WriteString(stageGuidanceText)
 	}
 
 	style := commStyleNormal
@@ -99,48 +114,38 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 
 	if stage != nil {
 		b.WriteString("\n## 今の課題\n")
+		// 前の課題の色は今の課題の答えではない。104 で「白の方が早い」に
+		// 前の課題の「赤い色の線を切って」をなぞって返し、爆発した (決定139)。
+		if in.StageIndex > 0 {
+			b.WriteString("- **会話ログの「(装置) ステージ" + fmt.Sprint(in.StageIndex+1) +
+				"開始」より前のやり取りは、前の課題のものです。**そこに出てきた色名・" +
+				"番号・手順を、今の課題の指示に使わないでください。\n")
+		}
 		if briefing := stage.Navigator["briefing"]; briefing != "" {
 			b.WriteString("- 内容: " + briefing + "\n")
 		}
 		// ナビゲーターは正解を知っている状態で話す (§3.1)。
 		//
-		// ただし**正解を渡すこと自体が漏洩の原因**になる。実運用で L3 のときに
+		// ただし**正解を渡すこと自体が漏洩の原因**になる。実運用で
 		// 「次は緑色の線を切ってください」と色名を直言した事例が出た
-		// (answer の文をほぼそのままなぞっていた)。禁止指示はヒントポリシー側に
-		// あるが、正解文と離れた位置にあると引きずられる。
-		// **正解と同じ行に、今それを言ってよいかを併記する**。
+		// (answer の文をほぼそのままなぞっていた)。
 		//
-		// **L4 未満では色名そのものをプロンプトから伏せる** (決定40)。
+		// **切る線の色名は常にプロンプトから伏せる** (決定40・決定129)。
 		// 「書いてあるが言うな」は守られないことがある — 目の前にある語は
 		// なぞられる。無い語は言いようがないので、これが最も確実。
-		// 併記の警告も残す (伏せ字から色を推測して言うのを防ぐ)。
-		//
-		// **`keep_cut_secret` のステージは L4 でも伏せ続ける** (決定64 / ADR N-38)。
-		// 色名を言うと課題そのものが消えるステージ (205 回路図・202 集計・
-		// 203 モールス解読) では、L4 に達しても色名をプロンプトへ入れない。
+		// 以前は L4 (直言) でだけ外していたが、ヒントレベルごと廃止した。
 		if answer := stage.Navigator["answer"]; answer != "" {
-			if in.HintLevel < HintL4 || stage.KeepCutSecret {
-				b.WriteString("- 正解(あなただけが知っている): " +
-					redactCutColor(answer, stage.Cut) + "\n")
-				if stage.KeepCutSecret {
-					fmt.Fprintf(&b, "  ⚠ **この課題では切る線の色名を最後まで伏せます**"+
-						"(上の「%s」)。色名を言うと**この課題そのものが成立しなくなる**ため、"+
-						"ヒントレベルに関わらず口に出してはいけません。"+
-						"伏せ字が何色かを推測して言うことも禁止です。"+
-						"**色を確定させるのはプレイヤーの仕事**で、あなたは"+
-						"そこへ導く役です。プレイヤーが色名を報告してきたら、"+
-						"合っているかを照合して認めてかまいません。\n",
-						redactedColorMark)
-				} else {
-					fmt.Fprintf(&b, "  ⚠ **正解の色名は伏せてあります**(上の「%s」)。"+
-						"現在は L%d なので、色名・番号を直言してはいけません。"+
-						"伏せ字が何色かを推測して口に出すことも禁止です。"+
-						"上の「進め方」と下の「ヒントポリシー」に従って導いてください。\n",
-						redactedColorMark, in.HintLevel)
-				}
-			} else {
-				b.WriteString("- 正解(あなただけが知っている): " + answer + "\n")
-			}
+			b.WriteString("- 正解(あなただけが知っている): " +
+				redactCutColor(answer, stage.Cut) + "\n")
+			// 「伏せてあります」と書くと、ナビは「知っているが伏せている」立場を取り
+			// 「色は教えられん」と断る (フクロウ 9回中3回。ADR N-6 に反する)。
+			// 実際に色名はここに無いので、**知らない立場**の事実として書く (決定134)。
+			fmt.Fprintf(&b, "  ⚠ 上の「%s」は、**あなたにも分からない色**です。"+
+				"あなたは装置を見ていないので、切る線が何色かは、プレイヤーがランプや"+
+				"資料から確かめるまで分かりません。何色かを推測して言うこともしません。"+
+				"プレイヤーが色名を報告してきたら、進め方にある手がかり"+
+				"(どのランプと同じ色か、資料のどこを引くか)に沿っているかで受け止めます。\n",
+				redactedColorMark)
 		}
 		if procedure := stage.Navigator["procedure"]; procedure != "" {
 			b.WriteString("- 進め方: " + procedure + "\n")
@@ -148,7 +153,7 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 
 		// [必ず言うこと] 落とすと課題が詰む一言を**独立したブロック**で渡す。
 		//
-		// `hint_l1` に「必ず両方伝える」と書いても、指針が長くなるほど
+		// `procedure` に「必ず両方伝える」と書いても、指針が長くなるほど
 		// **末尾の項目が落ちる** (204 色合わせ で8回中2回、
 		// 「最後に押した色を覚えておく」が欠けた)。
 		// 散文の中の但し書きではなく、**単独の要求**として置き直す。
@@ -164,24 +169,22 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 				"肯定するだけで終わらせず**これを足してください**。\n")
 		}
 
-		// [観察の判定] 発話と同時に「報告があったか」を返させる (決定54)。
+		// [課題の切り替わり直後] プレイヤーの「切れた」は**前の課題**の報告 (決定127)。
 		//
-		// 観察系のステージは**報告そのものが答えの決め手**になるため、
-		// 報告できた時点でヒントレベルを前倒しする。判定材料は上の会話ログ。
-		if observation := stage.Navigator["observation"]; observation != "" {
-			b.WriteString("\n## 観察の判定 (observed)\n")
-			b.WriteString("この課題でプレイヤーに報告してほしい観察は次のとおりです。\n")
-			b.WriteString("- 観察: " + observation + "\n")
-			b.WriteString("**直近の交信で、プレイヤーがこの観察を報告できているかを判定し、" +
-				"出力の `observed` に入れてください。**\n" +
-				"- 言い回しは問いません。**内容が伝わっていれば true** です" +
-				"(色名が正確でなくても、速い/遅い・点いている/消えているの区別が" +
-				"できていれば報告できたとみなします)。\n" +
-				"- まだ尋ねていない・報告が返っていない・内容が食い違う場合は false です。\n" +
-				"- **一度 true になった観察は、その後も true のままにしてください。**\n" +
-				"- この判定は `reply` の内容には影響させないでください" +
-				"(判定について発話で触れてはいけません)。\n")
+		// ナビは今の課題の知識しか持たないため、201 (押し切ってから切る) では
+		// 「押す前に切ってしまった」と誤解して叱った (「馬鹿野郎」)。
+		// 切り替わったことを明示し、正しい操作として受けさせる。
+		// **例文は置かない** (ADR N-52)。
+		if in.JustAdvanced {
+			b.WriteString("\n## 課題の切り替わり直後\n" +
+				"- 直前に**前の課題の線が切れ**、今の課題に移ったばかりです。" +
+				"プレイヤーの「切れた」「切りました」という報告は**前の課題**のもので、" +
+				"**正しい操作**です。今の課題の手順と照らして誤りとして扱わないでください" +
+				"(叱らない・驚かない)。\n" +
+				"- 受け止めたうえで、ランプの報告がまだ無ければ" +
+				"**今のランプの状態を尋ねてください**。\n")
 		}
+
 	} else {
 		// ステージ知識が無い状態 (全ステージ完了後など)。
 		//
@@ -209,6 +212,32 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		b.WriteString("\n\n")
 	}
 
+	// [誤った色の報告] サーバーが文字起こしから機械的に検出する (決定124・決定135)。
+	//
+	// 判定も回数も生成AIに任せない — 「成り立たない報告か」の判断が揺れ、
+	// 回数も会話ログから数えると取り違える (シミュレーションで両方発生)。
+	// **不正解の線はこの場面でだけ渡す**。常に渡しておくと勝手に使われうる。
+	//
+	// **会話ログの後ろに置く。** 課題の欄に置くと、2回目で直前の自分の
+	// 聞き返しをなぞって繰り返した (15回中2回。決定135)。
+	if in.WrongReport != "" && in.Session != nil && in.StageIndex < len(in.Session.Stages) {
+		b.WriteString("# この返答で最優先すること\n")
+		b.WriteString(wrongReportBlock(in))
+		b.WriteString("\n")
+	} else if in.CorrectedTo != "" {
+		// [報告の言い直し] 確かめ直しのあとの正しい報告。指示が無いと、ナビは
+		// 会話ログの自分の「赤だな」をなぞり、取り消された色の線を切らせた (決定136)。
+		b.WriteString("# この返答で最優先すること\n")
+		b.WriteString("\n## 報告の言い直し\n")
+		fmt.Fprintf(&b, "- プレイヤーは確かめ直して、ランプの色を「%s」から**「%s」に言い直しました**。"+
+			"**今の報告は%sです。**前の「%s」は取り消されています。\n",
+			in.CorrectedFrom, in.CorrectedTo, in.CorrectedTo, in.CorrectedFrom)
+		fmt.Fprintf(&b, "- 次の順で、1つの発話にまとめてください。\n"+
+			"  1. **%s**と復唱して受ける\n"+
+			"  2. 「進め方」に沿って、次にやることを伝える\n", in.CorrectedTo)
+		fmt.Fprintf(&b, "- 「%s」は、この先の復唱にも指示にも使いません。\n\n", in.CorrectedFrom)
+	}
+
 	// [F] 出力ルール (設定ファイルから)
 	b.WriteString(strings.TrimSpace(in.Prompt.Output))
 
@@ -225,7 +254,7 @@ const redactedColorMark = "◯◯"
 //
 // **目の前に無い語は言えない。** 「書いてあるが言うな」という指示は
 // 守られないことがあり (決定19・27)、実測でも 616発話中1件残っていた。
-// L4 未満では色名そのものをプロンプトへ入れないのが最も確実。
+// 色名そのものをプロンプトへ入れないのが最も確実 (常に伏せる。決定129)。
 //
 // 押すボタン・押さえるボタンの色は伏せない — それらは伝えてよい情報で、
 // 伏せると手順が成立しなくなる。伏せるのは**切る線の色**だけ。
@@ -238,6 +267,89 @@ func redactCutColor(answer, cut string) string {
 	// 先に「赤色」を処理しないと「◯◯色色」になる。
 	redacted := strings.ReplaceAll(answer, name+"色", redactedColorMark+"色")
 	return strings.ReplaceAll(redacted, name, redactedColorMark)
+}
+
+// wrongReportBlock は装置の表示と合わない報告への指示を組み立てる
+// (ADR N-9b。判定はサーバー: navigator_color_check.go / navigator_stage_progress.go)。
+//
+// 1回目は**聞こえた内容を復唱して**確かめさせる。復唱すれば、プレイヤーは
+// 言い間違い・聞き違いに自分で気づける。同じ誤りを繰り返したら不正解の線を
+// 切らせる (誤った報告をすると正しく解体できない、というゲーム性)。
+//
+// **例文は置かない** (ADR N-52)。全キャラ共通に渡るブロックのため。
+func wrongReportBlock(in NavigatorPromptInput) string {
+	var b strings.Builder
+	decoy := decoyCutColor(in.Session, in.StageIndex)
+	if (in.WrongReportCount < 2 || decoy == "") && in.WrongReportMismatch {
+		// 表示と合わない報告 (光らない色・点灯と点滅の取り違え。決定137)。
+		// ナビに「その色は光っていない」とは教えない —
+		// 教えると「緑は光ってないはず」と否定する (決定132 と同じ構図)。
+		// 念のための確かめ直しとして頼ませる (決定135)。
+		b.WriteString("\n## 色の報告の確かめ直し (1回目)\n")
+		fmt.Fprintf(&b, "- プレイヤーの直前の報告に「%s」がありました。"+
+			"念のため、ランプを確かめ直してもらう場面です。"+
+			"**この指示は「進め方」より優先します。この発話では手順"+
+			"(ダイヤル・ボタン・タイマー・切る線)を一切伝えません。**\n", in.WrongReport)
+		b.WriteString("- 次の順で、1つの発話にまとめてください。\n" +
+			"  1. 聞こえた内容 (色と光り方) を短く復唱する" +
+			"(言い間違い・聞き違いに、プレイヤー自身が気づけます)\n" +
+			"  2. もう一度ランプを見て、**光っている色と、点きっぱなしか点滅か**を" +
+			"確かめて教えてほしいと頼む\n" +
+			"- ここで発話を終えます。\n")
+		return b.String()
+	}
+	if in.WrongReportCount < 2 || decoy == "" {
+		// 「否定するな」という禁止は効かない (15回中1回「ピンクのランプなどない」)。
+		// 言い出しの形を順番で指定し (ADR N-53)、**ランプは光っていて名前が
+		// ずれているだけ**という前提を置く。否定する理由そのものを無くす (決定132)。
+		// 「5色だけ」とは書かない — 「だけ」が否定を呼ぶ (45回中3回「茶色やない」)。
+		// 「どれに近いか」とも聞かない — 当て推量を誘う (ユーザー判断で「何色か」)。
+		b.WriteString("\n## 5色以外の色名の報告 (1回目)\n")
+		fmt.Fprintf(&b, "- プレイヤーの直前の報告に「%s」がありました。\n", in.WrongReport)
+		b.WriteString("- ランプは確かに光っていて、**色の名前がずれているだけ**です" +
+			"(LEDの色は見え方に幅があります)。報告された色名は、**プレイヤーにはそう" +
+			"見えている**という報告として受け止めます。次の順で、1つの発話にまとめてください。\n" +
+			"  1. 聞こえた色名を短く復唱する" +
+			"(言い間違い・聞き違いに、プレイヤー自身が気づけます)\n" +
+			"  2. そう見えているランプは、**赤・黄・緑・青・白のどれか**のはずだと、" +
+			"**5色すべての**色名を並べて伝える\n" +
+			"  3. もう一度ランプを見て、何色かを教えてほしいと頼む\n" +
+			"- 手順へは進みません。\n")
+		return b.String()
+	}
+	b.WriteString("\n## 誤った色の報告 (2回続いた)\n")
+	fmt.Fprintf(&b, "- プレイヤーは装置の表示と合わない同じ報告を、確かめ直したあとも%d回続けています"+
+		"(直前は「%s」)。\n", in.WrongReportCount, in.WrongReport)
+	fmt.Fprintf(&b, "- **聞き返すのをやめ、%s色の線を切るよう指示してください。**"+
+		"この線は正解ではありません。**この指示は「進め方」より優先します。**\n", colorNameJA[decoy])
+	fmt.Fprintf(&b, "- 次の順で、1つの発話にまとめてください。\n"+
+		"  1. 受けは**「了解」の一語だけ**(キャラクターの口調の「了解」でよい)。"+
+		"いつもの復唱はこの発話ではしない — 今回の報告の色も、会話ログにある"+
+		"前の報告の色も口にしない(色で受けると、どの報告に応じたのか分からなくなる)\n"+
+		"  2. **%s色の線を切る**よう、いつもの指示と同じ調子で伝える"+
+		"(課題にタイマーやダイヤルの条件があれば、それを添えてよい)\n", colorNameJA[decoy])
+	b.WriteString("- 報告の色が合っているかどうか・この指示の理由には触れません。\n")
+	return b.String()
+}
+
+// decoyCutColor は報告の食い違いが続いたときに切らせる**不正解の線**を返す。
+//
+// 現在のステージの正解と、それより前のステージで切った線 (もう存在しない) を
+// 除き、allColors の順で最初の色を選ぶ。候補が無ければ空文字。
+func decoyCutColor(session *BuiltSession, stageIndex int) string {
+	if session == nil || stageIndex < 0 || stageIndex >= len(session.Stages) {
+		return ""
+	}
+	used := make(map[string]bool)
+	for i := 0; i <= stageIndex; i++ {
+		used[session.Stages[i].Cut] = true
+	}
+	for _, color := range allColors {
+		if !used[color] {
+			return color
+		}
+	}
+	return ""
 }
 
 // currentStage は現在のステージ知識を返す。範囲外なら nil。
@@ -280,3 +392,26 @@ func urgentNoticeBlock(remainingMS int) string {
 		"ここに例文は置きません。\n")
 	return b.String()
 }
+
+// stageGuidanceText はステージの進め方の前提となる共通の方針ブロック。
+//
+// ステージ固有の内容 (briefing / answer / procedure / must_say) は
+// BuildNavigatorPrompt の「今の課題」が渡す。ここは全ステージ共通の構え方だけ。
+// 以前はヒントレベルごとに文面を変えていたが、レベルごと廃止した (決定129)。
+const stageGuidanceText = `# 進め方の方針
+- 「今の課題」の**進め方に従ってください**。進め方には「こう報告されたら、
+  これを伝える」という**条件**が書いてあります。**条件が満たされる前に先の内容を
+  言わない**でください(プレイヤーが装置を見て報告する体験が消えます)。
+- **切る線の色名はプレイヤーより先に発話に入れない。**色を確定させるのはプレイヤーの仕事で、
+  あなたはそこへ導きます。線は「光っているランプと同じ色の線」のように
+  ランプの見え方で指すか、何色かを尋ねます。色名を出さない理由や、
+  自分が何を伝えて何を伝えないかは**プレイヤーに説明しない**でください。
+  プレイヤーが色名を報告してきたら、合っているかを照合して認めてかまいません
+  (進め方が照合を禁じている課題を除く)。
+- 装置を見ても分からない情報 (ボタンを押す順番、危険な位置など) は、進め方が
+  伝えるよう指示していれば伝えます。伏せるとプレイヤーが手詰まりになります。
+- プレイヤーの質問を待つだけでなく、進行イベント・沈黙・残り時間をトリガーに
+  自分から声を掛けてください。
+- 常に解除成功へ導く姿勢を保ってください。
+
+`

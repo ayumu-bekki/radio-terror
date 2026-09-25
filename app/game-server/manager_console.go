@@ -123,7 +123,7 @@ func (w *ManagerWeb) handleConsoleMessage(rw http.ResponseWriter, r *http.Reques
 			Message:  text,
 		})
 	}
-	w.game.NoteQuestion(deviceID)
+	w.game.NotePlayerReport(deviceID, text)
 	if watcher := w.game.SilenceWatcher(); watcher != nil {
 		watcher.Notice(deviceID)
 	}

@@ -725,7 +725,6 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 					StageIndex: 0,
 					// 緊迫時の口調を出すため残り時間は少なめに
 					RemainingMS: 45000,
-					HintLevel:   HintL1,
 					// 残り時間の告知を添えた発話も表情が出やすい
 					AnnounceUrgent: trigger == "player_message",
 				})
@@ -772,10 +771,10 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 	}
 }
 
-// TestNavigatorDoesNotLeakAnswer は、L4 未満のヒントレベルで
+// TestNavigatorDoesNotLeakAnswer は、
 // ナビゲーターが正解の色名を直言しないことを確かめる。
 //
-// 実運用で 101 の L3 で「次は緑色の線を切ってください」と色名を言った事例が出た。
+// 実運用で 101 (当時の L3) で「次は緑色の線を切ってください」と色名を言った事例が出た。
 // プロンプトは「正解」を渡した上で「言うな」と指示する構造で、
 // 生成AIが正解文をなぞってしまっていた (docs/navigator_design.md §5 決定19)。
 //
@@ -821,29 +820,26 @@ func TestNavigatorDoesNotLeakAnswer(t *testing.T) {
 		}
 		answerJA := colorNameJA[stage.Cut]
 
-		for _, level := range []int{HintL1, HintL2, HintL3} {
-			for _, character := range navCfg.Characters {
-				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
-					Prompt: &navCfg.Prompt, Character: character, Session: built,
-					StageIndex: 0, RemainingMS: 120000, HintLevel: level,
-				})
-				// プレイヤーがまだ何も報告していない状況を作る
-				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
-					navCfg.Prompt.TriggerInstruction("silence"))
-				if err != nil {
-					t.Logf("  L%d/%s: %v", level, character.ID, err)
-					continue
-				}
-				text := gen.Reply
-				total++
-				if strings.Contains(text, answerJA) {
-					leaks++
-					t.Errorf("L%d/%s が正解色 %q を直言: %s",
-						level, character.ID, answerJA, text)
-					continue
-				}
-				t.Logf("  OK L%d/%s (正解=%s): %s", level, character.ID, answerJA, text)
+		for _, character := range navCfg.Characters {
+			prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+				Prompt: &navCfg.Prompt, Character: character, Session: built,
+				StageIndex: 0, RemainingMS: 120000,
+			})
+			// プレイヤーがまだ何も報告していない状況を作る
+			gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+				navCfg.Prompt.TriggerInstruction("silence"))
+			if err != nil {
+				t.Logf("  %s: %v", character.ID, err)
+				continue
 			}
+			text := gen.Reply
+			total++
+			if strings.Contains(text, answerJA) {
+				leaks++
+				t.Errorf("%s が正解色 %q を直言: %s", character.ID, answerJA, text)
+				continue
+			}
+			t.Logf("  OK %s (正解=%s): %s", character.ID, answerJA, text)
 		}
 	}
 

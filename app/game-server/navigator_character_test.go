@@ -71,8 +71,10 @@ func TestNavigatorPromptContentPreserved(t *testing.T) {
 	// [A] 共通役割定義に含まれるべき要点 (docs/navigator_design.md §3.4)
 	for _, want := range []string{
 		"解除手順(正解)をすべて知っています",
-		"許可ヒントレベル",
-		"復唱して確認",
+		"進め方に書かれた条件",
+		// 復唱は残す。「肯定を得てから進む」は外した (決定126。ADR N-55)
+		"短く復唱し",
+		"同じ発話で次にやること",
 		"もう一度どうぞ",
 		"見捨てず",
 		"混線のせいにして受け流して",
@@ -158,7 +160,6 @@ func TestBuildPromptUsesConfig(t *testing.T) {
 		Session:     built,
 		StageIndex:  0,
 		RemainingMS: 120000,
-		HintLevel:   HintL1,
 	})
 
 	// [A][B][F] が入っていること
@@ -166,7 +167,7 @@ func TestBuildPromptUsesConfig(t *testing.T) {
 		"危険物解体ゲーム",        // role
 		"フクロウ",            // キャラシート
 		"出力ルール",           // output
-		"許可ヒントレベル",        // ヒントポリシー
+		"進め方の方針",          // 進め方の方針 (ヒントレベルは廃止。決定129)
 		"正解(あなただけが知っている)", // セッション状態
 	} {
 		if !strings.Contains(prompt, want) {
@@ -186,7 +187,6 @@ func TestBuildPromptUsesConfig(t *testing.T) {
 		Session:     built,
 		StageIndex:  0,
 		RemainingMS: 30000,
-		HintLevel:   HintL1,
 	})
 	if !strings.Contains(urgent, "交信スタイル: 緊迫") {
 		t.Error("残り30秒で緊迫スタイルになっていない")
@@ -211,10 +211,10 @@ func TestNavigatorMaxRunesMatchesPrompt(t *testing.T) {
 	}
 }
 
-// TestPromptWarnsAgainstLeakingAnswer は、L4 未満では正解行に
-// 「口に出すな」の警告が併記されることを確かめる。
+// TestPromptWarnsAgainstLeakingAnswer は、正解行に
+// 伏せ字の色についての注記が併記されることを確かめる。
 //
-// 実運用で L3 のときにナビゲーターが正解の色名を直言した
+// 実運用で (当時の L3 で) ナビゲーターが正解の色名を直言した
 // (docs/navigator_design.md §5 決定19)。正解をプロンプトに渡す以上、
 // **禁止指示を正解と同じ場所に置かない限り引きずられる**。
 func TestPromptWarnsAgainstLeakingAnswer(t *testing.T) {
@@ -228,35 +228,23 @@ func TestPromptWarnsAgainstLeakingAnswer(t *testing.T) {
 	}
 	character, _ := cfg.ByID("owl")
 
-	build := func(level int) string {
-		return BuildNavigatorPrompt(NavigatorPromptInput{
-			Prompt:      &cfg.Prompt,
-			Character:   character,
-			Session:     built,
-			StageIndex:  0,
-			RemainingMS: 120000,
-			HintLevel:   level,
-		})
+	p := BuildNavigatorPrompt(NavigatorPromptInput{
+		Prompt:      &cfg.Prompt,
+		Character:   character,
+		Session:     built,
+		StageIndex:  0,
+		RemainingMS: 120000,
+	})
+
+	// 色名を伏せたうえで、その色は**ナビにも分からない**と併記する (決定40)。
+	// 「伏せてあります」と書くと「知っているが言えない」立場を取り、
+	// 「色は教えられん」と断る (決定134)。ヒントレベルは廃止し、常にこの形 (決定129)。
+	const warning = "あなたにも分からない色"
+	if !strings.Contains(p, warning) {
+		t.Error("伏せ字の色がナビにも分からないことを示す注記が無い")
 	}
-
-	// 文面ではなく**意図**で照合する。L4 未満は色名を伏せたうえで
-	// 「直言するな」と警告する (決定40)。
-	const warning = "正解の色名は伏せてあります"
-
-	for _, level := range []int{HintL1, HintL2, HintL3} {
-		p := build(level)
-		if !strings.Contains(p, warning) {
-			t.Errorf("L%d に警告がない", level)
-		}
-		// 現在のレベルが明示されること
-		if !strings.Contains(p, fmt.Sprintf("現在は L%d", level)) {
-			t.Errorf("L%d の表示がない", level)
-		}
-	}
-
-	// L4 は直言してよい段階なので警告を出さない
-	if p := build(HintL4); strings.Contains(p, warning) {
-		t.Error("L4 に不要な警告が入っている (直言してよい段階)")
+	if strings.Contains(p, "伏せてあります") {
+		t.Error("「伏せてあります」が残っている — 知っているが言えない立場を取らせる")
 	}
 }
 
@@ -289,8 +277,9 @@ func TestTutorialStageNeverNamesCutColor(t *testing.T) {
 	if !strings.Contains(procedure, "光っているランプと同じ色") {
 		t.Errorf("procedure が『光っているランプと同じ色』の形で指示していない: %s", procedure)
 	}
-	// 色名をこちらから言わない方針が明記されていること
-	if !strings.Contains(procedure, "色名はこちらから言わない") {
+	// 色名を先に言わない方針が明記されていること。
+	// 一人称 (「こちらから言わない」) で書くと台詞として写される (決定130)。
+	if !strings.Contains(procedure, "色名はプレイヤーより先に発話に入れない") {
 		t.Errorf("procedure に色名禁止の指示がない: %s", procedure)
 	}
 
@@ -298,12 +287,6 @@ func TestTutorialStageNeverNamesCutColor(t *testing.T) {
 	// ここに色名が入ると、ナビゲーターがそれを読み上げてしまう。
 	if name, ok := colorNameJA[stage.Cut]; ok && strings.Contains(procedure, name) {
 		t.Errorf("procedure に正解の色名 %q が展開されている: %s", name, procedure)
-	}
-
-	// hint_l3 は色名を言わない方針であること
-	hintL3 := stage.Navigator["hint_l3"]
-	if !strings.Contains(hintL3, "色名を自分から言ってはいけない") {
-		t.Errorf("hint_l3 に色名禁止の指示がない: %s", hintL3)
 	}
 }
 
@@ -328,21 +311,21 @@ func TestTutorialGivesConcreteDialPositions(t *testing.T) {
 		t.Fatalf("先頭ステージ = %s, want 101", stage.TemplateID)
 	}
 
-	// hint_l1 が「数字で指示する」ことを求めていること。
+	// procedure が「数字で指示する」ことを求めていること
+	// (hint_l1 から procedure へ一本化した。決定129)。
 	//
 	// **語尾は問わない**。ステージ知識は4キャラ共通で使われるため、
 	// 命令形の例文を書くと命令形を使わないキャラクター (ツグミ) が
 	// それを写して口調が崩れる (決定31)。ここで確かめたいのは
 	// 「具体的な位置を数字で言わせているか」であって命令形かどうかではない。
-	hintL1 := stage.Navigator["hint_l1"]
-	for _, want := range []string{"数字", "ダイヤルを0"} {
-		if !strings.Contains(hintL1, want) {
-			t.Errorf("hint_l1 に %q がない — 位置を数字で言う指示が抜けている: %s", want, hintL1)
+	procedure := stage.Navigator["procedure"]
+	for _, want := range []string{"数字", "0 →"} {
+		if !strings.Contains(procedure, want) {
+			t.Errorf("procedure に %q がない — 位置を数字で言う指示が抜けている: %s", want, procedure)
 		}
 	}
 
 	// procedure に3つの位置が全て展開されていること
-	procedure := stage.Navigator["procedure"]
 	if !strings.Contains(procedure, "数字で言うこと") {
 		t.Errorf("procedure に数字指示の強調がない: %s", procedure)
 	}
@@ -372,7 +355,6 @@ func TestPromptWithoutStageForbidsOperations(t *testing.T) {
 		Session:     built,
 		StageIndex:  len(built.Stages),
 		RemainingMS: 54700,
-		HintLevel:   HintL1,
 		RecentEvent: "解除に成功した!祝福する。",
 	})
 
@@ -391,13 +373,13 @@ func TestPromptWithoutStageForbidsOperations(t *testing.T) {
 	}
 }
 
-// TestPromptRedactsCutColorBelowL4 は、L4 未満のプロンプトに
+// TestPromptRedactsCutColor は、プロンプトに
 // **正解の色名そのものが入らない**ことを確かめる (決定40)。
 //
 // 「書いてあるが言うな」は守られないことがある — 目の前にある語はなぞられる
 // (決定19・27)。実測でも 616発話中1件残っていた。無い語は言いようがないので、
-// L4 未満では色名を伏せ字に置き換える。
-func TestPromptRedactsCutColorBelowL4(t *testing.T) {
+// 色名は常に伏せ字に置き換える (ヒントレベル廃止後。決定129)。
+func TestPromptRedactsCutColor(t *testing.T) {
 	cfg := loadTestNavigator(t)
 	lib := loadTestLibrary(t)
 
@@ -412,31 +394,21 @@ func TestPromptRedactsCutColorBelowL4(t *testing.T) {
 		cutJA := colorNameJA[stage.Cut]
 		character, _ := cfg.ByID("owl")
 
-		build := func(level int) string {
-			return BuildNavigatorPrompt(NavigatorPromptInput{
-				Prompt: &cfg.Prompt, Character: character, Session: built,
-				StageIndex: 0, RemainingMS: 120000, HintLevel: level,
-			})
-		}
+		prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+			Prompt: &cfg.Prompt, Character: character, Session: built,
+			StageIndex: 0, RemainingMS: 120000,
+		})
 
-		// L4 未満: 正解行に色名が出ないこと
-		for _, level := range []int{HintL1, HintL2, HintL3} {
-			answerLine := extractAnswerLine(build(level))
-			if answerLine == "" {
-				t.Fatalf("seed=%d L%d: 正解行が見つからない", seed, level)
-			}
-			if strings.Contains(answerLine, cutJA) {
-				t.Errorf("seed=%d L%d: 正解行に色名 %q が残っている:\n  %s",
-					seed, level, cutJA, answerLine)
-			}
-			if !strings.Contains(answerLine, redactedColorMark) {
-				t.Errorf("seed=%d L%d: 伏せ字が入っていない:\n  %s", seed, level, answerLine)
-			}
+		// 正解行に色名が出ないこと (ヒントレベル廃止後は常に伏せる。決定129)
+		answerLine := extractAnswerLine(prompt)
+		if answerLine == "" {
+			t.Fatalf("seed=%d: 正解行が見つからない", seed)
 		}
-
-		// L4 は直言してよい段階なので、色名がそのまま入ること
-		if line := extractAnswerLine(build(HintL4)); !strings.Contains(line, cutJA) {
-			t.Errorf("seed=%d L4: 正解行に色名 %q が無い:\n  %s", seed, cutJA, line)
+		if strings.Contains(answerLine, cutJA) {
+			t.Errorf("seed=%d: 正解行に色名 %q が残っている:\n  %s", seed, cutJA, answerLine)
+		}
+		if !strings.Contains(answerLine, redactedColorMark) {
+			t.Errorf("seed=%d: 伏せ字が入っていない:\n  %s", seed, answerLine)
 		}
 	}
 }

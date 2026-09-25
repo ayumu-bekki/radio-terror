@@ -314,5 +314,6 @@ crosstalk-gen には `max_requests` (1回の実行の上限) があり、
 | 14 | ~~不正な `service_tier` は起動時に落とす~~ **覆った** | 綴りが正しくても 400 になるため、検証しても意味がない |
 | 15 | ~~未設定の `service_tier` は空文字で表す~~ **覆った** | 項目自体が無くなった。ただし `genai.ServiceTierUnspecified` の実体が文字列 `"unspecified"` で `omitempty` に落ちない性質は、**再導入時に踏み直す罠**として `docs/adr.md` G-5 に残してある |
 | 16 | Interactions API へは移行しない (2026-08 時点) | **Go SDK に存在しない** (v1.68.0 の `genai.Client` に `Interactions` フィールドが無く、`client.Interactions.Create` はコンパイルが通らない)。かつ `v1beta2/interactions` は APIキー認証の Gemini Developer API 系で決定9と衝突する。`generateContent` は「レガシーだが完全にサポート」で廃止期限の告知も無い。追跡先は go-genai issue #658 (Open/P1) |
+| 17 | 429 だけ1回再試行し、504 は再試行しない | 429 は共有クォータの一時的な混雑で、シミュレーション1回あたり数件出ていた (1秒空けて撃ち直す)。504 は SDK が ctx の期限 (20秒) をサーバーへ渡した結果、サーバー側で期限を使い切ったもの (2件とも18.6秒で返った)。撃ち直しても残り時間が無い。ADR G-7 |
 
 <!-- EOF -->

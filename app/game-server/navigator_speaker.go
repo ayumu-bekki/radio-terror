@@ -86,7 +86,7 @@ func (n *GeminiNavigator) SetCrosstalkScheduler(scheduler *CrosstalkScheduler) {
 	n.crosstalk = scheduler
 }
 
-// generateReply はプロンプト組み立て・生成AI呼び出し・ヒントレベル反映・
+// generateReply はプロンプト組み立て・生成AI呼び出し・
 // ログ追記までを行う (Speak と SpeakText の共有部分)。
 //
 // TTS生成・SFX連結・無線送出はここには含まない。**Speak(TTS込み)と
@@ -97,20 +97,6 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	session.mu.Lock()
 	stageIndex := session.StageIndex
 	remainingMS := session.RemainingMS
-	budget := 0
-	if session.Built != nil {
-		budget = session.Built.StageBudgetMS
-	}
-	// ヒント閾値は**ステージごとに引く**。難易度の値を基本に、
-	// ステージ定義の [hints] で上書きされている場合がある (ADR N-36)。
-	hints := HintRule{}
-	if session.Built != nil {
-		hints = session.Built.Hints
-		if stageIndex >= 0 && stageIndex < len(session.Built.Stages) {
-			hints = session.Built.Stages[stageIndex].Hints
-		}
-	}
-	level := HintLevel(&session.progress, budget, hints, time.Now())
 
 	// 残り時間が僅少になったことを、この発話で初めて伝えるか
 	// (セッション中に1回だけ。旧 time_warning トリガーの置き換え)。
@@ -122,6 +108,20 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	announceUrgent = !session.urgentNoticed &&
 		remainingMS > 0 && remainingMS <= n.config.Prompt.UrgentThresholdMS &&
 		trigger != "exploded" && trigger != "defused"
+	// 誤った報告は**プレイヤー発話への応答でだけ**扱う (ADR N-9b)。
+	// 無応答の声掛けなど他のトリガーで反応すると、古い報告を蒸し返す。
+	wrongReport, wrongCount, wrongMismatch := "", 0, false
+	correctedFrom, correctedTo := "", ""
+	justAdvanced := false
+	if trigger == "player_message" {
+		wrongReport = session.progress.LastWrongReport
+		wrongCount = session.progress.WrongReportCount
+		wrongMismatch = session.progress.LastWrongIsMismatch
+		correctedFrom, correctedTo = session.progress.CorrectedFrom, session.progress.CorrectedTo
+		// 突破後の最初の報告への返答で1回だけ使う (決定127)
+		justAdvanced = session.firstReportAfterStage
+		session.firstReportAfterStage = false
+	}
 	session.mu.Unlock()
 
 	history := ""
@@ -135,11 +135,17 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		Session:     session.Built,
 		StageIndex:  stageIndex,
 		RemainingMS: remainingMS,
-		HintLevel:   level,
 		RecentEvent: event,
 		History:     history,
 
 		AnnounceUrgent: announceUrgent,
+
+		WrongReport:         wrongReport,
+		WrongReportCount:    wrongCount,
+		WrongReportMismatch: wrongMismatch,
+		CorrectedFrom:       correctedFrom,
+		CorrectedTo:         correctedTo,
+		JustAdvanced:        justAdvanced,
 	})
 
 	instruction := n.config.Prompt.TriggerInstruction(trigger)
@@ -149,28 +155,23 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 
 	reply, err := n.processor.GenerateNavigatorReply(ctx, prompt, instruction)
 	if err != nil {
+		// プレイヤーへ何も返せなかったので、この発話で使った印を戻す (決定131)。
+		// 戻さないと、誤った報告が確かめ直しを経ずに不正解の線を切らせる
+		// 段階へ進み、突破直後の印も失われる。
+		if trigger == "player_message" {
+			session.mu.Lock()
+			session.progress.UndoReport(wrongReport, wrongCount)
+			session.progress.UndoCorrection(correctedFrom)
+			if justAdvanced {
+				session.firstReportAfterStage = true
+			}
+			session.mu.Unlock()
+		}
 		// 生成AIの障害時は自動フォールバックを設けず、マネージャー介入で運用する
 		// (docs/game_session_design.md §9)。Web画面で検知できるようログに残す。
 		return "", false, remainingMS, fmt.Errorf("GenerateNavigatorReply: %w", err)
 	}
 	text = reply.Reply
-
-	// 観察の報告があったら記録する。次の発話からヒントレベルが前倒しされる
-	// (docs/navigator_design.md §3.2 / 決定54)。
-	//
-	// **一度立てたら下ろさない。** 報告できたという事実はその後の発話で
-	// 覆らないが、モデルは直近の発話だけを見て false を返しうる。
-	// 下ろすとレベルが L2 → L1 へ落ち、同じ空振りが再発する。
-	if reply.Observed {
-		session.mu.Lock()
-		first := !session.progress.Observed
-		session.progress.Observed = true
-		session.mu.Unlock()
-		if first {
-			log.Printf("[navigator %s] observation reported: stage=%d (hint level front-loaded)",
-				session.DeviceID, stageIndex)
-		}
-	}
 
 	// 文字数を併記する。無線を塞ぐ長さになっていないか運用中に確認するため
 	// (出力ルールで 60 文字以内を指示しているが、生成AIが守るとは限らない)。
@@ -180,8 +181,8 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	// 警告が「名乗ったから長い」で埋まって本当の超過が見えなくなる。
 	// ログには全長も併記して、実際に無線を塞ぐ長さは追えるようにする。
 	bodyRunes := countBodyRunes(text, session.Character.Name)
-	log.Printf("[navigator %s/%s] (%s L%d, %d runes / %d total) %s",
-		session.DeviceID, session.Character.Name, trigger, level,
+	log.Printf("[navigator %s/%s] (%s, %d runes / %d total) %s",
+		session.DeviceID, session.Character.Name, trigger,
 		bodyRunes, countRunes(text), text)
 
 	// **残り時間の告知を添えた発話は目安を広げる。**
@@ -216,7 +217,7 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 // (コンソールモード専用。TTS/無線送出を行わない)。
 //
 // generateReply を直接呼ぶだけで、Speak と全く同じプロンプト組み立て・
-// ヒントレベル計算・ログ追記を経る。
+// ログ追記を経る。
 func (n *GeminiNavigator) SpeakText(ctx context.Context, session *GameSession, trigger, event string) (string, error) {
 	text, announceUrgent, _, err := n.generateReply(ctx, session, trigger, event)
 	if err != nil {

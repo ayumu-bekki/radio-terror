@@ -38,7 +38,7 @@ func newConsoleTestSession(t *testing.T, stageCount int) (*GameCoordinator, *Gam
 		State: deviceStatePlaying, StageIndex: 0, RemainingMS: built.CountdownMS,
 		Built: built, StartedAt: time.Now(), ConsoleMode: true,
 	}
-	session.progress.Reset(time.Now())
+	session.progress.Reset()
 	game.binder.Bind("console-1", deviceID, session)
 
 	return game, session, conn, store
@@ -158,7 +158,7 @@ func TestNonConsoleSessionsExcludesConsole(t *testing.T) {
 		State: deviceStatePlaying, StageIndex: 0, RemainingMS: built.CountdownMS,
 		Built: built, StartedAt: time.Now(),
 	}
-	realSession.progress.Reset(time.Now())
+	realSession.progress.Reset()
 	game.binder.Bind("bridge-1", "0001", realSession)
 
 	sessions := game.NonConsoleSessions()
@@ -218,5 +218,34 @@ func TestForgetStatusRemovesDeviceCompletely(t *testing.T) {
 	}
 	if devices.Status("console-1") != nil {
 		t.Error("ForgetStatus 後も状態が残っている")
+	}
+}
+
+// TestFirstReportAfterStageIsMarkedOnce は、課題の突破後に最初に届いた
+// プレイヤー発話にだけ「切り替わり直後」の印が付くことを確認する (決定127)。
+// awaitingStageReport は NoteQuestion で下ろされるため、下ろす直前に写す。
+func TestFirstReportAfterStageIsMarkedOnce(t *testing.T) {
+	game, session, _, _ := newConsoleTestSession(t, 2)
+
+	game.HandleDeviceMessage(context.Background(), &deviceMessage{
+		Type: msgStageCleared, DeviceID: session.DeviceID,
+		StageIndex: 0, RemainingMS: session.RemainingMS,
+	})
+	game.NotePlayerReport(session.DeviceID, "切れました")
+
+	session.mu.Lock()
+	marked, awaiting := session.firstReportAfterStage, session.awaitingStageReport
+	session.firstReportAfterStage = false // generateReply が1回で消費する
+	session.mu.Unlock()
+	if !marked || awaiting {
+		t.Fatalf("firstReportAfterStage=%v awaitingStageReport=%v", marked, awaiting)
+	}
+
+	game.NotePlayerReport(session.DeviceID, "ランプが1つ光っています")
+	session.mu.Lock()
+	marked = session.firstReportAfterStage
+	session.mu.Unlock()
+	if marked {
+		t.Error("2つ目の発話にも印が付いた")
 	}
 }

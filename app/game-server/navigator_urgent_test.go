@@ -22,7 +22,6 @@ func TestUrgentNoticeBlockPresentOnlyWhenAnnounced(t *testing.T) {
 			Character:      character,
 			StageIndex:     0,
 			RemainingMS:    45000,
-			HintLevel:      HintL1,
 			AnnounceUrgent: announce,
 		})
 	}

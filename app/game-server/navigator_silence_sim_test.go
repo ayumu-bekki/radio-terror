@@ -124,7 +124,6 @@ func TestSimulateSilence(t *testing.T) {
 				Session:     built,
 				StageIndex:  0,
 				RemainingMS: 180000,
-				HintLevel:   HintL1,
 				RecentEvent: "",
 				History:     logs.Render(),
 			})
@@ -144,9 +143,9 @@ func TestSimulateSilence(t *testing.T) {
 				}
 			}
 
-			// **正解色を漏らしていないか** (L1 なので伏せる。ADR N-1)
+			// **正解色を漏らしていないか** (常に伏せる。ADR N-1)
 			if cutJA != "" && strings.Contains(body, cutJA) {
-				t.Errorf("    ✗ 正解色 %q が漏れた (L1)", cutJA)
+				t.Errorf("    ✗ 正解色 %q が漏れた", cutJA)
 			}
 
 			// 表情タグは許可された語のみ (ADR T-5)

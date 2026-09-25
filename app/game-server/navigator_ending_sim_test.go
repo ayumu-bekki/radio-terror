@@ -150,7 +150,6 @@ func TestSimulateEndings(t *testing.T) {
 				Session:     built,
 				StageIndex:  stageIndex,
 				RemainingMS: 43000,
-				HintLevel:   HintL1,
 				RecentEvent: scene.Event,
 				History:     logs.Render(),
 			})

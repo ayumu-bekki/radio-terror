@@ -86,54 +86,6 @@ type StageTemplate struct {
 
 	// Navigator はナビゲーター向けステージ知識 (${...} を含む)。
 	Navigator map[string]string `toml:"navigator"`
-
-	// KeepCutSecret は**L4 (直言) でも切る線の色名を伏せ続ける**指定 (ADR N-38)。
-	//
-	// 色名を言うと**課題そのものが消える**ステージに付ける。
-	// 203 ブループリント (回路図シートを読む工程)、301 LED照合 (資料3枚の読み解き)、
-	// 202 暗号電文 (モールス解読) が該当する。
-	//
-	// **散文の但し書きに頼らない。** これらのステージは answer に
-	// 「こちらからは言わない」と書いてあったが、L4 では answer が
-	// 生の色名込みでプロンプトに載り、ヒントポリシーが
-	// 「正解をそのまま伝えてよい」と指示するため**但し書きが負ける**。
-	// 目の前にある語はなぞられる (N-1)。フラグで機械的に伏せる。
-	KeepCutSecret bool `toml:"keep_cut_secret"`
-
-	// Hints は難易度テンプレートのヒント閾値に対する**ステージ単位の上書き**。
-	//
-	// 既定 (未指定) は難易度テンプレートの値をそのまま使う。
-	// 上書きが要るのは「そのレベルがステージを壊す」場合だけ (ADR N-36)。
-	// 204 色合わせは**正解がプレイヤーの記憶の中にしかない**ため、
-	// L4 (正解の直言) が課題そのものを消してしまう。`l4_pct = 0` で塞ぐ。
-	Hints StageHintOverride `toml:"hints"`
-}
-
-// StageHintOverride はヒント閾値のステージ単位の上書き (ADR N-36)。
-//
-// **項目ごとに任意**。書いた項目だけが上書きされ、残りは難易度テンプレートの
-// 値をそのまま使う。`0` は「そのレベルの無効化」という**意味を持つ値**
-// (ハードの `l4_pct = 0`) なので、「0 なら未指定」とは読めない。
-// ポインタにして**書かれたかどうか**を型で区別する。
-type StageHintOverride struct {
-	L2Pct *int `toml:"l2_pct"`
-	L3Pct *int `toml:"l3_pct"`
-	L4Pct *int `toml:"l4_pct"`
-}
-
-// Apply は難易度のヒント閾値へこの上書きを適用した結果を返す。
-// 未指定の項目は base のまま。
-func (o StageHintOverride) Apply(base HintRule) HintRule {
-	if o.L2Pct != nil {
-		base.L2Pct = *o.L2Pct
-	}
-	if o.L3Pct != nil {
-		base.L3Pct = *o.L3Pct
-	}
-	if o.L4Pct != nil {
-		base.L4Pct = *o.L4Pct
-	}
-	return base
 }
 
 // DifficultyTemplate は難易度テンプレート (scenarios/difficulty/*.toml)。
@@ -144,7 +96,6 @@ type DifficultyTemplate struct {
 
 	Compose   ComposeRule   `toml:"compose"`
 	Crosstalk CrosstalkRule `toml:"crosstalk"`
-	Hints     HintRule      `toml:"hints"`
 	Load      LoadRule      `toml:"load"`
 }
 
@@ -159,7 +110,7 @@ type DifficultyTemplate struct {
 // **0 は組み立てエラーにする**。難易度テンプレートに書き忘れたまま
 // 抽選が通ってしまうのを防ぐ。
 type LoadRule struct {
-	// ColorMatchMin / ColorMatchMax は色合わせ (206) で押す回数の範囲。
+	// ColorMatchMin / ColorMatchMax は色合わせ (204) で押す回数の範囲。
 	//
 	// **無線で口頭確認できない量**にはしない。押し終えるまで手がかりが
 	// 増えないため、多すぎると「まだ終わらない」だけの時間になる。
@@ -279,14 +230,6 @@ type CrosstalkRule struct {
 	Jamming int `toml:"jamming"` // 邪魔者系
 	Ambient int `toml:"ambient"` // 環境ボイス系
 	Uneasy  int `toml:"uneasy"`  // 不穏系
-}
-
-// HintRule はヒント閾値のステージ予算に対する比率(%) (docs/navigator_design.md §3.2)。
-// 0 の場合はそのレベルを無効にする (ハードの L4 など)。
-type HintRule struct {
-	L2Pct int `toml:"l2_pct"`
-	L3Pct int `toml:"l3_pct"`
-	L4Pct int `toml:"l4_pct"`
 }
 
 // ScenarioLibrary はロード済みのステージ・難易度テンプレートを保持する。
