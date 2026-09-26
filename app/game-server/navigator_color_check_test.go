@@ -318,3 +318,92 @@ func stageShownColors(stage *BuiltStage) map[string]bool {
 	}
 	return shown
 }
+
+// TestMorseReportNoteRegroupsAndDecodes は、区切り違い (ZC と MIKE は長短の並びが
+// 同じ) を見つけることと、長短の並びでの報告を文字に直すことを確かめる (決定146)。
+func TestMorseReportNoteRegroupsAndDecodes(t *testing.T) {
+	cases := []struct{ text, want string }{
+		{"ゼットシーというものを繰り返すように点灯しています", "MIKE"},
+		{"DCAYです", "XRAY"},
+		{"長長、短短、長短長、短", "並べると「MIKE」"},
+		{"最初は長・長で、次が短短です", "長・長→M、短短→I"},
+		{"MANGOでした", "TANGO"},
+	}
+	for _, c := range cases {
+		if got := morseReportNote(c.text); !strings.Contains(got, c.want) {
+			t.Errorf("morseReportNote(%q) に %q が無い:\n%s", c.text, c.want, got)
+		}
+	}
+	// 区切り違いの候補があれば、一般論ではなく具体的な違いを渡す (決定147)
+	zc := morseReportNote("ZCです")
+	if !strings.Contains(zc, "Z(－－・・) → M(－－)+I(・・)") || strings.Contains(zc, "つまずいている所から") {
+		t.Errorf("ZC: 区切りの違いが具体的でない、または一般論が混ざっている:\n%s", zc)
+	}
+	etlfet := morseReportNote("ETLFETです")
+	if !strings.Contains(etlfet, "1〜2文字目 E(・)+T(－) → A(・－)") {
+		t.Errorf("ETLFET: E+T → A の区切り違いが無い:\n%s", etlfet)
+	}
+	// 候補の無い短い綴りでは、読み方を基礎から教える
+	if !strings.Contains(morseReportNote("QQです"), "つまずいている所から") {
+		t.Error("候補の無い2文字の綴りで、読み方を基礎から教える指示が無い")
+	}
+	if morseStream("ZC") != morseStream("MIKE") {
+		t.Error("ZC と MIKE の長短の並びが一致しない")
+	}
+}
+
+// TestMorseNoteHelpsWithMergedDashes は、長い光の連続を1回に数えた読み違い
+// (HOTEL を EEEETEETEE) に、長短の並びで近い単語と回数の違いを渡すことを確かめる (決定148)。
+func TestMorseNoteHelpsWithMergedDashes(t *testing.T) {
+	note := morseReportNote("EEEETEETEEでした")
+	for _, want := range []string{"HOTEL", "長い光5回", "報告は長い光2回", "E と T だけ"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("%q が無い:\n%s", want, note)
+		}
+	}
+	var p StageProgress
+	p.NoteMorseReport(morseReportNote("EEEETEETEEでした"))
+	p.NoteMorseReport(morseReportNote("EEEETELですね"))
+	if p.MorseMisses != 2 {
+		t.Errorf("表に無い報告が2回続いたのに MorseMisses = %d", p.MorseMisses)
+	}
+	p.NoteMorseReport(morseReportNote("HOTELでした"))
+	if p.MorseMisses != 0 {
+		t.Errorf("表にある報告で戻らない: %d", p.MorseMisses)
+	}
+	// 秒数は言わない (点滅を見ながら測れない)。見え方と数え方で教える
+	for _, want := range []string{"一呼吸", "指を折って", "「/」"} {
+		if !strings.Contains(morseReadingGuide, want) {
+			t.Errorf("読み方に %q が無い", want)
+		}
+	}
+}
+
+// TestMorseTipAdvances は、読み違いが続くと伝えるコツが進むことと、
+// 読み違いの種類で最初のコツが変わることを確かめる (決定148)。
+func TestMorseTipAdvances(t *testing.T) {
+	etNote := morseReportNote("EEEETEETEEでした")
+	if tip := morseTipFor(etNote, 1); !strings.Contains(tip, "一呼吸") {
+		t.Errorf("E と T だけの綴りの最初のコツ = %q", tip)
+	}
+	if morseTipFor(etNote, 1) == morseTipFor(etNote, 2) {
+		t.Error("読み違いが続いてもコツが変わらない")
+	}
+}
+
+// TestMorseNoteNoviceAndLooseWords は、読み方が分からない様子を拾うことと、
+// 「長く」「短く」のような普通の言葉を長短の報告と取り違えないことを確かめる (決定149)。
+func TestMorseNoteNoviceAndLooseWords(t *testing.T) {
+	if note := morseReportNote("ランプが1つ、長く光ったり短く光ったりしています"); note != "" {
+		t.Errorf("普通の言葉を長短の報告と取り違えた:\n%s", note)
+	}
+	if !strings.Contains(morseReportNote("モールス符号の読み方は分かりません"), morseNoviceMark) {
+		t.Error("読み方が分からない様子を拾えていない")
+	}
+	var p StageProgress
+	p.NoteMorseReport(morseReportNote("分かりません"))
+	p.NoteMorseReport(morseReportNote("まだよく分からないです"))
+	if p.MorseLessons != 2 || morseNoviceTip(1) == morseNoviceTip(2) {
+		t.Errorf("教えるコツが進まない: lessons=%d", p.MorseLessons)
+	}
+}

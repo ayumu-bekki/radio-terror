@@ -231,10 +231,11 @@ var simScripts = map[string]simScript{
 				Player: "1つのランプが長く光ったり短く光ったりしています。どうぞ"},
 			{Trigger: "player_message",
 				Player: "モールスですね。シートの対照表で読んでみます。どうぞ"},
+			// 202 は英字1文字 (決定152)
 			{Trigger: "player_message",
-				Player: "読めました。${navi_word_guess}という単語だと思います。どうぞ"},
+				Player: "読めました。${navi_word_guess}という文字だと思います。どうぞ"},
 			{Trigger: "player_message",
-				Player: "頭文字を対照表で引きました。この色でいいですか。どうぞ"},
+				Player: "その文字の行を対照表で引きました。この色でいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "silence_after_stage"},

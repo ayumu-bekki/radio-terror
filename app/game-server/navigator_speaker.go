@@ -112,12 +112,22 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	// 無応答の声掛けなど他のトリガーで反応すると、古い報告を蒸し返す。
 	wrongReport, wrongCount, wrongMismatch := "", 0, false
 	correctedFrom, correctedTo := "", ""
+	morseNote := ""
+	morseGoalTold := false
+	morseMisses := 0
+	morseLessons := 0
+	morseMentioned := false
 	justAdvanced := false
 	if trigger == "player_message" {
 		wrongReport = session.progress.LastWrongReport
 		wrongCount = session.progress.WrongReportCount
 		wrongMismatch = session.progress.LastWrongIsMismatch
 		correctedFrom, correctedTo = session.progress.CorrectedFrom, session.progress.CorrectedTo
+		morseNote = session.progress.LastMorseNote
+		morseGoalTold = session.progress.MorseGoalTold
+		morseMisses = session.progress.MorseMisses
+		morseLessons = session.progress.MorseLessons
+		morseMentioned = session.progress.MorseMentioned
 		// 突破後の最初の報告への返答で1回だけ使う (決定127)
 		justAdvanced = session.firstReportAfterStage
 		session.firstReportAfterStage = false
@@ -145,6 +155,11 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		WrongReportMismatch: wrongMismatch,
 		CorrectedFrom:       correctedFrom,
 		CorrectedTo:         correctedTo,
+		MorseReportNote:     morseNote,
+		MorseGoalTold:       morseGoalTold,
+		MorseMisses:         morseMisses,
+		MorseLessons:        morseLessons,
+		MorseMentioned:      morseMentioned,
 		JustAdvanced:        justAdvanced,
 	})
 
@@ -172,6 +187,9 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		return "", false, remainingMS, fmt.Errorf("GenerateNavigatorReply: %w", err)
 	}
 	text = reply.Reply
+	session.mu.Lock()
+	session.progress.NoteNavigatorReply(text)
+	session.mu.Unlock()
 
 	// 文字数を併記する。無線を塞ぐ長さになっていないか運用中に確認するため
 	// (出力ルールで 60 文字以内を指示しているが、生成AIが守るとは限らない)。

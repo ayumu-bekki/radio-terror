@@ -51,7 +51,9 @@ func (t *StageTemplate) LiteralVars() map[string]bool {
 	literal := map[string]bool{}
 	for name, def := range t.Random {
 		kind, _ := def["pick"].(string)
-		if kind == "morse_letters" {
+		// morse_word も文字そのもの。202 は英字1文字を出題するので (決定152)、
+		// A-E を引くと色名に化けて「伏せる語が『緑』」になった
+		if kind == "morse_letters" || kind == "morse_word" {
 			literal[name] = true
 		}
 		// nth は元の変数の性質を継ぐ (letters から取り出した1文字も色ではない)

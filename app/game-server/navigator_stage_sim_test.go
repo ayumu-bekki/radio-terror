@@ -309,10 +309,19 @@ func simulateStage(
 		// 本番と同じく、プレイヤー発話から誤った色を数える (決定124・決定135)。
 		// player_message 以外のトリガーでは渡さない (generateReply と同じ)。
 		wrongReport := ""
+		morseNote := ""
 		justAdvanced := false
 		if turn.Trigger == "player_message" {
 			simProgress.NoteReport(player, stageLampStates(built.Stages[0]))
 			wrongReport = simProgress.LastWrongReport
+			// 本番と同じく、単語を伏せたモールスの課題では表と照合する (決定143)
+			if stageSecretWord(built.Stages[0]) != "" {
+				simProgress.NoteMorseReport(morseNoteForStage(built.Stages[0], player))
+				morseNote = simProgress.LastMorseNote
+			}
+			if built.Stages[0].Navigator["morse_sheet"] != "" {
+				simProgress.NotePlayerMorseKnowledge(player)
+			}
 			justAdvanced = simAfterStage
 			simAfterStage = false
 		}
@@ -342,6 +351,11 @@ func simulateStage(
 			WrongReportMismatch: simProgress.LastWrongIsMismatch,
 			CorrectedFrom:       simProgress.CorrectedFrom,
 			CorrectedTo:         simProgress.CorrectedTo,
+			MorseReportNote:     morseNote,
+			MorseGoalTold:       simProgress.MorseGoalTold,
+			MorseMisses:         simProgress.MorseMisses,
+			MorseLessons:        simProgress.MorseLessons,
+			MorseMentioned:      simProgress.MorseMentioned,
 			JustAdvanced:        justAdvanced,
 		})
 
@@ -355,6 +369,8 @@ func simulateStage(
 			continue
 		}
 		reply := gen.Reply
+		// 本番 (generateReply) と同じく、ゴールを伝えたかを記録する (決定145)
+		simProgress.NoteNavigatorReply(reply)
 		logs.Append(sessionID, ConversationEntry{
 			Sender: character.Name, Receiver: senderPlayer, Message: stripTTSTags(reply),
 		})
@@ -640,6 +656,10 @@ func simFirstPushColor(stage *BuiltStage) string {
 // simMorseWordFrom はモールス表示の語を展開済み answer から拾う。
 // モールスを使わないステージでは空文字を返す。
 func simMorseWordFrom(stage *BuiltStage) string {
+	// 伏せる語 (モールスの正解) があればそれを使う。202 は英字1文字 (決定152)
+	if word := stageSecretWord(stage); word != "" {
+		return word
+	}
 	if m := simMorseWordPattern.FindString(stage.Navigator["answer"]); m != "" {
 		return m
 	}

@@ -493,3 +493,720 @@ func TestPreviousStageColorNotReused(t *testing.T) {
 		}
 	}
 }
+
+// TestMorseMisreadNotCorrected は、モールスの読み違いに対してナビが
+// 「違う」と言い切らず、表にある単語を「無い」と言わず、近い単語や
+// 読み方を示して導くことを確かめる (決定141〜143)。
+// 実運用: RLFA に「アルファのことや」、ORAVA→OSCAR に「違う」を繰り返して
+// 「BRAVOを探せ」、MANGO に「MIKE は表に載ってない」と言って手詰まりにした。
+// 近い単語を挙げること自体は許す (ユーザー判断。決定143)。返答は目でも確かめる。
+func TestMorseMisreadNotCorrected(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	build := func(word string) *BuiltSession {
+		for seed := int64(1); seed < 500; seed++ {
+			b, err := simBuildStage(lib, cfg.MissionSheet, "302", seed)
+			if err == nil && b.Stages[0].Navigator["secret_word"] == word {
+				return b
+			}
+		}
+		t.Fatalf("%s を引く抽選が見つからない", word)
+		return nil
+	}
+
+	cases := []struct {
+		word    string
+		reports []string
+	}{
+		{"ALFA", []string{
+			"アールエルエフエーとなりました。どうぞ",
+			"先頭がアールでしたが大丈夫ですか?どうぞ",
+		}},
+		{"BRAVO", []string{
+			"ORAVAとなりました。これをどうすればよい?どうぞ",
+			"ORAVOでした。該当する単語がないです。どうぞ",
+		}},
+		{"TANGO", []string{
+			"MANGOでした。マンゴー?どうぞ",
+			"MANGOがありません。MIKEでしょうか?どうぞ",
+			"だからないのです。どうしましょう?どうぞ",
+		}},
+	}
+	// 言い切り。問いかけの形 (「ちゃうか」「間違いじゃないか」) は除く
+	assert := regexp.MustCompile(`違う[。、]|違います|ちゃう[。、わで]|間違って(る|いる)`)
+	echoWorry := regexp.MustCompile(`違う(くらい|ても|て|のは)`)
+	// 表にある単語を「無い」と言っていないか (「MIKE…載ってない」)
+	var tableWords []string
+	for _, r := range morseSheetRows {
+		tableWords = append(tableWords, r.word)
+	}
+	absentClaim := regexp.MustCompile(`(` + strings.Join(tableWords, "|") + `)[はも]?(表に)?(載ってない|載っていない|載ってへん|無い|ありません)`)
+
+	for _, c := range cases {
+		built := build(c.word)
+		for _, character := range navCfg.Characters {
+			logs := NewSessionLogStore(nil)
+			id := "morse-" + character.ID
+			var progress StageProgress
+			logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: "黄色が点滅しています。どうぞ"})
+			logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+				Message: "それはモールス信号で1つの単語を繰り返している。フォネティックコードだ。手元の資料1で解読してくれ。どうぞ"})
+			for _, report := range c.reports {
+				logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: report})
+				// 本番 (NotePlayerReport) と同じく、表と照合して記録する
+				progress.NoteMorseReport(morseNoteForStage(built.Stages[0], report))
+				progress.NotePlayerMorseKnowledge(report)
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+				})
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("player_message"))
+				if err != nil {
+					t.Errorf("%s: %v", character.ID, err)
+					break
+				}
+				reply := stripTTSTags(gen.Reply)
+				progress.NoteNavigatorReply(reply)
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+				t.Logf("[%s] %s\n  P> %s\n  N> %s", c.word, character.Name, report, reply)
+				if m := assert.FindString(echoWorry.ReplaceAllString(reply, "")); m != "" {
+					t.Errorf("[%s] %s: 正誤を言い切った (%s)", c.word, character.Name, m)
+				}
+				if m := absentClaim.FindString(reply); m != "" {
+					t.Errorf("[%s] %s: 表にある単語を無いと言った (%s)", c.word, character.Name, m)
+				}
+			}
+		}
+	}
+}
+
+// TestMorseLeadsToCut は、読み違いから正しい単語にたどり着いたプレイヤーを、
+// ナビが「同じ行の色の線を切る」まで導くことを確かめる (決定144)。
+// 実運用: 202 (正解=INDIA) で「ANDIO」→「どうすればよい?」→「INDIAだったよ?」に、
+// 「符号を見直して」「見比べて」を繰り返し、切る指示が出るまで5往復かかった。
+func TestMorseLeadsToCut(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	var built *BuiltSession
+	for seed := int64(1); seed < 500 && built == nil; seed++ {
+		b, err := simBuildStage(lib, cfg.MissionSheet, "302", seed)
+		if err == nil && b.Stages[0].Navigator["secret_word"] == "INDIA" {
+			built = b
+		}
+	}
+	if built == nil {
+		t.Fatal("INDIA を引く抽選が見つからない")
+	}
+
+	// mustCut は、その返答で「切る」まで伝えるべきか
+	steps := []struct {
+		report  string
+		mustCut bool
+	}{
+		{"点滅しています。ANDIOというモールス信号ですね。どうぞ", false},
+		{"確かにそうかも。それでどうすればよい?どうぞ", true},
+		{"INDIAだったよ。どうぞ", true},
+	}
+	for _, character := range navCfg.Characters {
+		for round := 0; round < 2; round++ {
+			logs := NewSessionLogStore(nil)
+			id := "lead-" + character.ID
+			var progress StageProgress
+			logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+				Message: "表面のランプはどうなってる? どうぞ"})
+			for i, st := range steps {
+				logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: st.report})
+				progress.NoteMorseReport(morseNoteForStage(built.Stages[0], st.report))
+				progress.NotePlayerMorseKnowledge(st.report)
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+				})
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("player_message"))
+				if err != nil {
+					t.Errorf("%s: %v", character.ID, err)
+					break
+				}
+				reply := stripTTSTags(gen.Reply)
+				progress.NoteNavigatorReply(reply)
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+				t.Logf("%s #%d-%d\n  P> %s\n  N> %s", character.Name, round+1, i+1, st.report, reply)
+				if st.mustCut && !strings.Contains(reply, "切") {
+					t.Errorf("%s #%d-%d: 同じ行の色の線を切る、まで伝えていない", character.Name, round+1, i+1)
+				}
+			}
+		}
+	}
+}
+
+// TestMorseExplainsFlow は、最初の発話がいきなり綴りでも、ナビが課題の全体像
+// (モールス → 資料1の表の符号で読む → 単語の行 → その色の線) を伝え、
+// 「〜って何?」には流れを説明し直すことを確かめる (決定145)。
+// 実運用: 「DCAYというモールス符号が読み取れます」に照合結果だけを返し、
+// 「同じ行って何?」「資料って何?」に結論の言い換えを繰り返した。
+func TestMorseExplainsFlow(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	var built *BuiltSession
+	for seed := int64(1); seed < 500 && built == nil; seed++ {
+		b, err := simBuildStage(lib, cfg.MissionSheet, "302", seed)
+		if err == nil && b.Stages[0].Navigator["secret_word"] == "XRAY" {
+			built = b
+		}
+	}
+	if built == nil {
+		t.Fatal("XRAY を引く抽選が見つからない")
+	}
+	sheet := cfg.MissionSheet.Documents.Morse
+
+	// プレイヤーは自分からモールスだと言う (勘の良いプレイヤー。決定145)
+	// want は返答に含まれるべき語 (いずれかの組ごとに1つ以上)
+	steps := []struct {
+		report string
+		want   [][]string
+	}{
+		{"DCAYというモールス符号がランプから読み取れます。どうぞ",
+			[][]string{{"表", "一覧"}, {"行"}, {"切"}}},
+		// 聞かれた言葉が流れのどこに当たるかを示せていればよい
+		{"同じ行って何?どうぞ",
+			[][]string{{"並", "横", "列"}, {"色"}}},
+		{"資料って何?どうぞ",
+			[][]string{{sheet, "紙", "手元"}}},
+	}
+	for _, character := range navCfg.Characters {
+		for round := 0; round < 2; round++ {
+			logs := NewSessionLogStore(nil)
+			id := "flow-" + character.ID
+			var progress StageProgress
+			logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+				Message: "表面のランプはどうなってる? どうぞ"})
+			for i, st := range steps {
+				logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: st.report})
+				progress.NoteMorseReport(morseNoteForStage(built.Stages[0], st.report))
+				progress.NotePlayerMorseKnowledge(st.report)
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+				})
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("player_message"))
+				if err != nil {
+					t.Errorf("%s: %v", character.ID, err)
+					break
+				}
+				reply := stripTTSTags(gen.Reply)
+				progress.NoteNavigatorReply(reply)
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+				t.Logf("%s #%d-%d\n  P> %s\n  N> %s", character.Name, round+1, i+1, st.report, reply)
+				for _, group := range st.want {
+					if !hasAnyForm(reply, group) {
+						t.Errorf("%s #%d-%d: %v のどれも言っていない", character.Name, round+1, i+1, group)
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestMorseTeachesBasics は、文字の区切りを見落とした報告 (MIKE を ZC と読んだ) に、
+// ナビが責めずに区切りの見分け方を教え、長短の並びの報告から MIKE へ導くことを
+// 確かめる (決定146。実運用: 「ZCなんて表にない言うてるやろ」を繰り返し、
+// プレイヤーが「くたばれ、この役立たず」と怒った)。
+func TestMorseTeachesBasics(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	var built *BuiltSession
+	for seed := int64(1); seed < 500 && built == nil; seed++ {
+		b, err := simBuildStage(lib, cfg.MissionSheet, "302", seed)
+		if err == nil && b.Stages[0].Navigator["secret_word"] == "MIKE" {
+			built = b
+		}
+	}
+	if built == nil {
+		t.Fatal("MIKE を引く抽選が見つからない")
+	}
+
+	steps := []struct {
+		report string
+		want   []string // どれか1つ以上
+	}{
+		{"モールス信号でゼットシーというものを繰り返すように点灯しています。どうぞ", []string{"区切", "消え", "間", "MIKE", "マイク"}},
+		{"いや、ZCなんですが。どうぞ", []string{"区切", "消え", "間", "MIKE", "マイク", "長短"}},
+		{"長長、短短、長短長、短。どうぞ", []string{"MIKE", "マイク"}},
+	}
+	hostile := regexp.MustCompile(`言うてるやろ|言ってるだろ|何度も|いい加減|しつこい`)
+	for _, character := range navCfg.Characters {
+		for round := 0; round < 2; round++ {
+			logs := NewSessionLogStore(nil)
+			id := "basics-" + character.ID
+			var progress StageProgress
+			logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+				Message: "表面のランプはどうなってる? どうぞ"})
+			for i, st := range steps {
+				logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: st.report})
+				progress.NoteMorseReport(morseNoteForStage(built.Stages[0], st.report))
+				progress.NotePlayerMorseKnowledge(st.report)
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+				})
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("player_message"))
+				if err != nil {
+					t.Errorf("%s: %v", character.ID, err)
+					break
+				}
+				reply := stripTTSTags(gen.Reply)
+				progress.NoteNavigatorReply(reply)
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+				t.Logf("%s #%d-%d\n  P> %s\n  N> %s", character.Name, round+1, i+1, st.report, reply)
+				if !hasAnyForm(reply, st.want) {
+					t.Errorf("%s #%d-%d: %v のどれも言っていない", character.Name, round+1, i+1, st.want)
+				}
+				if m := hostile.FindString(reply); m != "" {
+					t.Errorf("%s #%d-%d: 責める言い方 (%s)", character.Name, round+1, i+1, m)
+				}
+			}
+		}
+	}
+}
+
+// TestMorseRegroupIsConcrete は、区切り違いの読み違いに、ナビが候補の単語と
+// どこをつなげるかを具体的に伝えることを確かめる (決定147。実運用: ALFA を
+// ETLFET と読んだプレイヤーに「区切りを見落としとらんか?」と一般論を繰り返した)。
+func TestMorseRegroupIsConcrete(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	var built *BuiltSession
+	for seed := int64(1); seed < 500 && built == nil; seed++ {
+		b, err := simBuildStage(lib, cfg.MissionSheet, "302", seed)
+		if err == nil && b.Stages[0].Navigator["secret_word"] == "ALFA" {
+			built = b
+		}
+	}
+	if built == nil {
+		t.Fatal("ALFA を引く抽選が見つからない")
+	}
+
+	reports := []string{
+		"ランプがモールス信号で点滅しています。ETLFETというワードが現れています。どうぞ",
+		"ETLFETが存在しません。どうぞ",
+		"うーん。ETLFETとしか読めませんね。どうぞ",
+	}
+	hostile := regexp.MustCompile(`言うてるやろ|言ってるだろ|何度も|いい加減|しつこい|通らん`)
+	for _, character := range navCfg.Characters {
+		for round := 0; round < 2; round++ {
+			logs := NewSessionLogStore(nil)
+			id := "regroup-" + character.ID
+			var progress StageProgress
+			logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+				Message: "表面のランプはどうなってる? どうぞ"})
+			concrete := false
+			for i, report := range reports {
+				logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: report})
+				progress.NoteMorseReport(morseNoteForStage(built.Stages[0], report))
+				progress.NotePlayerMorseKnowledge(report)
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+				})
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("player_message"))
+				if err != nil {
+					t.Errorf("%s: %v", character.ID, err)
+					break
+				}
+				reply := stripTTSTags(gen.Reply)
+				progress.NoteNavigatorReply(reply)
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+				t.Logf("%s #%d-%d\n  P> %s\n  N> %s", character.Name, round+1, i+1, report, reply)
+				// 候補の単語 (ALFA) を挙げ、つなげる箇所 (E と T / A) に触れていれば具体的
+				if hasAnyForm(reply, []string{"ALFA", "アルファ"}) && hasAnyForm(reply, []string{"E", "T", "A", "つなげ", "1文字"}) {
+					concrete = true
+				}
+				if m := hostile.FindString(reply); m != "" {
+					t.Errorf("%s #%d-%d: 責める言い方 (%s)", character.Name, round+1, i+1, m)
+				}
+			}
+			if !concrete {
+				t.Errorf("%s #%d: 3往復で、候補の単語とつなげる箇所を具体的に伝えなかった", character.Name, round+1)
+			}
+		}
+	}
+}
+
+// TestMorseTeachesConcretely は、読み違いが続くプレイヤーに、ナビが見え方のたとえや
+// 数え方の工夫で具体的に教え (秒数は言わない)、同じ返しを繰り返さないことを確かめる
+// (決定148。実運用: HOTEL を EEEETEETEE と読んだプレイヤーに「区切りを確かめて、
+// もう一度長短を教えて」を繰り返し、「壊れたラジオかよ」と言われた)。
+func TestMorseTeachesConcretely(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	var built *BuiltSession
+	for seed := int64(1); seed < 500 && built == nil; seed++ {
+		b, err := simBuildStage(lib, cfg.MissionSheet, "302", seed)
+		if err == nil && b.Stages[0].Navigator["secret_word"] == "HOTEL" {
+			built = b
+		}
+	}
+	if built == nil {
+		t.Fatal("HOTEL を引く抽選が見つからない")
+	}
+
+	reports := []string{
+		"ランプが点滅しています。どうぞ",
+		"EEEETEETEEでした。これ表にないのですが。どうぞ",
+		"EEEETELですね。どうぞ",
+		"EEEETELにしか見えません。どうすればよいですか?どうぞ",
+	}
+	// 具体的な手がかり: 見え方のたとえ・数え方の工夫・長い光の回数・候補の単語。
+	// 秒数は言わない (点滅を見ながら測れない。決定148)
+	concrete := []string{"一呼吸", "指", "/", "スラッシュ", "紙", "パッ", "パーッ", "トン", "ツー",
+		"しばらく消え", "最初の1文字", "最初の文字", "一緒", "回", "HOTEL", "ホテル", "長い光"}
+	for _, character := range navCfg.Characters {
+		for round := 0; round < 2; round++ {
+			logs := NewSessionLogStore(nil)
+			id := "concrete-" + character.ID
+			var progress StageProgress
+			logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+				Message: "表面のランプはどうなってる? どうぞ"})
+			prev := ""
+			for i, report := range reports {
+				logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: report})
+				progress.NoteMorseReport(morseNoteForStage(built.Stages[0], report))
+				progress.NotePlayerMorseKnowledge(report)
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+				})
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("player_message"))
+				if err != nil {
+					t.Errorf("%s: %v", character.ID, err)
+					break
+				}
+				reply := stripTTSTags(gen.Reply)
+				progress.NoteNavigatorReply(reply)
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+				t.Logf("%s #%d-%d\n  P> %s\n  N> %s", character.Name, round+1, i+1, report, reply)
+				if i >= 1 && !hasAnyForm(reply, concrete) {
+					t.Errorf("%s #%d-%d: 見え方・数え方・候補のどれも言っていない (一般論だけ)", character.Name, round+1, i+1)
+				}
+				if strings.Contains(reply, "秒") {
+					t.Errorf("%s #%d-%d: 秒数を言った", character.Name, round+1, i+1)
+				}
+				if i >= 2 && reply == prev {
+					t.Errorf("%s #%d-%d: 前回と同じ返し", character.Name, round+1, i+1)
+				}
+				prev = reply
+			}
+		}
+	}
+}
+
+// TestMorseAsksIfReadable は、最初の説明でモールス信号の読み方が分かるかを尋ね、
+// 分からないと答えたら読み方を最初のステップから教えること、すでに綴りを
+// 報告したプレイヤーには尋ねないことを確かめる (決定149。ユーザー要望)。
+func TestMorseAsksIfReadable(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	built, err := simBuildStage(lib, cfg.MissionSheet, "202", 42)
+	if err != nil {
+		t.Fatalf("simBuildStage(202): %v", err)
+	}
+
+	asks := regexp.MustCompile(`読み方[^。]{0,12}(分か|わか|知って|大丈夫)`)
+	tips := []string{"パッ", "パーッ", "トン", "ツー", "一呼吸", "しばらく消え", "指", "周", "短い光", "長い光", "短く", "長く"}
+	type step struct {
+		report string
+		check  func(reply string) string // 問題があれば説明を返す
+	}
+	flows := map[string][]step{
+		"読めない人": {
+			// 実運用 (決定150): 「点滅していますね」にモールスの説明を飛ばした
+			{"点滅していますね。どうぞ", func(r string) string {
+				if !strings.Contains(r, "モールス") || !strings.Contains(r, "単語") {
+					return "点滅がモールス信号で単語を表していると説明していない"
+				}
+				if !asks.MatchString(r) {
+					return "読み方が分かるかを尋ねていない"
+				}
+				return ""
+			}},
+			{"モールス符号の読み方は分かりません。どうぞ", func(r string) string {
+				if !hasAnyForm(r, tips) {
+					return "読み方を教えていない"
+				}
+				if strings.Contains(r, "秒") {
+					return "秒数を言った"
+				}
+				return ""
+			}},
+		},
+		"読める人": {
+			{"DCAYというモールス符号がランプから読み取れます。どうぞ", func(r string) string {
+				if asks.MatchString(r) {
+					return "綴りを報告した人に読み方が分かるかを尋ねた"
+				}
+				return ""
+			}},
+		},
+	}
+	for name, steps := range flows {
+		for _, character := range navCfg.Characters {
+			for round := 0; round < 2; round++ {
+				logs := NewSessionLogStore(nil)
+				id := "ask-" + character.ID
+				var progress StageProgress
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+					Message: "表面のランプはどうなってる? どうぞ"})
+				for i, st := range steps {
+					logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: st.report})
+					progress.NoteMorseReport(morseNoteForStage(built.Stages[0], st.report))
+					progress.NotePlayerMorseKnowledge(st.report)
+					prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+						Prompt: &navCfg.Prompt, Character: character, Session: built,
+						StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+						MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+					})
+					gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+						navCfg.Prompt.TriggerInstruction("player_message"))
+					if err != nil {
+						t.Errorf("%s: %v", character.ID, err)
+						break
+					}
+					reply := stripTTSTags(gen.Reply)
+					progress.NoteNavigatorReply(reply)
+					logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+					t.Logf("[%s] %s #%d-%d\n  P> %s\n  N> %s", name, character.Name, round+1, i+1, st.report, reply)
+					if problem := st.check(reply); problem != "" {
+						t.Errorf("[%s] %s #%d-%d: %s", name, character.Name, round+1, i+1, problem)
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestMorseLetterStage は、202 (英字1文字。決定152) で、ナビが1文字だと説明し、
+// 2文字に分けて読んだ報告 (NT = K) にはつなげると1文字になると伝え、
+// 読めた文字の行の色の線を切るよう導くことを確かめる。
+func TestMorseLetterStage(t *testing.T) {
+	if !*runIncidentSim {
+		t.Skip("実APIを呼ぶため既定では飛ばす (-incident で実行)")
+	}
+
+	ctx := context.Background()
+	cfg, err := LoadConfig("config.toml")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	processor, err := NewGeminiProcessor(ctx, cfg.Gemini)
+	if err != nil {
+		t.Fatalf("NewGeminiProcessor: %v", err)
+	}
+	navCfg, err := LoadNavigatorConfig("navigator")
+	if err != nil {
+		t.Fatalf("LoadNavigatorConfig: %v", err)
+	}
+	lib, err := LoadScenarioLibrary("scenarios")
+	if err != nil {
+		t.Fatalf("LoadScenarioLibrary: %v", err)
+	}
+	var built *BuiltSession
+	for seed := int64(1); seed < 500 && built == nil; seed++ {
+		b, err := simBuildStage(lib, cfg.MissionSheet, "202", seed)
+		if err == nil && b.Stages[0].Navigator["secret_word"] == "K" {
+			built = b
+		}
+	}
+	if built == nil {
+		t.Fatal("K を引く抽選が見つからない")
+	}
+
+	steps := []struct {
+		report string
+		want   [][]string // 組ごとにどれか1つ以上
+	}{
+		{"点滅しています。どうぞ", [][]string{{"モールス"}, {"1文字", "一文字", "1つの文字"}}},
+		{"NTと読めました。どうぞ", [][]string{{"K", "ケー"}, {"つなげ", "1文字", "一文字", "区切"}}},
+		{"Kでした。どうぞ", [][]string{{"行"}, {"切"}}},
+	}
+	for _, character := range navCfg.Characters {
+		for round := 0; round < 2; round++ {
+			logs := NewSessionLogStore(nil)
+			id := "letter-" + character.ID
+			var progress StageProgress
+			logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer,
+				Message: "表面のランプはどうなってる? どうぞ"})
+			for i, st := range steps {
+				logs.Append(id, ConversationEntry{Sender: senderPlayer, Receiver: character.Name, Message: st.report})
+				progress.NoteMorseReport(morseNoteForStage(built.Stages[0], st.report))
+				progress.NotePlayerMorseKnowledge(st.report)
+				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
+					Prompt: &navCfg.Prompt, Character: character, Session: built,
+					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold,
+					MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons,
+					MorseMentioned: progress.MorseMentioned,
+				})
+				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
+					navCfg.Prompt.TriggerInstruction("player_message"))
+				if err != nil {
+					t.Errorf("%s: %v", character.ID, err)
+					break
+				}
+				reply := stripTTSTags(gen.Reply)
+				progress.NoteNavigatorReply(reply)
+				logs.Append(id, ConversationEntry{Sender: character.Name, Receiver: senderPlayer, Message: reply})
+				t.Logf("%s #%d-%d\n  P> %s\n  N> %s", character.Name, round+1, i+1, st.report, reply)
+				for _, group := range st.want {
+					if !hasAnyForm(reply, group) {
+						t.Errorf("%s #%d-%d: %v のどれも言っていない", character.Name, round+1, i+1, group)
+					}
+				}
+			}
+		}
+	}
+}

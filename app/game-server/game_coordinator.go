@@ -466,6 +466,13 @@ func (c *GameCoordinator) NotePlayerReport(deviceID, text string) {
 		stage = session.Built.Stages[session.StageIndex]
 	}
 	session.progress.NoteReport(text, stageLampStates(stage))
+	// 正解の単語を伏せたモールスの課題では、解読の報告を資料1の表と照合する (決定143)
+	if stageSecretWord(stage) != "" {
+		session.progress.NoteMorseReport(morseNoteForStage(stage, text))
+	}
+	if stage != nil && stage.Navigator["morse_sheet"] != "" {
+		session.progress.NotePlayerMorseKnowledge(text)
+	}
 	if session.awaitingStageReport {
 		session.firstReportAfterStage = true
 	}

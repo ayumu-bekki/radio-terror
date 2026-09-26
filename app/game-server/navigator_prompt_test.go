@@ -117,3 +117,78 @@ func TestStagesHaveNoHintLevelFields(t *testing.T) {
 		}
 	}
 }
+
+// TestPromptHidesSecretWord は、モールスの課題 (202・302) で正解の単語が
+// プロンプトのどこにも入らないことを確かめる (決定142)。
+// 知っていると、1文字違いの読み違いを正解へ読み替えて教えた (実運用)。
+func TestPromptHidesSecretWord(t *testing.T) {
+	lib := loadTestLibrary(t)
+	for _, id := range []string{"202", "302"} {
+		for seed := int64(0); seed < 20; seed++ {
+			built, err := simBuildStage(lib, testMissionSheet(), id, seed)
+			if err != nil {
+				t.Fatal(id, err)
+			}
+			word := built.Stages[0].Navigator["secret_word"]
+			if word == "" {
+				t.Fatalf("%s: secret_word が無い", id)
+			}
+			// 資料1の表には26語すべてが載る (決定143)。伏せるのは「どれが正解か」なので、
+			// 表を除いた部分 (正解欄・進め方) に単語が出ないことを見る
+			stage := *built.Stages[0]
+			stage.Navigator = map[string]string{}
+			for k, v := range built.Stages[0].Navigator {
+				if k != "morse_sheet" {
+					stage.Navigator[k] = v
+				}
+			}
+			text := BuildNavigatorPrompt(NavigatorPromptInput{
+				Prompt:  &NavigatorPromptConfig{},
+				Session: &BuiltSession{Stages: []*BuiltStage{&stage}},
+			})
+			// 1文字 (202) は文章に紛れるので、単独の文字として出ていないかで見る
+			if (len(word) > 1 && strings.Contains(text, word)) ||
+				(len(word) == 1 && redactSecretWord(text, word) != text) {
+				t.Errorf("%s seed=%d: 正解の単語 %q がプロンプトに入っている", id, seed, word)
+			}
+			if !strings.Contains(text, redactedWordMark) {
+				t.Errorf("%s seed=%d: 伏せ字が無い", id, seed)
+			}
+		}
+	}
+}
+
+// TestMorseSheetBlockHasNoColors は、ナビへ渡す資料1の表に色が入らず、
+// 出題候補の単語がすべて載っていることを確かめる (決定143)。
+// 色まで渡すと、ナビが候補に挙げた単語から切る線の色が決まってしまう。
+func TestMorseSheetBlockHasNoColors(t *testing.T) {
+	block := morseSheetBlock("資料1")
+	for _, name := range colorNameJA {
+		if strings.Contains(block, name) {
+			t.Errorf("資料1の表に色名 %q が入っている", name)
+		}
+	}
+	lib := loadTestLibrary(t)
+	for _, id := range []string{"202", "302"} {
+		for seed := int64(0); seed < 30; seed++ {
+			built, err := simBuildStage(lib, testMissionSheet(), id, seed)
+			if err != nil {
+				t.Fatal(id, err)
+			}
+			word := built.Stages[0].Navigator["secret_word"]
+			inBlock := strings.Contains(block, " "+word+"\n")
+			if len(word) == 1 {
+				inBlock = strings.Contains(block, "- "+word+" ")
+			}
+			if !inBlock {
+				t.Errorf("%s: 出題語 %q が資料1の表に無い", id, word)
+			}
+		}
+	}
+	// 表の頭文字は A-Z の順で26行
+	for i, r := range morseSheetRows {
+		if r.letter != string(rune('A'+i)) || !strings.HasPrefix(r.word, r.letter) {
+			t.Errorf("行 %d: %v", i, r)
+		}
+	}
+}

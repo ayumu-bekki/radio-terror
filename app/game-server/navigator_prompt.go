@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -44,6 +45,16 @@ type NavigatorPromptInput struct {
 	// 取り消された色と新しい色 (決定136)。
 	CorrectedFrom string
 	CorrectedTo   string
+	// MorseReportNote は解読の報告を資料1の表と照合した結果 (決定143)。
+	MorseReportNote string
+	// MorseGoalTold は、この課題でゴール (表の単語の行の色の線を切る) を伝え終えたか (決定145)。
+	MorseGoalTold bool
+	// MorseMisses は、表に載っていない綴りの報告が続いた回数 (決定148)。
+	MorseMisses int
+	// MorseLessons は、読み方が分からない様子の発話が来た回数 (決定149)。
+	MorseLessons int
+	// MorseMentioned は、この課題でプレイヤーかナビが「モールス」と言ったか (決定150)。
+	MorseMentioned bool
 
 	// JustAdvanced は課題の突破後、最初のプレイヤー発話への返答であることを示す
 	// (決定127)。「切れました」を前の課題の報告として受けさせる。
@@ -121,7 +132,7 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 				"開始」より前のやり取りは、前の課題のものです。**そこに出てきた色名・" +
 				"番号・手順を、今の課題の指示に使わないでください。\n")
 		}
-		if briefing := stage.Navigator["briefing"]; briefing != "" {
+		if briefing := stageNavigatorText(stage, "briefing"); briefing != "" {
 			b.WriteString("- 内容: " + briefing + "\n")
 		}
 		// ナビゲーターは正解を知っている状態で話す (§3.1)。
@@ -134,7 +145,7 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		// 「書いてあるが言うな」は守られないことがある — 目の前にある語は
 		// なぞられる。無い語は言いようがないので、これが最も確実。
 		// 以前は L4 (直言) でだけ外していたが、ヒントレベルごと廃止した。
-		if answer := stage.Navigator["answer"]; answer != "" {
+		if answer := stageNavigatorText(stage, "answer"); answer != "" {
 			b.WriteString("- 正解(あなただけが知っている): " +
 				redactCutColor(answer, stage.Cut) + "\n")
 			// 「伏せてあります」と書くと、ナビは「知っているが伏せている」立場を取り
@@ -146,8 +157,20 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 				"プレイヤーが色名を報告してきたら、進め方にある手がかり"+
 				"(どのランプと同じ色か、資料のどこを引くか)に沿っているかで受け止めます。\n",
 				redactedColorMark)
+			if stage.Navigator["secret_word"] != "" {
+				// 単語も同じく、知らない立場の事実として書く (決定142)
+				fmt.Fprintf(&b, "  ⚠ 「%s」は、**あなたにも分からない単語**です。"+
+					"プレイヤーがモールスを解読して確かめるまで分かりません。"+
+					"報告された単語が合っているかは判定できないので、資料で探してもらいます。\n",
+					redactedWordMark)
+			}
 		}
-		if procedure := stage.Navigator["procedure"]; procedure != "" {
+		// [資料1の表] モールスの課題では、紙に印刷された表 (色の列を除く) と
+		// 読み方を渡す。フォネティックコードからの推測と、読み方の手ほどきに使う (決定143)
+		if sheet := stage.Navigator["morse_sheet"]; sheet != "" {
+			b.WriteString(morseSheetBlock(sheet))
+		}
+		if procedure := stageNavigatorText(stage, "procedure"); procedure != "" {
 			b.WriteString("- 進め方: " + procedure + "\n")
 		}
 
@@ -160,8 +183,21 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		//
 		// ここに書くのは**落とすと手詰まりになるもの**だけ。
 		// 何でも入れると、また埋もれて同じことになる。
-		if mustSay := stage.Navigator["must_say"]; mustSay != "" {
+		if mustSay := stageNavigatorText(stage, "must_say"); mustSay != "" {
 			b.WriteString("\n## この課題で必ず言うこと\n")
+			// モールスの課題で、まだ誰もモールスだと言っていなければ、それを先頭に置く。
+			// 括弧書き (「まだ分かっていなければ、それも伝える」) は読み落とされ、
+			// 「点滅していますね」に表の作りだけを返した (決定150。ADR N-6)
+			if stage.Navigator["morse_sheet"] != "" && !in.MorseMentioned {
+				// 何を繰り返しているかは課題で違う。202 は英字1文字 (決定152) で、
+				// 「単語」と固定で書いたら 202 でも「1つの単語」と言った
+				unit := "1つの単語"
+				if len(stageSecretWord(stage)) == 1 {
+					unit = "**英字1文字**"
+				}
+				b.WriteString("- **まず、ランプの点滅がモールス信号で、" + unit + "を繰り返し表示している" +
+					"ことを伝える** (長短の混ざった点滅がそれ)\n")
+			}
 			b.WriteString("- " + mustSay + "\n")
 			b.WriteString("**これを落とすとプレイヤーが手詰まりになります。**" +
 				"字数を超えてもよいので、**課題の入り口で必ず言ってください**。\n" +
@@ -238,6 +274,59 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 		fmt.Fprintf(&b, "- 「%s」は、この先の復唱にも指示にも使いません。\n\n", in.CorrectedFrom)
 	}
 
+	// [解読の報告] サーバーが資料1の表と照合した結果 (決定143)。
+	// 生成AIは綴りの照合が苦手で、表を渡しても「M は表にない」と言い、
+	// MANGO に TANGO を挙げられなかった。照合はサーバーが行い、事実だけを渡す。
+	//
+	// **「最優先」にしない。** 最初の発話がいきなり綴り (「DCAYというモールス符号が
+	// 読み取れます」) だと、課題の全体像 (モールス → 表の符号で読む → 単語の行 →
+	// その色の線) を伝えないまま照合結果だけを返し、プレイヤーは「同じ行って何?」
+	// 「資料って何?」と迷子になった (決定145)。全体像が先。
+	if in.MorseReportNote != "" {
+		b.WriteString("# 解読の報告の照合結果 (進め方と合わせて使う)\n")
+		// ゴールを伝えたかで出し分けると、伝えたあとの「どうすればいい?」に
+		// ゴールを言い直さなくなった (4/10)。**毎回添える**方が崩れない (決定145)
+		b.WriteString("**返答の最後には毎回、「読めた単語の行に書かれている色の線を切る」" +
+			"というゴールを短く添えてください** (同じことを言ってよい。無線ではゴールを見失う方が危ない)。\n")
+		if !in.MorseGoalTold {
+			// まだゴールを伝えていない。照合結果を先に言うとゴールが削られる (7/10)
+			b.WriteString("**この課題では、まだ表の作りとゴールを伝えていません。" +
+				"この返答では、まず「今の課題」の必ず言うこと (表の作りとゴール) を伝えてください。**" +
+				"下の照合結果は、そのあとに一言 (表に無い・近いのは○○) 添える程度にします。" +
+				"字数の目安を超えてよい。\n")
+		}
+		if in.MorseMisses >= 2 {
+			// 同じ返し (「区切りを確かめて、もう一度長短を教えて」) を繰り返すと、
+			// プレイヤーは「壊れたラジオかよ」と怒った (決定148)
+			fmt.Fprintf(&b, "**表に載っていない報告が%d回続いています。前回と同じ言い方を繰り返さないでください。**"+
+				"候補の単語を挙げ、「モールスの読み方」の手順を1ステップ進めて、見え方のたとえと"+
+				"数え方の工夫で具体的に教えます (秒数は言わない)。"+
+				"最初の1文字だけ一緒に読む (その1文字の長短を報告してもらう) のもよい。\n", in.MorseMisses)
+		}
+		b.WriteString("## サーバーが資料1の表と照合した結果\n" +
+			"(今回の発話に綴りが無いときは、直前の報告の照合結果です。**同じ説明を" +
+			"繰り返さず**、プレイヤーが次にやることを伝えてください)\n")
+		b.WriteString(in.MorseReportNote)
+		// 末尾の項目は落ちる (ADR N-51)。表の作りとゴールを先頭に置く (決定145)
+		if strings.Contains(in.MorseReportNote, morseNoviceMark) {
+			// 「分かりません」に「1文字ずつ長短を教えて」と返すだけでは教えていない (決定149)
+			fmt.Fprintf(&b, "## 今回教える読み方のコツ (これを1つ、自分の口調で具体的に教える。"+
+				"長短の報告を求めるだけで終わらせない)\n- %s\n", morseNoviceTip(in.MorseLessons))
+		} else if strings.Contains(in.MorseReportNote, "載っていません") {
+			fmt.Fprintf(&b, "## 今回伝える読み方のコツ (これを1つ、自分の口調で具体的に伝える)\n- %s\n",
+				morseTipFor(in.MorseReportNote, in.MorseMisses))
+		}
+		b.WriteString("- 表に載っているかは**この結果に従い**、自分で判断し直さないでください。\n" +
+			"- 表に**載っていない**綴りなら、次の順で1つの発話にまとめてください。\n" +
+			"  1. **表の作りとゴールをまだ伝えていなければ、先に伝える** (「今の課題」の" +
+			"必ず言うこと。プレイヤーがモールスを知っていても、紙の表の作りとゴールは知らない)\n" +
+			"  2. 表には載っていないと伝え、綴りの近い単語があれば**候補として**挙げる" +
+			" (どれが正解かは分かりません)\n" +
+			"  3. 違っている文字の長短を確かめるよう頼む (符号の違いを伝えてよい)\n" +
+			"  4. **合う単語が分かったら、その単語の行に書かれている色の線を切る**、と" +
+			"次にやることまで伝える\n\n")
+	}
+
 	// [F] 出力ルール (設定ファイルから)
 	b.WriteString(strings.TrimSpace(in.Prompt.Output))
 
@@ -269,6 +358,36 @@ func redactCutColor(answer, cut string) string {
 	return strings.ReplaceAll(redacted, name, redactedColorMark)
 }
 
+// redactedWordMark はプロンプト上で伏せた単語の代わりに置く記号。
+const redactedWordMark = "◇◇◇◇"
+
+// stageNavigatorText はステージ知識の1項目を、伏せる単語を伏せたうえで返す (決定142)。
+//
+// モールスの課題 (202・302) は、ナビが正解の単語を知っていると、1文字違いの
+// 読み違い (RLFA) を正解 (ALFA) へ読み替えて教えたり、「違う」と言い切ったり、
+// 最後には答えの単語そのものを言ったりした (実運用)。言い回しでは止まらないので、
+// 切る線の色 (redactCutColor) と同じく**プロンプトに入れない**。
+// どの語を伏せるかはステージ定義の `secret_word` で宣言する。
+// 305 ローマ字電文は、ナビが途中まで読めた綴りから推測して後押しする設計なので伏せない。
+func stageNavigatorText(stage *BuiltStage, key string) string {
+	text := stage.Navigator[key]
+	if word := stage.Navigator["secret_word"]; word != "" {
+		text = redactSecretWord(text, word)
+	}
+	return text
+}
+
+// redactSecretWord は、前後が英字でない単独の word を伏せ字にする。
+// 202 は正解が英字1文字 (決定152) なので、そのまま置き換えると関係ない「A」まで伏せる。
+func redactSecretWord(text, word string) string {
+	// 後ろがハイフン・数字のもの (「ADR N-30」) も伏せない
+	pattern := regexp.MustCompile(`(^|[^A-Za-z])` + regexp.QuoteMeta(word) + `([^A-Za-z0-9\-]|$)`)
+	for pattern.MatchString(text) {
+		text = pattern.ReplaceAllString(text, "${1}"+redactedWordMark+"${2}")
+	}
+	return text
+}
+
 // wrongReportBlock は装置の表示と合わない報告への指示を組み立てる
 // (ADR N-9b。判定はサーバー: navigator_color_check.go / navigator_stage_progress.go)。
 //
@@ -293,8 +412,9 @@ func wrongReportBlock(in NavigatorPromptInput) string {
 		b.WriteString("- 次の順で、1つの発話にまとめてください。\n" +
 			"  1. 聞こえた内容 (色と光り方) を短く復唱する" +
 			"(言い間違い・聞き違いに、プレイヤー自身が気づけます)\n" +
-			"  2. もう一度ランプを見て、**光っている色と、点きっぱなしか点滅か**を" +
-			"確かめて教えてほしいと頼む\n" +
+			"  2. もう一度ランプを見て、**何色がどんなふうに光っているか**を確かめて" +
+			"教えてほしいと頼む(「どんなふうに」は、ずっとついたままか、ついたり消えたり" +
+			"しているか、のこと。キャラクターの口調で自然に言えばよい)\n" +
 			"- ここで発話を終えます。\n")
 		return b.String()
 	}
