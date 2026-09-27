@@ -117,7 +117,7 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	morseMisses := 0
 	morseLessons := 0
 	morseMentioned := false
-	playerDecoded, readabilityAsked := false, false
+	playerDecoded, readabilityAsked, confirmAsked := false, false, false
 	// 押し間違えは無応答の声掛けでも伝える (黙っているあいだに列が戻っている)。
 	// 終幕では伝えない (決定156)
 	pushSeqReset := session.progress.PushSeqReset && trigger != "exploded" && trigger != "defused"
@@ -134,6 +134,7 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		morseMentioned = session.progress.MorseMentioned
 		playerDecoded = session.progress.PlayerDecoded
 		readabilityAsked = session.progress.ReadabilityAsked
+		confirmAsked = session.progress.ConfirmAsked
 		// 突破後の最初の報告への返答で1回だけ使う (決定127)
 		justAdvanced = session.firstReportAfterStage
 		session.firstReportAfterStage = false
@@ -169,6 +170,7 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		PlayerDecoded:       playerDecoded,
 		PushSeqReset:        pushSeqReset,
 		ReadabilityAsked:    readabilityAsked,
+		ConfirmAsked:        confirmAsked,
 		JustAdvanced:        justAdvanced,
 	})
 

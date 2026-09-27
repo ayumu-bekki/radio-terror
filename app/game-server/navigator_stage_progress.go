@@ -70,6 +70,9 @@ type StageProgress struct {
 	// ゴールを伝え終えたか (決定145)。伝える前は、照合結果より表の作りとゴールを
 	// 優先させる。1発話に詰めると、照合結果が先に出てゴールが削られた (7/10)。
 	MorseGoalTold bool
+	// ConfirmAsked は、直前のプレイヤーの発話が手順の確認の問いか (決定159)。
+	// 発話ごとに付け直す。
+	ConfirmAsked bool
 }
 
 // NoteNavigatorReply はナビの返答を見て、ゴールを伝えたかを記録する (決定145)。
@@ -130,6 +133,23 @@ func (p *StageProgress) Reset() {
 	p.PlayerDecoded = false
 	p.PushSeqReset = false
 	p.ReadabilityAsked = false
+	p.ConfirmAsked = false
+}
+
+// confirmQuestion は、手順の確認を尋ねる言い方 (この線を切ればいいか、など)。
+var confirmQuestion = regexp.MustCompile(`(ば|たら|て|で)(いい|良い|よい|よろし|大丈夫|合って)[^。]{0,4}(です)?か`)
+
+// hesitantForms は、確認に迷いが混じっている言い方。迷っている確認には
+// 「待て」で返すので (N-37)、確認の問いとしては扱わない。
+var hesitantForms = []string{"たぶん", "多分", "忘れ", "自信", "分からな", "わからな", "かも"}
+
+// NoteConfirmQuestion は、プレイヤーの発話が手順の確認の問いかを記録する (決定159)。
+//
+// 「この色の線を切ればいいですか」に、報告として「光っているランプだな、了解。
+// その色の線を切れ」と復唱で受け、問いに答えていなかった。プロンプトの規則だけでは
+// 「その線ですね。切ってください」と指し示す言葉で済ませる返答が残った (20回中多数)。
+func (p *StageProgress) NoteConfirmQuestion(text string) {
+	p.ConfirmAsked = confirmQuestion.MatchString(text) && !hasAnyForm(text, hesitantForms)
 }
 
 // readabilityQuestion は、ナビが読み方が分かるかを尋ねた言い方。

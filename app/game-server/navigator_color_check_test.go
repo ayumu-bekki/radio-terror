@@ -423,3 +423,26 @@ func TestButtonReportIsNotLampReport(t *testing.T) {
 		}
 	}
 }
+
+// 手順の確認の問いを見分ける。迷いの混じった確認は含めない (決定159)
+func TestNoteConfirmQuestion(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{"ランプが1つ光っています。この色の線を切ればいいですか。どうぞ", true},
+		{"赤の線を切って大丈夫ですか", true},
+		{"次は青を押せばよろしいですか", true},
+		{"これで合ってますか", true},
+		{"ランプが1つ光っています。どうぞ", false},
+		{"たぶん赤だと思うんですが、切っていいですか", false},
+		{"何色だったか忘れました。切ればいいですか", false},
+	}
+	for _, c := range cases {
+		var p StageProgress
+		p.NoteConfirmQuestion(c.text)
+		if p.ConfirmAsked != c.want {
+			t.Errorf("%q: ConfirmAsked=%v, want %v", c.text, p.ConfirmAsked, c.want)
+		}
+	}
+}

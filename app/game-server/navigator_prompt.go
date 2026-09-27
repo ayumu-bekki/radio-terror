@@ -57,6 +57,8 @@ type NavigatorPromptInput struct {
 	MorseMentioned bool
 	// PushSeqReset は、ボタン列の押し間違えで列が最初に戻ったか (決定156)。
 	PushSeqReset bool
+	// ConfirmAsked は、プレイヤーが手順の確認を尋ねたか (決定159)。
+	ConfirmAsked bool
 	// PlayerDecoded / ReadabilityAsked は、読み方が分かるかを尋ねるかの判定 (決定153)。
 	PlayerDecoded    bool
 	ReadabilityAsked bool
@@ -289,6 +291,18 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 	// 知らないまま「次は青」と続け、ブザーの報告にも「段取りどおり」と返した (決定156)
 	if in.PushSeqReset {
 		b.WriteString("# この返答で伝えること (ボタンの押し間違え)\n" + pushSeqResetInstruction + "\n\n")
+	}
+
+	// [確認の問い] 「この線を切ればいいか」に復唱と「了解」で受け、答えていなかった。
+	// 答え方を順番で指定する (N-53。決定159)
+	if in.ConfirmAsked && in.WrongReport == "" && in.CorrectedTo == "" {
+		b.WriteString("# この返答の答え方 (手順の確認)\n" +
+			"プレイヤーは手順の確認を尋ねています。迷いではありません。報告として復唱したり" +
+			"「了解」で受けたりせず、次の順で答えてください。\n" +
+			"1. 尋ねられた手順が、**今やるべき手順**と合っているかを一言で答える。" +
+			"進め方の順番より先の手順や、進め方に無い手順を尋ねられたら否定する\n" +
+			"2. 「進め方」に書かれた言い方で、今やることを言い直す (指し示す言葉だけで済ませない)\n" +
+			"進め方に無いことを尋ね返しません。装置を見ていないので、結果の正しさは請け合いません。\n\n")
 	}
 
 	// [解読の報告] サーバーが資料1の表と照合した結果 (決定143)。
