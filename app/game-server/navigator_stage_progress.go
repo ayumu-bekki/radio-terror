@@ -9,7 +9,10 @@ package main
 // 以前はここにヒントレベル (L1〜L4) の計算も置いていたが、廃止した (決定129)。
 // 段階的に出すヒントは、各ステージの `procedure` に**条件**として書く。
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // StageProgress は現在のステージにおける進行状態。
 // ステージが切り替わったらリセットする。
@@ -55,6 +58,14 @@ type StageProgress struct {
 	// 言われるまでは、必ず言うことの先頭に「点滅はモールス信号」を置く。
 	// プレイヤーが綴りや長短を報告したときも、モールスだと分かっているとみなす。
 	MorseMentioned bool
+	// PushSeqReset は、ボタン列の押し間違えで列が最初に戻ったあと、まだナビが
+	// それを伝えていないか (決定156)。次のナビの返答で下ろす。
+	PushSeqReset bool
+	// PlayerDecoded は、この課題でプレイヤーが綴りや長短を報告したか (決定153)。
+	// 報告していれば読めているので、読み方が分かるかは尋ねない。
+	PlayerDecoded bool
+	// ReadabilityAsked は、この課題でナビが読み方が分かるかを尋ねたか (決定153)。
+	ReadabilityAsked bool
 	// MorseGoalTold は、この課題でナビが「表の単語の行の色の線を切る」という
 	// ゴールを伝え終えたか (決定145)。伝える前は、照合結果より表の作りとゴールを
 	// 優先させる。1発話に詰めると、照合結果が先に出てゴールが削られた (7/10)。
@@ -64,8 +75,12 @@ type StageProgress struct {
 // NoteNavigatorReply はナビの返答を見て、ゴールを伝えたかを記録する (決定145)。
 // 「行」と「切」が両方入っていれば、表の行の色の線を切ると伝えたとみなす。
 func (p *StageProgress) NoteNavigatorReply(reply string) {
+	p.PushSeqReset = false
 	if strings.Contains(reply, "モールス") {
 		p.MorseMentioned = true
+	}
+	if readabilityQuestion.MatchString(reply) {
+		p.ReadabilityAsked = true
 	}
 	if strings.Contains(reply, "行") && strings.Contains(reply, "切") {
 		p.MorseGoalTold = true
@@ -112,12 +127,22 @@ func (p *StageProgress) Reset() {
 	p.MorseMisses = 0
 	p.MorseLessons = 0
 	p.MorseMentioned = false
+	p.PlayerDecoded = false
+	p.PushSeqReset = false
+	p.ReadabilityAsked = false
 }
+
+// readabilityQuestion は、ナビが読み方が分かるかを尋ねた言い方。
+var readabilityQuestion = regexp.MustCompile(`読み方[^。]{0,12}(分か|わか|知って|大丈夫)`)
 
 // NotePlayerMorseKnowledge は、プレイヤーの発話からモールスだと分かっているかを記録する。
 // 「モールス」と言った、または綴りや長短を報告したら、分かっているとみなす (決定150)。
 func (p *StageProgress) NotePlayerMorseKnowledge(text string) {
-	if strings.Contains(text, "モールス") || len(reportedSpellings(text)) > 0 || elementReportNote(text) != "" {
+	decoded := len(reportedSpellingsMin(text, 1)) > 0 || elementReportNote(text) != ""
+	if decoded {
+		p.PlayerDecoded = true
+	}
+	if strings.Contains(text, "モールス") || decoded {
 		p.MorseMentioned = true
 	}
 }

@@ -578,7 +578,7 @@ func TestMorseMisreadNotCorrected(t *testing.T) {
 				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 					Prompt: &navCfg.Prompt, Character: character, Session: built,
 					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
-					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 				})
 				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("player_message"))
@@ -661,7 +661,7 @@ func TestMorseLeadsToCut(t *testing.T) {
 				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 					Prompt: &navCfg.Prompt, Character: character, Session: built,
 					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
-					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 				})
 				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("player_message"))
@@ -748,7 +748,7 @@ func TestMorseExplainsFlow(t *testing.T) {
 				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 					Prompt: &navCfg.Prompt, Character: character, Session: built,
 					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
-					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 				})
 				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("player_message"))
@@ -830,7 +830,7 @@ func TestMorseTeachesBasics(t *testing.T) {
 				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 					Prompt: &navCfg.Prompt, Character: character, Session: built,
 					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
-					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 				})
 				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("player_message"))
@@ -910,7 +910,7 @@ func TestMorseRegroupIsConcrete(t *testing.T) {
 				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 					Prompt: &navCfg.Prompt, Character: character, Session: built,
 					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
-					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 				})
 				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("player_message"))
@@ -999,7 +999,7 @@ func TestMorseTeachesConcretely(t *testing.T) {
 				prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 					Prompt: &navCfg.Prompt, Character: character, Session: built,
 					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
-					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 				})
 				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("player_message"))
@@ -1066,8 +1066,9 @@ func TestMorseAsksIfReadable(t *testing.T) {
 		"読めない人": {
 			// 実運用 (決定150): 「点滅していますね」にモールスの説明を飛ばした
 			{"点滅していますね。どうぞ", func(r string) string {
-				if !strings.Contains(r, "モールス") || !strings.Contains(r, "単語") {
-					return "点滅がモールス信号で単語を表していると説明していない"
+				// 202 は英字1文字 (決定152)
+				if !strings.Contains(r, "モールス") || !hasAnyForm(r, []string{"1文字", "一文字", "1つの文字"}) {
+					return "点滅がモールス信号で1文字を表していると説明していない"
 				}
 				if !asks.MatchString(r) {
 					return "読み方が分かるかを尋ねていない"
@@ -1108,7 +1109,7 @@ func TestMorseAsksIfReadable(t *testing.T) {
 					prompt := BuildNavigatorPrompt(NavigatorPromptInput{
 						Prompt: &navCfg.Prompt, Character: character, Session: built,
 						StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
-						MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned,
+						MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold, MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons, MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 					})
 					gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 						navCfg.Prompt.TriggerInstruction("player_message"))
@@ -1189,7 +1190,7 @@ func TestMorseLetterStage(t *testing.T) {
 					StageIndex: 0, RemainingMS: 120000, History: logs.Render(id),
 					MorseReportNote: progress.LastMorseNote, MorseGoalTold: progress.MorseGoalTold,
 					MorseMisses: progress.MorseMisses, MorseLessons: progress.MorseLessons,
-					MorseMentioned: progress.MorseMentioned,
+					MorseMentioned: progress.MorseMentioned, PlayerDecoded: progress.PlayerDecoded, ReadabilityAsked: progress.ReadabilityAsked,
 				})
 				gen, err := processor.GenerateNavigatorReply(ctx, prompt,
 					navCfg.Prompt.TriggerInstruction("player_message"))

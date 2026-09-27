@@ -117,6 +117,10 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	morseMisses := 0
 	morseLessons := 0
 	morseMentioned := false
+	playerDecoded, readabilityAsked := false, false
+	// 押し間違えは無応答の声掛けでも伝える (黙っているあいだに列が戻っている)。
+	// 終幕では伝えない (決定156)
+	pushSeqReset := session.progress.PushSeqReset && trigger != "exploded" && trigger != "defused"
 	justAdvanced := false
 	if trigger == "player_message" {
 		wrongReport = session.progress.LastWrongReport
@@ -128,6 +132,8 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		morseMisses = session.progress.MorseMisses
 		morseLessons = session.progress.MorseLessons
 		morseMentioned = session.progress.MorseMentioned
+		playerDecoded = session.progress.PlayerDecoded
+		readabilityAsked = session.progress.ReadabilityAsked
 		// 突破後の最初の報告への返答で1回だけ使う (決定127)
 		justAdvanced = session.firstReportAfterStage
 		session.firstReportAfterStage = false
@@ -160,12 +166,21 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		MorseMisses:         morseMisses,
 		MorseLessons:        morseLessons,
 		MorseMentioned:      morseMentioned,
+		PlayerDecoded:       playerDecoded,
+		PushSeqReset:        pushSeqReset,
+		ReadabilityAsked:    readabilityAsked,
 		JustAdvanced:        justAdvanced,
 	})
 
 	instruction := n.config.Prompt.TriggerInstruction(trigger)
 	if trigger == "" && event != "" {
 		instruction = event
+	}
+	// 押し間違えのあと黙っているプレイヤーへの声掛けでは、無応答の指示 (状況を尋ねる) が
+	// 勝ち、「どこまで進んだ?」と尋ねるだけで押し直しを伝えなかった (10/10。決定157)。
+	// 指示そのものに足す
+	if pushSeqReset && trigger != "player_message" {
+		instruction += "\n\n" + pushSeqResetInstruction
 	}
 
 	reply, err := n.processor.GenerateNavigatorReply(ctx, prompt, instruction)

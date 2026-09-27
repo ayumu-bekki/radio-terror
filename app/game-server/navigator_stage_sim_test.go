@@ -356,6 +356,8 @@ func simulateStage(
 			MorseMisses:         simProgress.MorseMisses,
 			MorseLessons:        simProgress.MorseLessons,
 			MorseMentioned:      simProgress.MorseMentioned,
+			PlayerDecoded:       simProgress.PlayerDecoded,
+			ReadabilityAsked:    simProgress.ReadabilityAsked,
 			JustAdvanced:        justAdvanced,
 		})
 

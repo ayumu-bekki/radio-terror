@@ -55,6 +55,11 @@ type NavigatorPromptInput struct {
 	MorseLessons int
 	// MorseMentioned は、この課題でプレイヤーかナビが「モールス」と言ったか (決定150)。
 	MorseMentioned bool
+	// PushSeqReset は、ボタン列の押し間違えで列が最初に戻ったか (決定156)。
+	PushSeqReset bool
+	// PlayerDecoded / ReadabilityAsked は、読み方が分かるかを尋ねるかの判定 (決定153)。
+	PlayerDecoded    bool
+	ReadabilityAsked bool
 
 	// JustAdvanced は課題の突破後、最初のプレイヤー発話への返答であることを示す
 	// (決定127)。「切れました」を前の課題の報告として受けさせる。
@@ -199,6 +204,12 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 					"ことを伝える** (長短の混ざった点滅がそれ)\n")
 			}
 			b.WriteString("- " + mustSay + "\n")
+			// 読み方が分かるかは、プレイヤーがまだ何も読めておらず、まだ尋ねていないときだけ。
+			// 括弧書き (「報告していれば尋ねない」) は読み落とされ、綴りを報告した人にも
+			// 6/10 で尋ねた (決定153)
+			if stage.Navigator["morse_sheet"] != "" && !in.PlayerDecoded && !in.ReadabilityAsked {
+				b.WriteString("- 最後に、**モールス信号の読み方が分かるかを尋ねる**\n")
+			}
 			b.WriteString("**これを落とすとプレイヤーが手詰まりになります。**" +
 				"字数を超えてもよいので、**課題の入り口で必ず言ってください**。\n" +
 				"プレイヤーが手順を先に言い当ててきた場合も、" +
@@ -272,6 +283,12 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 			"  1. **%s**と復唱して受ける\n"+
 			"  2. 「進め方」に沿って、次にやることを伝える\n", in.CorrectedTo)
 		fmt.Fprintf(&b, "- 「%s」は、この先の復唱にも指示にも使いません。\n\n", in.CorrectedFrom)
+	}
+
+	// [押し間違え] ボタン列はファームが最初に戻す。ナビは装置を見ていないので、
+	// 知らないまま「次は青」と続け、ブザーの報告にも「段取りどおり」と返した (決定156)
+	if in.PushSeqReset {
+		b.WriteString("# この返答で伝えること (ボタンの押し間違え)\n" + pushSeqResetInstruction + "\n\n")
 	}
 
 	// [解読の報告] サーバーが資料1の表と照合した結果 (決定143)。
@@ -535,3 +552,9 @@ const stageGuidanceText = `# 進め方の方針
 - 常に解除成功へ導く姿勢を保ってください。
 
 `
+
+// pushSeqResetInstruction は、ボタン列の押し間違えのあとに伝えること (決定156・決定157)。
+const pushSeqResetInstruction = "装置でボタンの押し間違えがありました (ブザーが鳴り、少し時間が減っています)。" +
+	"**ボタンの列は最初に戻り、ランプの表示も押す前に戻っています。**" +
+	"状況を尋ねる代わりに、**列の1色目から押し直す**よう伝え、1色目の色名を言ってください。" +
+	"押し間違えを責めたり、どこで間違えたかを推測したりはしません。"

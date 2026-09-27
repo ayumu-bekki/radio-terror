@@ -407,3 +407,19 @@ func TestMorseNoteNoviceAndLooseWords(t *testing.T) {
 		t.Errorf("教えるコツが進まない: lessons=%d", p.MorseLessons)
 	}
 }
+
+// TestButtonReportIsNotLampReport は、ボタンを押した報告 (打ち間違いで「押」が無いものも)
+// をランプの報告と取り違えないことを確かめる (決定156)。
+func TestButtonReportIsNotLampReport(t *testing.T) {
+	states := LampStates{"A": {lampOn: true}, "B": {lampBlink: true}}
+	for _, text := range []string{"青を添いsました", "青を押しました", "青いけました", "次は青ですか"} {
+		if wrong, _ := checkLampReport(text, states); wrong != "" {
+			t.Errorf("%q をランプの報告と取り違えた (%s)", text, wrong)
+		}
+	}
+	for _, text := range []string{"青です", "青が光ってます", "青色です。どうぞ"} {
+		if wrong, _ := checkLampReport(text, states); wrong != "青" {
+			t.Errorf("%q を光っていない色の報告として拾えていない (%q)", text, wrong)
+		}
+	}
+}

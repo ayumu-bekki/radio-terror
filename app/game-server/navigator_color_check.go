@@ -146,6 +146,30 @@ var reportSegmentSeparators = strings.NewReplacer(
 	"じゃなく", "じゃなく\n", "ではなく", "ではなく\n",
 )
 
+// lampWords は、その文節がランプの報告だと分かる言葉。
+var lampWords = []string{"点灯", "点滅", "光", "ランプ", "ついて", "点いて", "つきっぱなし", "点きっぱなし"}
+
+// lampFiller は、色だけを言った文節 (「緑です」) から取り除く言葉。
+var lampFiller = strings.NewReplacer("です", "", "でした", "", "だった", "", "だ", "", "色", "",
+	"どうぞ", "", "が", "", "と", "", "の", "", "は", "", "も", "", "かな", "", "かも", "",
+	"っぽい", "", "みたい", "", "ぽい", "")
+
+// soundsLikeLampReport は、文節がランプの報告かを返す (決定156)。
+// ランプの言葉がある文節か、色だけを言った文節 (「緑です」) に限る。
+// 「青を押しました」の打ち間違い (「青を添いsました」) をランプの報告と取り違え、
+// ボタンを押している最中に確かめ直しを頼んだ。
+func soundsLikeLampReport(segment string) bool {
+	if hasAnyForm(segment, lampWords) {
+		return true
+	}
+	rest := segment
+	for _, c := range lampColorWords {
+		rest = strings.ReplaceAll(rest, c.word, "")
+	}
+	rest = strings.TrimSpace(lampFiller.Replace(rest))
+	return rest == ""
+}
+
 // lampClaim はランプの報告1つ。state は言い方から読み取れた光り方で、
 // 読み取れなければ空 (色だけを照合する)。
 type lampClaim struct {
@@ -166,7 +190,7 @@ func lampReportClaims(text string) []lampClaim {
 	}
 	var claims []lampClaim
 	for _, segment := range strings.Split(reportSegmentSeparators.Replace(text), "\n") {
-		if segment == "" || hasAnyForm(segment, notLampReportForms) {
+		if segment == "" || hasAnyForm(segment, notLampReportForms) || !soundsLikeLampReport(segment) {
 			continue
 		}
 		blink := strings.Contains(segment, "点滅")

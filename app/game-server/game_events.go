@@ -85,6 +85,15 @@ func (c *GameCoordinator) onWrongAction(session *GameSession, msg *deviceMessage
 	c.logEvent(session, EventWrongAction,
 		fmt.Sprintf("✗ %s%s", describeWrongAction(msg), describePenalty(msg.PenaltyMS)),
 		msg.StageIndex, msg.RemainingMS)
+
+	// ボタン列の押し間違えは、ファームが列を最初に戻す (push_seq_input.h)。
+	// ナビは装置を見ていないので、印を立てて次の返答で押し直させる (決定156)。
+	// ここでは発話しない (ADR N-26)。
+	if msg.Detail == "push_seq" {
+		session.mu.Lock()
+		session.progress.PushSeqReset = true
+		session.mu.Unlock()
+	}
 }
 
 func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMessage) {
