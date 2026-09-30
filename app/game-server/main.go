@@ -231,6 +231,13 @@ func main() {
 	pipeline.SetManagerCommandHandler(NewManagerCommandHandler(game, cfg.Manager.SecretWord))
 	pipeline.SetGameCoordinator(game, navigator, sessionLogs)
 
+	// 書き起こし・発話生成に失敗したときの聞き直し (事前収録。ADR G-7)。
+	// 専用の乱数源を渡す (共有の rng は別ゴルーチンから引くと競合する)。
+	pipeline.SetReaskPlayer(NewReaskPlayer(
+		assetDir, navigatorCfg.Characters, sessionLogs, crosstalk,
+		rand.New(rand.NewSource(time.Now().UnixNano())),
+	))
+
 	// セッション開始前でも無線が返事をするようにする (会場設営時の疎通確認)
 	testResponder := NewTestResponder(processor, ttsClient)
 	pipeline.SetTestResponder(testResponder)

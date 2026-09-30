@@ -24,6 +24,15 @@ type AudioPipeline struct {
 
 	// testResponder はセッション未バインド時の疎通確認応答 (カラス)。
 	testResponder *TestResponder
+
+	// reask は書き起こし・発話生成の失敗時に流す聞き直し (事前収録)。
+	// nil なら流さない。
+	reask *ReaskPlayer
+}
+
+// SetReaskPlayer は失敗時の聞き直しの再生先を設定する。
+func (p *AudioPipeline) SetReaskPlayer(reask *ReaskPlayer) {
+	p.reask = reask
 }
 
 // SetTestResponder は疎通確認応答の相手を設定する。
@@ -55,6 +64,14 @@ func (p *AudioPipeline) HandleAudio(ctx context.Context, bridgeID string, data [
 	result, err := p.processor.Transcribe(ctx, data)
 	if err != nil {
 		log.Printf("[audio %s] transcribe error: %v", bridgeID, err)
+		// 何を言ったか分からないので、体験中の bridge なら聞き直す。
+		// 再試行はしない (失敗したAPIを待つより、もう一度話してもらうほうが早い)。
+		// 終了処理でやめた場合 (ctx が終わっている) は流さない。
+		if ctx.Err() == nil && p.reask != nil && p.game != nil {
+			if session := p.game.SessionForBridge(bridgeID); session != nil {
+				p.reask.Play(NewAudioSender(p.registry, bridgeID), session)
+			}
+		}
 		return
 	}
 	for _, item := range result.Items {
@@ -131,5 +148,10 @@ func (p *AudioPipeline) handlePlayerMessage(ctx context.Context, sender *AudioSe
 
 	if err := p.navigator.Speak(ctx, sender, session, "player_message", ""); err != nil {
 		log.Printf("[audio %s] navigator error: %v", sender.BridgeID(), err)
+		// 生成できなかった・音声にできなかった。プレイヤーは返事を待っているので、
+		// 事前収録の聞き直しを流してもう一度話してもらう。
+		if ctx.Err() == nil && p.reask != nil {
+			p.reask.Play(sender, session)
+		}
 	}
 }

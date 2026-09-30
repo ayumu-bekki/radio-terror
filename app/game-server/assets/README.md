@@ -17,8 +17,10 @@ assets/
 ├── sfx/
 │   ├── success.ogg … 解除成功の効果音
 │   └── failure.ogg … 失敗の効果音
-└── announce/
-    └── station_id.ogg … 自動送信局アナウンス (15分ごと)
+├── announce/
+│   └── station_id.ogg … 自動送信局アナウンス (15分ごと)
+└── reask/
+    └── {キャラID}_{n}.ogg … 聞き直し (キャラごとに2本。下記)
 ```
 
 形式は **Ogg Opus** (radio-bridge がそのままキューへ積んで再生する)。
@@ -96,3 +98,17 @@ Playing中の他チームの無線へ流す (イベント駆動)。ファイル�
 cd app/crosstalk-gen
 go run . -category announce -out ../game-server/assets
 ```
+
+## 聞き直し (reask) — 5キャラ × 2本 = 10ファイル
+
+書き起こし・発話生成に失敗したときに、実行時のAPIを使わずに流す
+「よく聞き取れなかったので、もう一度お願いします」(ADR G-7)。
+**プレイヤーが話した直後の失敗にだけ**流れる。
+
+- ファイル名は `{キャラクターID}_{n}.ogg`。n は 1 始まりで、
+  `navigator/characters/*.toml` の `reask_lines` の順に対応する
+- 台詞と声はキャラクター定義が正本。`app/crosstalk-gen/crosstalk.toml` の `[[reask]]` と
+  一致させる (テストで検査)
+- 生成: `cd app/crosstalk-gen && go run . -category reask -out ../game-server/assets`
+- **未配置でも起動する**が、そのキャラの聞き直しは無言になる。起動ログの
+  `[reask] loaded N clip(s) for M/K character(s)` で確かめる

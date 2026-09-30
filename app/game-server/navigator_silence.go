@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"math/rand"
 	"sync"
@@ -239,7 +240,9 @@ func (w *SilenceWatcher) run(ctx context.Context, session *GameSession) {
 			silent.Round(time.Second), session.DeviceID, trigger)
 
 		sender := NewAudioSender(w.bridges, session.BridgeID)
-		if err := w.speaker.Speak(ctx, sender, session, trigger, ""); err != nil {
+		// 音声にできなかった声掛けも「声を掛けた」ものとして数え直す。
+		// 失敗扱いで continue すると、次の周期でまた同じ声掛けを撃つ。
+		if err := w.speaker.Speak(ctx, sender, session, trigger, ""); err != nil && !errors.Is(err, errSpeechDropped) {
 			log.Printf("[silence] speak error: %v", err)
 			continue
 		}

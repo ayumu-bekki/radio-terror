@@ -27,6 +27,12 @@ type Config struct {
 	// 混線ではなく**こちらから聞き手へ直接送る**放送なので、
 	// scene を各エントリで上書きする前提にしてある。
 	Announce []Voice `toml:"announce"`
+
+	// Reask は書き起こし・発話生成の失敗時にナビゲーターが流す聞き直し
+	// (game-server の navigator_reask.go)。ファイル名は <キャラクターID>_<n>。
+	// 声と本文は navigator/characters/*.toml の tts_voice / reask_lines と
+	// 一致させる (テストで検査する)。
+	Reask []Voice `toml:"reask"`
 }
 
 type Defaults struct {
@@ -70,7 +76,7 @@ type Voice struct {
 
 // Job は展開後の生成単位 (1ファイル = 1ジョブ)。
 type Job struct {
-	Category string // jamming / ambient / uneasy / announce
+	Category string // jamming / ambient / uneasy / announce / reask
 	Name     string // ファイル名 (拡張子なし)
 	Role     string
 	Model    string
@@ -84,6 +90,7 @@ const (
 	catAmbient  = "ambient"
 	catUneasy   = "uneasy"
 	catAnnounce = "announce"
+	catReask    = "reask"
 )
 
 func LoadConfig(path string) (*Config, error) {
@@ -201,6 +208,21 @@ func (c *Config) BuildJobs() ([]Job, error) {
 		}
 		jobs = append(jobs, Job{
 			Category: catAnnounce,
+			Name:     v.Name,
+			Role:     v.Role,
+			Model:    c.pickModel(v),
+			VoiceID:  c.pickVoice(v),
+			Prompt:   c.buildPromptWithScene(v.Scene, v.Context, v.Text),
+			Text:     v.Text,
+		})
+	}
+
+	for _, v := range c.Reask {
+		if err := v.validate(catReask); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, Job{
+			Category: catReask,
 			Name:     v.Name,
 			Role:     v.Role,
 			Model:    c.pickModel(v),

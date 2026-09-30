@@ -34,6 +34,16 @@ type NavigatorCharacter struct {
 	// TTSVoice / TTSStyle は音声合成のボイスとスタイル指定 (§4)
 	TTSVoice string `toml:"tts_voice" json:"tts_voice"`
 	TTSStyle string `toml:"tts_style" json:"tts_style"`
+
+	// ReaskLines は聞き取れなかったときの聞き直しの台詞 (事前収録音声の書き起こし)。
+	//
+	// 書き起こしや発話の生成に失敗したとき、実行時のAPIを呼ばずに
+	// assets/reask/<id>_<n>.ogg を流す (n は 1 始まりで、この配列の順)。
+	// **ここはその音声の本文の正本**で、会話ログへも同じ文を残す
+	// (ナビが「聞き直した」ことを次の生成が知るため)。音声は
+	// app/crosstalk-gen の reask カテゴリで作る。台詞を変えたら音声も作り直す
+	// (crosstalk-gen のテストが両者の一致を検査する)。
+	ReaskLines []string `toml:"reask_lines" json:"reask_lines"`
 }
 
 // NavigatorPromptConfig は全キャラクター共通のプロンプト定義

@@ -156,11 +156,9 @@ func (p *GeminiProcessor) Transcribe(ctx context.Context, oggData []byte) (*Tran
 		ResponseSchema:   p.transcribeSchema,
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, p.cfg.TranscribeTimeout())
-	defer cancel()
-
 	start := time.Now()
-	resp, err := p.generateContent(ctx, p.cfg.TranscribeModel, contents, config)
+	resp, err := p.generateContent(ctx, "Transcribe", p.cfg.TranscribeAttemptCount(), p.cfg.TranscribeTimeout(),
+		p.cfg.TranscribeModel, contents, config)
 	log.Printf("[gemini] Transcribe latency: %v", time.Since(start))
 	p.noteResult(err)
 	if err != nil {
@@ -270,40 +268,106 @@ var navigatorReplySchema = &genai.Schema{
 //
 // Vertex の共有クォータは混雑で一時的に 429 を返す。すぐ撃ち直すと
 // 同じ混雑に当たりやすいので少し空ける。長く待つとプレイヤーの応答待ちが
-// 延びるだけなので1秒に留める。
+// 延びるだけなので1秒に留める。429 以外 (5xx・タイムアウト) は空けずに撃ち直す。
 const rateLimitRetryDelay = time.Second
 
-// generateContent は GenerateContent を呼び、**429 のときだけ1回再試行**する。
+// retryCall は call を最大 attempts 回 (初回を含む) 試す。
 //
-// 429 は一時的な混雑で、1回撃ち直せば通ることが多い (シミュレーションで
-// 1回に数件出ていた)。それ以外のエラーは再試行しない — 504 は ctx の期限
-// (reply_timeout_sec) をサーバー側で使い切った結果で、撃ち直しても
-// 残り時間が無い。再試行も呼び出し元の ctx の期限内で行う。
-func (p *GeminiProcessor) generateContent(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
-	resp, err := p.client.Models.GenerateContent(ctx, model, contents, config)
-	if !isRateLimited(err) {
-		return resp, err
+// **タイムアウトは1回の試行ごとに切る。** 親 ctx の期限を丸ごと使わせると、
+// 504 (期限切れ) を撃ち直しても残り時間が無い。試行ごとに新しい期限を与えれば、
+// 「5秒で見切って撃ち直す」が成り立つ。
+//
+// 既定の試行回数は1 (再試行しない。config.go)。失敗したら呼び出し側が
+// 事前収録の聞き直しを流す。回数は API ごとに設定ファイルで変えられる。
+// 再試行するのは isRetryable が真のエラーだけで、親 ctx が終わっていれば
+// 試行の途中でもやめる。
+func retryCall[T any](ctx context.Context, label string, attempts int, timeout time.Duration, call func(ctx context.Context) (T, error)) (T, error) {
+	if attempts <= 0 {
+		attempts = 1
 	}
-	log.Printf("[gemini] 429 (resource exhausted), retrying once after %v", rateLimitRetryDelay)
-	select {
-	case <-ctx.Done():
-		return nil, err
-	case <-time.After(rateLimitRetryDelay):
+
+	var zero T
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return zero, err
+		}
+
+		attemptCtx, cancel := ctx, context.CancelFunc(func() {})
+		if timeout > 0 {
+			attemptCtx, cancel = context.WithTimeout(ctx, timeout)
+		}
+		result, err := call(attemptCtx)
+		cancel()
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("[gemini] %s succeeded on attempt %d/%d", label, attempt, attempts)
+			}
+			return result, nil
+		}
+		lastErr = err
+
+		if attempt == attempts || ctx.Err() != nil || !isRetryable(err) {
+			break
+		}
+		delay := time.Duration(0)
+		if isRateLimited(err) {
+			delay = rateLimitRetryDelay
+		}
+		log.Printf("[gemini] %s attempt %d/%d failed, retrying (wait %v): %v",
+			label, attempt, attempts, delay, err)
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return zero, lastErr
+			case <-time.After(delay):
+			}
+		}
 	}
-	return p.client.Models.GenerateContent(ctx, model, contents, config)
+	return zero, lastErr
+}
+
+// generateContent は GenerateContent を呼ぶ。試行回数と1回あたりのタイムアウトは
+// 呼び出し側 (API ごとの設定) が渡す。
+func (p *GeminiProcessor) generateContent(ctx context.Context, label string, attempts int, timeout time.Duration, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	return retryCall(ctx, label, attempts, timeout, func(ctx context.Context) (*genai.GenerateContentResponse, error) {
+		return p.client.Models.GenerateContent(ctx, model, contents, config)
+	})
+}
+
+// apiErrorCode は err が genai.APIError なら HTTP ステータスを返す。
+func apiErrorCode(err error) (int, bool) {
+	var apiErr genai.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code, true
+	}
+	var apiErrPtr *genai.APIError
+	if errors.As(err, &apiErrPtr) {
+		return apiErrPtr.Code, true
+	}
+	return 0, false
 }
 
 // isRateLimited は err が 429 (Resource exhausted) かを返す。
 func isRateLimited(err error) bool {
-	var apiErr genai.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.Code == 429
+	code, ok := apiErrorCode(err)
+	return ok && code == 429
+}
+
+// isRetryable は撃ち直して通る見込みのあるエラーかを返す。
+//
+// 429・408・5xx (502 を含む) と、API のエラーではない通信断・試行のタイムアウトが対象。
+// それ以外の 4xx (400 不正なリクエスト・401/403 認証・404 モデル無し) は設定や
+// 入力の誤りで、撃ち直しても同じ結果になる。
+func isRetryable(err error) bool {
+	if err == nil {
+		return false
 	}
-	var apiErrPtr *genai.APIError
-	if errors.As(err, &apiErrPtr) {
-		return apiErrPtr.Code == 429
+	code, ok := apiErrorCode(err)
+	if !ok {
+		return true
 	}
-	return false
+	return code == 429 || code == 408 || code >= 500
 }
 
 // GenerateNavigatorReply はナビゲーターの発話を1つ生成する
@@ -323,11 +387,9 @@ func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemProm
 		ThinkingConfig:    p.cfg.ReasoningThinkingConfig(),
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, p.cfg.ReplyTimeout())
-	defer cancel()
-
 	start := time.Now()
-	resp, err := p.generateContent(ctx, p.cfg.ReasoningModel, contents, config)
+	resp, err := p.generateContent(ctx, "Reply", p.cfg.ReplyAttemptCount(), p.cfg.ReplyTimeout(),
+		p.cfg.ReasoningModel, contents, config)
 	log.Printf("[gemini] reply latency: %v", time.Since(start))
 	p.noteResult(err)
 	if err != nil {
@@ -389,11 +451,9 @@ func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instr
 	if useSearch {
 		timeout *= 2
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
 	start := time.Now()
-	resp, err := p.generateContent(ctx, p.cfg.ReasoningModel, contents, config)
+	resp, err := p.generateContent(ctx, "Reply", p.cfg.ReplyAttemptCount(), timeout,
+		p.cfg.ReasoningModel, contents, config)
 	// 検索の有無をログに残す (どちらの経路を通ったか運用中に判別できるように)
 	mode := "reply"
 	if useSearch {

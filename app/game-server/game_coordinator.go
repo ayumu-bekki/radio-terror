@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -587,7 +588,15 @@ func (c *GameCoordinator) speak(ctx context.Context, sender *AudioSender, sessio
 	if c.speaker == nil {
 		return nil
 	}
-	return c.speaker.Speak(ctx, sender, session, trigger, event)
+	err := c.speaker.Speak(ctx, sender, session, trigger, event)
+	// 音声にできなかった発話は、従来どおり無言で続行する。聞き直しを流すのは
+	// **プレイヤーの発話への応答だけ** (AudioPipeline)。ここで流すと、話していない
+	// プレイヤーへ「もう一度お願いします」と言うことになる。
+	if errors.Is(err, errSpeechDropped) {
+		log.Printf("[game] speech dropped (%s): device=%s", trigger, session.DeviceID)
+		return nil
+	}
+	return err
 }
 
 // countdownStartDelay は準備完了の発話が鳴り終わってから

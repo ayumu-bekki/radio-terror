@@ -22,6 +22,16 @@ func logStartupBanner(configPath string, cfg *Config) {
 	log.Printf("[boot] config: %s", configPath)
 	log.Printf("[boot] manager secret words: %s", describeSecretWords(cfg.Manager.SecretWord))
 	log.Printf("[boot] gemini: %s", describeGeminiModels(cfg.Gemini))
+	log.Printf("[boot] gemini limits: %s", describeGeminiLimits(cfg.Gemini))
+}
+
+// describeGeminiLimits は API ごとの「1回あたりのタイムアウト × 試行回数」を1行にまとめる。
+// 設定ファイルで API ごとに調整するので、効いている値をログで確かめられるようにする。
+func describeGeminiLimits(g GeminiConfig) string {
+	return fmt.Sprintf("transcribe=%v x%d / reply=%v x%d / tts=%v x%d (timeout per attempt x attempts)",
+		g.TranscribeTimeout(), g.TranscribeAttemptCount(),
+		g.ReplyTimeout(), g.ReplyAttemptCount(),
+		g.TTSTimeout(), g.TTSAttemptCount())
 }
 
 // describeGeminiModels は使うモデルと思考レベルを1行にまとめる。

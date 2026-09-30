@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -139,8 +140,10 @@ func TestStripTags(t *testing.T) {
 // 重複すると「自称犯人がナビゲーターと同じ声で『ナビゲーターを信じるな』と言う」
 // といった演出の破綻が起きる。混線は本物の声と区別がつくことが前提。
 //
-// **announce は対象外**。自動送信局アナウンスはカラス本人が名乗る放送なので、
+// **announce と reask は対象外**。自動送信局アナウンスはカラス本人が名乗る放送なので、
 // カラスと同じ声であることが正しい (TestAnnounceUsesCrowVoice で逆を担保する)。
+// 聞き直しはナビゲーター本人の声で流すので、同じ声であることが正しい
+// (TestReaskMatchesCharacters で担保する)。
 func TestVoicesDoNotCollideWithNavigators(t *testing.T) {
 	protected := map[string]string{}
 
@@ -187,7 +190,8 @@ func TestVoicesDoNotCollideWithNavigators(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	for _, j := range jobs {
-		if j.Category == catAnnounce {
+		// announce はカラス本人、reask はナビゲーター本人の声で正しい
+		if j.Category == catAnnounce || j.Category == catReask {
 			continue
 		}
 		if owner, ok := protected[j.VoiceID]; ok {
@@ -294,4 +298,64 @@ func TestWriteToRealAssetLayout(t *testing.T) {
 		}
 	}
 	t.Logf("asset tree written to %s", dir)
+}
+
+// 聞き直しの音声が、ナビゲーターの定義 (声・台詞) と一致していること。
+//
+// game-server は assets/reask/<キャラクターID>_<n>.ogg を、キャラクター定義の
+// reask_lines の n 番目として再生し、会話ログへ同じ文を残す。声が違えば別人に
+// 聞こえ、台詞が違えば会話ログと音声が食い違う。
+func TestReaskMatchesCharacters(t *testing.T) {
+	chars, err := filepath.Glob("../game-server/navigator/characters/*.toml")
+	if err != nil || len(chars) == 0 {
+		t.Fatalf("キャラクター定義が見つからない: %v", err)
+	}
+
+	cfg, err := LoadConfig("crosstalk.toml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	jobs, err := cfg.BuildJobs()
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	reask := map[string]Job{}
+	for _, j := range jobs {
+		if j.Category == catReask {
+			reask[j.Name] = j
+		}
+	}
+
+	want := 0
+	for _, path := range chars {
+		var c struct {
+			ID         string   `toml:"id"`
+			Voice      string   `toml:"tts_voice"`
+			ReaskLines []string `toml:"reask_lines"`
+		}
+		if _, err := toml.DecodeFile(path, &c); err != nil {
+			t.Fatalf("decode %s: %v", path, err)
+		}
+		if len(c.ReaskLines) == 0 {
+			t.Errorf("%s: reask_lines が無い", c.ID)
+		}
+		for i, line := range c.ReaskLines {
+			want++
+			name := fmt.Sprintf("%s_%d", c.ID, i+1)
+			j, ok := reask[name]
+			if !ok {
+				t.Errorf("crosstalk.toml の [[reask]] に %q が無い", name)
+				continue
+			}
+			if j.VoiceID != c.Voice {
+				t.Errorf("%s: voice=%q だがキャラクターは %q", name, j.VoiceID, c.Voice)
+			}
+			if j.Text != line {
+				t.Errorf("%s: 台詞が違う\n  crosstalk.toml: %q\n  キャラクター定義: %q", name, j.Text, line)
+			}
+		}
+	}
+	if len(reask) != want {
+		t.Errorf("reask のジョブ %d 件 != キャラクター定義の台詞 %d 件 (余分な定義が無いか)", len(reask), want)
+	}
 }

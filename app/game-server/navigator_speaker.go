@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -51,6 +52,9 @@ const urgentNoticeAllowanceRunes = 20
 // 「生成にかかる想定時間 + 発話の平均的な長さ」程度の粗い見積もりでよい。
 const navigatorSpeakReserve = 30 * time.Second
 
+// errSpeechDropped は発話を生成できたが音声として送出できなかったことを表す。
+var errSpeechDropped = errors.New("speech dropped (TTS or send failed)")
+
 // GeminiNavigator はナビゲーターの発話を生成して無線へ送出する。
 type GeminiNavigator struct {
 	processor *GeminiProcessor
@@ -93,7 +97,7 @@ func (n *GeminiNavigator) SetCrosstalkScheduler(scheduler *CrosstalkScheduler) {
 // SpeakText(テキストのみ)が完全に同じ発話内容を得られる**ことが要点 —
 // ここが分岐すると「コンソールで見た応答」が本番の応答と一致する保証が
 // なくなる (ADR M-7)。
-func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSession, trigger, event string) (text string, announceUrgent bool, remainingMSOut int, err error) {
+func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSession, trigger, event string) (text string, announceUrgent bool, remainingMSOut int, undo func(), err error) {
 	session.mu.Lock()
 	stageIndex := session.StageIndex
 	remainingMS := session.RemainingMS
@@ -185,23 +189,32 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		instruction += "\n\n" + pushSeqResetInstruction
 	}
 
+	// プレイヤーへ何も返せなかったときに、この発話で使った印を戻す (決定131)。
+	// 戻さないと、誤った報告が確かめ直しを経ずに不正解の線を切らせる
+	// 段階へ進み、突破直後の印も失われる。
+	//
+	// **生成に失敗したときだけでなく、TTS が捨てられたときにも使う** (Speak)。
+	// プレイヤーは聞き直しを聞いて同じ報告をやり直すので、戻さないと同じ誤りを
+	// 2回数えて、不正解の線への誘導が早まる。
+	undo = func() {
+		if trigger != "player_message" {
+			return
+		}
+		session.mu.Lock()
+		session.progress.UndoReport(wrongReport, wrongCount)
+		session.progress.UndoCorrection(correctedFrom)
+		if justAdvanced {
+			session.firstReportAfterStage = true
+		}
+		session.mu.Unlock()
+	}
+
 	reply, err := n.processor.GenerateNavigatorReply(ctx, prompt, instruction)
 	if err != nil {
-		// プレイヤーへ何も返せなかったので、この発話で使った印を戻す (決定131)。
-		// 戻さないと、誤った報告が確かめ直しを経ずに不正解の線を切らせる
-		// 段階へ進み、突破直後の印も失われる。
-		if trigger == "player_message" {
-			session.mu.Lock()
-			session.progress.UndoReport(wrongReport, wrongCount)
-			session.progress.UndoCorrection(correctedFrom)
-			if justAdvanced {
-				session.firstReportAfterStage = true
-			}
-			session.mu.Unlock()
-		}
-		// 生成AIの障害時は自動フォールバックを設けず、マネージャー介入で運用する
-		// (docs/game_session_design.md §9)。Web画面で検知できるようログに残す。
-		return "", false, remainingMS, fmt.Errorf("GenerateNavigatorReply: %w", err)
+		undo()
+		// 生成AIの障害は、呼び出し元がプレイヤーへ事前収録の聞き直しを流す
+		// (プレイヤー発話への応答のとき。navigator_reask.go)。Web画面で検知できるようログにも残す。
+		return "", false, remainingMS, nil, fmt.Errorf("GenerateNavigatorReply: %w", err)
 	}
 	text = reply.Reply
 	session.mu.Lock()
@@ -245,7 +258,7 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 		})
 	}
 
-	return text, announceUrgent, remainingMS, nil
+	return text, announceUrgent, remainingMS, undo, nil
 }
 
 // SpeakText はテキスト入力に対する応答をテキストのみで生成する
@@ -254,7 +267,7 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 // generateReply を直接呼ぶだけで、Speak と全く同じプロンプト組み立て・
 // ログ追記を経る。
 func (n *GeminiNavigator) SpeakText(ctx context.Context, session *GameSession, trigger, event string) (string, error) {
-	text, announceUrgent, _, err := n.generateReply(ctx, session, trigger, event)
+	text, announceUrgent, _, _, err := n.generateReply(ctx, session, trigger, event)
 	if err != nil {
 		return "", err
 	}
@@ -278,7 +291,7 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	// 一切不要 (ADR M-7)。発話内容自体は generateReply を通して本番と
 	// 完全に共有するので、ここで応答テキストを捨てても検証結果は変わらない。
 	if consoleMode {
-		_, _, _, err := n.generateReply(ctx, session, trigger, event)
+		_, _, _, _, err := n.generateReply(ctx, session, trigger, event)
 		return err
 	}
 
@@ -302,7 +315,7 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		}()
 	}
 
-	text, announceUrgent, remainingMS, err := n.generateReply(ctx, session, trigger, event)
+	text, announceUrgent, remainingMS, undo, err := n.generateReply(ctx, session, trigger, event)
 	if err != nil {
 		return err
 	}
@@ -332,6 +345,12 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]", sfxPCM)
 	if err != nil {
 		return err
+	}
+	// 音声にできなかった (TTS の失敗・エンコード・送出の失敗)。発話は捨てられて
+	// プレイヤーには何も届いていない。エラーで返し、呼び出し元が聞き直しを流せるようにする。
+	if duration == 0 {
+		undo()
+		return errSpeechDropped
 	}
 
 	// **送出できてから印を立てる。** 生成・送出に失敗した発話で立てると、

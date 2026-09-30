@@ -114,13 +114,40 @@ type GeminiConfig struct {
 	// 呼び出し側の ctx はプロセス終了まで生きるため、ここで上限を切らないと
 	// 無制限に待つ。無線は「無音のまま待たされる」のが最悪なので、
 	// 待ち続けるより打ち切ってその発話を捨てるほうがよい。
+	//
+	// **タイムアウトは1回の試行あたり**。試行回数 (*_attempts) を増やすと、
+	// 最悪の待ちは タイムアウト × 回数 になる。
 	TranscribeTimeoutSec int `toml:"transcribe_timeout_sec"`
 	ReplyTimeoutSec      int `toml:"reply_timeout_sec"`
 	TTSTimeoutSec        int `toml:"tts_timeout_sec"`
 
-	// TTSAttempts は TTS を試す回数 (初回を含む)。0 なら既定値。
-	// 打ち切った呼び出しは作り直す。詳細は defaultTTSAttempts 参照。
-	TTSAttempts int `toml:"tts_attempts"`
+	// 各API呼び出しを試す回数 (初回を含む)。0 なら既定値。
+	//
+	// **書き起こしと発話生成の既定は1回 (再試行しない)**。失敗したら
+	// プレイヤーへ事前収録の「聞き直し」を流す (navigator_reask.go)。
+	// 待って撃ち直すより、聞き直してもらうほうが無線の間が短い。
+	// 429・5xx・タイムアウトだけが再試行の対象 (isRetryable)。
+	// TTS も既定は1回 (defaultTTSAttempts 参照)。
+	TranscribeAttempts int `toml:"transcribe_attempts"`
+	ReplyAttempts      int `toml:"reply_attempts"`
+	TTSAttempts        int `toml:"tts_attempts"`
+}
+
+// TranscribeAttemptCount / ReplyAttemptCount は書き起こし・発話生成の試行回数を返す
+// (未設定なら既定値)。
+func (c GeminiConfig) TranscribeAttemptCount() int {
+	return attemptsOrDefault(c.TranscribeAttempts, defaultTranscribeAttempts)
+}
+
+func (c GeminiConfig) ReplyAttemptCount() int {
+	return attemptsOrDefault(c.ReplyAttempts, defaultReplyAttempts)
+}
+
+func attemptsOrDefault(n, fallback int) int {
+	if n <= 0 {
+		return fallback
+	}
+	return n
 }
 
 // TTSAttemptCount は TTS の試行回数を返す (未設定なら既定値)。
@@ -141,17 +168,31 @@ func (c GeminiConfig) TTSAttemptCount() int {
 // 無線で10秒の無音は事故に見えるため、10秒で見切って作り直す。
 // 遅い回を引いても次は当たり直せる (実測でも 56秒 → 29秒 → 24秒 → 4秒 と
 // 呼び出しごとに変わる)。長く待つより速く終わる。
+//
+// **書き起こし・発話生成は短く切る** (1回あたり 8秒・5秒)。長く待つと無線が
+// 無音のまま続く。切ったら再試行せず、事前収録の聞き直しを流す
+// (navigator_reask.go)。値は実運用ログの遅延分布を見て調整する前提の出発点。
+// reply は 3.5-flash-lite で約1秒、履歴の載る発話でその約2倍。書き起こしは
+// 通常2秒前後だが、長い発話やコールドスタート (6〜10秒) で伸びる。
 const (
-	defaultTranscribeTimeout = 20 * time.Second
-	defaultReplyTimeout      = 20 * time.Second
+	defaultTranscribeTimeout = 8 * time.Second
+	defaultReplyTimeout      = 5 * time.Second
 	defaultTTSTimeout        = 10 * time.Second
 )
 
-// defaultTTSAttempts は TTS を試す回数 (初回 + リトライ)。
+// 書き起こし・発話生成の既定の試行回数 (再試行しない)。
+const (
+	defaultTranscribeAttempts = 1
+	defaultReplyAttempts      = 1
+)
+
+// defaultTTSAttempts は TTS を試す回数 (初回 + リトライ)。**1 = 再試行しない**。
 //
-// 実測では 10秒以内に返るのが約73%。3回試せば大半が拾える。
-// 最悪でも 10秒×3 = 30秒で見切りをつける。
-const defaultTTSAttempts = 3
+// 失敗 (10秒で見切る・エラー) したら再試行せず、プレイヤーへ事前収録の聞き直しを流す
+// (ADR G-7)。最悪でも 10秒で見切りをつける。以前は 3 回試していた (実測では
+// 10秒以内に返るのが約73%で、3回試せば大半が拾えるが、外すと最悪30秒の無音になった)。
+// 聞き直しが多すぎるなら、設定ファイルの tts_attempts を上げる。
+const defaultTTSAttempts = 1
 
 // TranscribeTimeout / ReplyTimeout / TTSTimeout は設定値を time.Duration で返す。
 // 未設定 (0) の場合は既定値を返す。
