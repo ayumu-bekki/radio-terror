@@ -230,12 +230,12 @@ var simScripts = map[string]simScript{
 			{Trigger: "player_message",
 				Player: "1つのランプが長く光ったり短く光ったりしています。どうぞ"},
 			{Trigger: "player_message",
-				Player: "モールスですね。シートの対照表で読んでみます。どうぞ"},
+				Player: "モールスですね。読んでみます。どうぞ"},
 			// 202 は英字1文字 (決定152)
 			{Trigger: "player_message",
 				Player: "読めました。${navi_word_guess}という文字だと思います。どうぞ"},
 			{Trigger: "player_message",
-				Player: "その文字の行を対照表で引きました。この色でいいですか。どうぞ"},
+				Player: "その文字の行を表で引きました。この色でいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "silence_after_stage"},
@@ -253,9 +253,9 @@ var simScripts = map[string]simScript{
 			{Trigger: "player_message",
 				Player: "ランプが5つとも全部光っています。どうぞ"},
 			{Trigger: "player_message",
-				Player: "回路図シートを見ています。どこを見ますか。どうぞ"},
+				Player: "資料3を見ています。どこを見ますか。どうぞ"},
 			{Trigger: "player_message",
-				Player: "端子の番号と色の表がありました。どうぞ"},
+				Player: "端子の番号が書いてありました。どうぞ"},
 			{Trigger: "player_message",
 				Player: "どの端子の線を切りますか。色で教えてください。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
@@ -530,7 +530,7 @@ var simScripts = map[string]simScript{
 			{Trigger: "player_message",
 				Player: "1つのランプが長短で点滅しています。どうぞ"},
 			{Trigger: "player_message",
-				Player: "対照表で読んでいます。最初の文字が読めました。どうぞ"},
+				Player: "資料1で読んでいます。最初の文字が読めました。どうぞ"},
 			{Trigger: "player_message",
 				Player: "2文字目まで読めました。続きが読めません。どうぞ"},
 			{Trigger: "player_message",
@@ -677,6 +677,20 @@ func TestColorPolicyPatternCatchesPolicyStatement(t *testing.T) {
 	}
 	for _, s := range misses {
 		if colorPolicyPattern.MatchString(s) {
+			t.Errorf("誤検出: %q", s)
+		}
+	}
+}
+
+// 紙資料の開発側の呼び名を拾う (決定162)。301 の表の見出しは紙に印刷されているので拾わない。
+func TestSheetNamePattern(t *testing.T) {
+	for _, s := range []string{"全灯は回路図の合図や", "シートの対照表で読んでくれ"} {
+		if !sheetNamePattern.MatchString(s) {
+			t.Errorf("拾えていない: %q", s)
+		}
+	}
+	for _, s := range []string{"手元の資料3を見ろ", "同じ資料2のデコード表を見てくれ", "資料1の表の同じ行の色の線を切れ"} {
+		if sheetNamePattern.MatchString(s) {
 			t.Errorf("誤検出: %q", s)
 		}
 	}

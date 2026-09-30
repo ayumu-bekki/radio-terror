@@ -893,6 +893,15 @@ func simCheckTurn(
 		})
 	}
 
+	// 紙資料を開発側の呼び名で呼んでいないか (決定162)。
+	// プレイヤーの手元にあるのは「資料N」と印刷された紙だけで、何の資料かの名前は知らない。
+	if m := sheetNamePattern.FindString(body); m != "" {
+		findings = append(findings, simFinding{
+			StageID: id, Kind: "sheet_name",
+			Detail: fmt.Sprintf("紙資料を番号でなく名前で呼んでいる (%q)", m), Reply: reply,
+		})
+	}
+
 	// 6. 課題突破を「解除完了」と取り違えていないか
 	//
 	// 課題を1つ抜けただけで、装置はまだ生きている。
@@ -983,6 +992,10 @@ var metaOutputForms = []string{
 // 「分からない」「見えない」は知らない側の断り方 (ADR N-6) なので拾わない。
 var colorPolicyPattern = regexp.MustCompile(
 	`色[^。、!?]{0,8}(言わん|言わない|言いません|言えん|言えない|言えません|教えられ|教えへん|教えない|伏せ)`)
+
+// sheetNamePattern は紙資料の開発側の呼び名 (決定162)。紙に印刷されているのは
+// 「資料N」の番号と、301 の3つの表の見出し (変換表・デコード表・分岐表) だけ。
+var sheetNamePattern = regexp.MustCompile(`回路図|対照表|シート`)
 
 // prematureCompletionWords は「装置を解除しきった」ことを意味する語。
 // 課題を1つ突破しただけの場面 (silence_after_stage) で使うと、

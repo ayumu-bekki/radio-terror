@@ -21,6 +21,22 @@ func logStartupBanner(configPath string, cfg *Config) {
 	log.Printf("[boot] commit: %s", buildIdentity())
 	log.Printf("[boot] config: %s", configPath)
 	log.Printf("[boot] manager secret words: %s", describeSecretWords(cfg.Manager.SecretWord))
+	log.Printf("[boot] gemini: %s", describeGeminiModels(cfg.Gemini))
+}
+
+// describeGeminiModels は使うモデルと思考レベルを1行にまとめる。
+// モデルを差し替えたのに挙動が変わらないときの切り分け用。
+func describeGeminiModels(g GeminiConfig) string {
+	thinking := g.ReasoningThinkingLevel
+	if thinking == "" {
+		thinking = "model default"
+	}
+	tts := g.TTSModel
+	if tts == "" {
+		tts = defaultTTSModel
+	}
+	return fmt.Sprintf("reasoning=%s (thinking=%s) / tts=%s / transcribe=%s",
+		g.ReasoningModel, thinking, tts, g.TranscribeModel)
 }
 
 // buildIdentity は commit id と Go バージョンを返す。

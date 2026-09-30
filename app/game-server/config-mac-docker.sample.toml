@@ -33,6 +33,10 @@ location               = "global"
 transcribe_model       = "gemini-3.1-flash-lite"
 # ナビゲーターの思考 (会話生成・意図理解)。会話ターンごとに呼ぶため低レイテンシ重視
 reasoning_model        = "gemini-3.5-flash-lite"
+# 思考レベル ("minimal" / "low" / "medium" / "high")。省略ならモデルの既定。
+# 会話ターンごとに呼ぶので low (ADR G-8)
+reasoning_thinking_level = "low"
+# gemini-3.8-flash-lite-tts は Enterprise (Vertex) で未提供 (2026-09-28 実測で404。ADR G-8)
 tts_model              = "gemini-3.1-flash-tts-preview"
 transcribe_prompt_file = "transcribe_prompt.txt"
 transcribe_schema_file = "transcribe_schema.json"

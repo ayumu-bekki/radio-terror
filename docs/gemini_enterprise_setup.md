@@ -315,5 +315,7 @@ crosstalk-gen には `max_requests` (1回の実行の上限) があり、
 | 15 | ~~未設定の `service_tier` は空文字で表す~~ **覆った** | 項目自体が無くなった。ただし `genai.ServiceTierUnspecified` の実体が文字列 `"unspecified"` で `omitempty` に落ちない性質は、**再導入時に踏み直す罠**として `docs/adr.md` G-5 に残してある |
 | 16 | Interactions API へは移行しない (2026-08 時点) | **Go SDK に存在しない** (v1.68.0 の `genai.Client` に `Interactions` フィールドが無く、`client.Interactions.Create` はコンパイルが通らない)。かつ `v1beta2/interactions` は APIキー認証の Gemini Developer API 系で決定9と衝突する。`generateContent` は「レガシーだが完全にサポート」で廃止期限の告知も無い。追跡先は go-genai issue #658 (Open/P1) |
 | 17 | 429 だけ1回再試行し、504 は再試行しない | 429 は共有クォータの一時的な混雑で、シミュレーション1回あたり数件出ていた (1秒空けて撃ち直す)。504 は SDK が ctx の期限 (20秒) をサーバーへ渡した結果、サーバー側で期限を使い切ったもの (2件とも18.6秒で返った)。撃ち直しても残り時間が無い。ADR G-7 |
+| 18 | 推論モデルの思考レベルを `reasoning_thinking_level` で指定する。TTS の 3.8 系は未提供なので `gemini-3.1-flash-tts-preview` のまま | 要望で推論を `gemini-3.8-flash` (思考 low) にした (2026-09-28)。**同じプロンプトで p50 4.73秒** (3.5-flash-lite は 0.99秒)、全ステージのシミュレーションで平均5.3秒・p90 10.4秒・**111回中8回が504** (20秒切れ)。`minimal` は 8/8 がエラー。TTS の `gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts` (と `-preview`) は global・us・us-central1・europe-west4・asia-northeast1 の全てで 404 (公開情報でも Enterprise は「今後提供」)。ADR G-8 |
+| 19 | 推論は `gemini-3.5-flash-lite` の思考 low を試す (2026-09-28) | 3.8-flash が遅すぎたため。思考レベル指定なしは minimal と同じ。単発の中央値は minimal 1.01秒・low 0.98秒 (最大 2.36秒) と差が無いが、**履歴の載るシミュレーション** (101・102・202・303、26発話) では low 平均2.03秒・p90 3.12秒・最大4.33秒、minimal 平均0.99秒・最大1.24秒で **low は約2倍**。所見は low 0件・minimal 1件 (字数のみ)。1回ずつなので質の差はまだ言えない (V-1) |
 
 <!-- EOF -->

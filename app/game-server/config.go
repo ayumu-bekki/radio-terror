@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -98,11 +99,14 @@ type GeminiConfig struct {
 	Project  string `toml:"project"`
 	Location string `toml:"location"`
 
-	TranscribeModel      string `toml:"transcribe_model"`
-	ReasoningModel       string `toml:"reasoning_model"`
-	TTSModel             string `toml:"tts_model"`
-	TranscribePromptFile string `toml:"transcribe_prompt_file"`
-	TranscribeSchemaFile string `toml:"transcribe_schema_file"`
+	TranscribeModel string `toml:"transcribe_model"`
+	ReasoningModel  string `toml:"reasoning_model"`
+	// ReasoningThinkingLevel は ReasoningModel の思考レベル
+	// ("minimal" / "low" / "medium" / "high")。空ならモデルの既定。
+	ReasoningThinkingLevel string `toml:"reasoning_thinking_level"`
+	TTSModel               string `toml:"tts_model"`
+	TranscribePromptFile   string `toml:"transcribe_prompt_file"`
+	TranscribeSchemaFile   string `toml:"transcribe_schema_file"`
 
 	// 各API呼び出しのタイムアウト (秒)。0 なら既定値を使う。
 	//
@@ -181,7 +185,34 @@ func (c GeminiConfig) Validate() error {
 		return fmt.Errorf("[gemini] location が未設定です " +
 			"(環境変数 GOOGLE_CLOUD_LOCATION でも指定できます)")
 	}
+	if _, err := c.thinkingLevel(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// thinkingLevel は reasoning_thinking_level を SDK の値へ変換する。
+func (c GeminiConfig) thinkingLevel() (genai.ThinkingLevel, error) {
+	level := strings.ToLower(strings.TrimSpace(c.ReasoningThinkingLevel))
+	if level == "" {
+		return "", nil
+	}
+	for _, l := range []genai.ThinkingLevel{genai.ThinkingLevelMinimal, genai.ThinkingLevelLow,
+		genai.ThinkingLevelMedium, genai.ThinkingLevelHigh} {
+		if strings.EqualFold(string(l), level) {
+			return l, nil
+		}
+	}
+	return "", fmt.Errorf("[gemini] reasoning_thinking_level %q は minimal / low / medium / high のいずれかにしてください", c.ReasoningThinkingLevel)
+}
+
+// ReasoningThinkingConfig は ReasoningModel へ渡す思考設定。未指定なら nil (モデルの既定)。
+func (c GeminiConfig) ReasoningThinkingConfig() *genai.ThinkingConfig {
+	level, _ := c.thinkingLevel()
+	if level == "" {
+		return nil
+	}
+	return &genai.ThinkingConfig{ThinkingLevel: level}
 }
 
 // NewGenAIClient は Gemini Enterprise Agent Platform のクライアントを作る。

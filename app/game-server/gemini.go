@@ -126,7 +126,8 @@ func (p *GeminiProcessor) Warmup(ctx context.Context) error {
 		errCh <- err
 	}()
 	go func() {
-		_, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents, nil)
+		_, err := p.client.Models.GenerateContent(ctx, p.cfg.ReasoningModel, contents,
+			&genai.GenerateContentConfig{ThinkingConfig: p.cfg.ReasoningThinkingConfig()})
 		if err != nil {
 			err = fmt.Errorf("warmup reasoning model: %w", err)
 		}
@@ -319,6 +320,7 @@ func (p *GeminiProcessor) GenerateNavigatorReply(ctx context.Context, systemProm
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
 		ResponseMIMEType:  "application/json",
 		ResponseSchema:    navigatorReplySchema,
+		ThinkingConfig:    p.cfg.ReasoningThinkingConfig(),
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.ReplyTimeout())
@@ -376,6 +378,7 @@ func (p *GeminiProcessor) generateReply(ctx context.Context, systemPrompt, instr
 	}
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
+		ThinkingConfig:    p.cfg.ReasoningThinkingConfig(),
 	}
 	if useSearch {
 		config.Tools = []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}
