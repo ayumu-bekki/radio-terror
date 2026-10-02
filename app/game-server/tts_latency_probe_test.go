@@ -703,7 +703,7 @@ func TestNavigatorEmitsEmotionTags(t *testing.T) {
 	// 表情が出やすいトリガーで試す。
 	// 残り時間の告知 (旧 time_warning) は独立したトリガーではなくなったので、
 	// AnnounceUrgent を立てた player_message で代用する (下)。
-	triggers := []string{"session_start", "defused", "wrong_action", "player_message"}
+	triggers := []string{"session_start", "stage_cleared", "wrong_action", "player_message"}
 
 	tagPattern := regexp.MustCompile(`\[([^\[\]]*)\]`)
 	totals := map[string]int{}

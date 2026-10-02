@@ -189,10 +189,9 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 			fmt.Sprintf("✗✗ 爆発 (%s) — 解体失敗", describeExplodeReason(msg)),
 			msg.StageIndex, msg.RemainingMS)
 		c.finishSession(ctx, session, 0)
-		// 最終メッセージを流し終えてからバインドを解放し、以後はカラスに引き継ぐ
-		c.speakAsyncThen(ctx, sender, session, "exploded",
-			"解体は失敗し、装置が起動してしまった。失敗を受け止めるメッセージを返す。",
-			func() { c.releaseAfterFinish(context.WithoutCancel(ctx), session) })
+		// 最終メッセージは事前収録の音声 (生成しないので待たずに流せる。ADR G-9)
+		c.endings.Play(sender, session, endingExploded)
+		c.releaseAfterFinish(context.WithoutCancel(ctx), session)
 
 		// 他チームのCoreの爆発を契機に「別現場の通信」を流す (§5.1 イベント駆動)
 		if c.crosstalk != nil {
@@ -205,10 +204,9 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 			fmt.Sprintf("★ 解除成功 — スコア(残り時間) %.1f秒", float64(msg.RemainingMS)/1000),
 			msg.StageIndex, msg.RemainingMS)
 		c.finishSession(ctx, session, msg.RemainingMS)
-		// 最終メッセージを流し終えてからバインドを解放し、以後はカラスに引き継ぐ
-		c.speakAsyncThen(ctx, sender, session, "defused",
-			fmt.Sprintf("解除に成功した!残り時間%d秒でクリア。祝福する。", msg.RemainingMS/1000),
-			func() { c.releaseAfterFinish(context.WithoutCancel(ctx), session) })
+		// 最終メッセージは事前収録の音声 (生成しないので待たずに流せる。ADR G-9)
+		c.endings.Play(sender, session, endingDefused)
+		c.releaseAfterFinish(context.WithoutCancel(ctx), session)
 	}
 
 	c.persist(ctx, session)

@@ -19,8 +19,10 @@ assets/
 │   └── failure.ogg … 失敗の効果音
 ├── announce/
 │   └── station_id.ogg … 自動送信局アナウンス (15分ごと)
-└── reask/
-    └── {キャラID}_{n}.ogg … 聞き直し (キャラごとに2本。下記)
+├── reask/
+│   └── {キャラID}_{n}.ogg … 聞き直し (キャラごとに2本。下記)
+└── ending/
+    └── {キャラID}_{defused|exploded}_{n}.ogg … 終幕 (キャラごとに解除成功3本+爆発3本。下記)
 ```
 
 形式は **Ogg Opus** (radio-bridge がそのままキューへ積んで再生する)。
@@ -112,3 +114,17 @@ go run . -category announce -out ../game-server/assets
 - 生成: `cd app/crosstalk-gen && go run . -category reask -out ../game-server/assets`
 - **未配置でも起動する**が、そのキャラの聞き直しは無言になる。起動ログの
   `[reask] loaded N clip(s) for M/K character(s)` で確かめる
+
+## 終幕 (ending) — 5キャラ × 6本 = 30ファイル
+
+解除成功・爆発の最終メッセージ。実行時の生成はせず、キャラクターごとに3本の中から
+ランダムに1本を流す (ADR G-9)。再生時に効果音 (`sfx/success.ogg` / `sfx/failure.ogg`) を
+前へ連結して1本で送る。
+
+- ファイル名: `{キャラID}_defused_{1-3}.ogg` / `{キャラID}_exploded_{1-3}.ogg`
+- 台詞の正本は `navigator/characters/*.toml` の `defused_lines` / `exploded_lines`
+  (先頭の `[tag]` は表情指定で、会話ログには載せない)。`crosstalk.toml` の `[[ending]]` と一致させる
+- 作り直し: `cd app/crosstalk-gen && go run . -category ending -out ../game-server/assets -force`
+  (Gemini TTS を呼ぶ。400・空応答が散発するので不足分は再実行。台詞を変えたら `-force`)
+- 抜けると、そのキャラクターの終幕は効果音だけになる (起動ログ `[ending] no ... clip for ...`。
+  `TestEndingRealAssetsCoverEveryLine` も検査する)

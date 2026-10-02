@@ -108,6 +108,8 @@ type GameCoordinator struct {
 	logs      *SessionLogStore
 	navigator *NavigatorConfig
 	silence   *SilenceWatcher
+	// endings は解除成功・爆発の最終メッセージ (事前収録。ADR G-9)
+	endings *EndingPlayer
 
 	// testResponder は疎通確認応答 (カラス)。セッション開始時に文脈を破棄する。
 	testResponder *TestResponder
@@ -146,6 +148,11 @@ func (c *GameCoordinator) Binder() *SessionBinder {
 // SetNavigatorSpeaker はナビゲーターの発話生成器を設定する。
 func (c *GameCoordinator) SetNavigatorSpeaker(speaker NavigatorSpeaker) {
 	c.speaker = speaker
+}
+
+// SetEndingPlayer は終幕 (解除成功・爆発) の最終メッセージの再生先を設定する。
+func (c *GameCoordinator) SetEndingPlayer(p *EndingPlayer) {
+	c.endings = p
 }
 
 // SetSilenceWatcher は無応答時の声掛けを設定する。
@@ -569,7 +576,7 @@ func (c *GameCoordinator) sessionFor(deviceID string) *GameSession {
 // 爆発した装置に対して次の手順を指示する交信が成立してしまう。
 // 終わった瞬間に印を付け、以後の応答はカラスへ引き継ぐ。
 //
-// 最終メッセージ自体は `speakAsyncThen` が**この印とは無関係に**流すので、
+// 最終メッセージ自体は `EndingPlayer` が**この印とは無関係に**流すので、
 // ここで立てても爆発・解除の締めは消えない。
 func (c *GameCoordinator) finishSession(ctx context.Context, session *GameSession, score int) {
 	session.mu.Lock()
@@ -643,34 +650,6 @@ func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender
 	case <-time.After(wait):
 	case <-ctx.Done():
 	}
-}
-
-// speakAsyncThen は発話生成をバックグラウンドで行い、**送出が終わってから**
-// done を呼ぶ。デバイスイベントの処理 (WS 読み取りループ) を TTS 生成で
-// ブロックしないため。
-//
-// 成功・失敗の最終メッセージのあとにバインドを解放する用途で使う。
-// 先に解放すると、その最終メッセージ自体がナビゲーター不在で流れなくなる。
-func (c *GameCoordinator) speakAsyncThen(ctx context.Context, sender *AudioSender, session *GameSession, trigger, event string, done func()) {
-	if c.speaker == nil {
-		if done != nil {
-			done()
-		}
-		return
-	}
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("[game] speak panic: %v", rec)
-			}
-			if done != nil {
-				done()
-			}
-		}()
-		if err := c.speak(context.WithoutCancel(ctx), sender, session, trigger, event); err != nil {
-			log.Printf("[game] speak error (%s): %v", trigger, err)
-		}
-	}()
 }
 
 // releaseAfterFinish はゲーム終了後の後始末を行う。

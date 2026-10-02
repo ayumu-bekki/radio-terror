@@ -101,7 +101,7 @@ func TestDirectorNoteCoversTriggers(t *testing.T) {
 	// 演出上、表情の差が特に効くトリガー
 	for _, trigger := range []string{
 		"session_start", "stage_cleared", "wrong_action",
-		"defused", "exploded", "hint",
+		"hint",
 	} {
 		if directorNote(trigger) == "" {
 			t.Errorf("トリガー %q の読み方の指定が無い", trigger)

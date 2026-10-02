@@ -27,7 +27,7 @@ func main() {
 		configPath = flag.String("config", "crosstalk.toml", "設定ファイルのパス")
 		outDir     = flag.String("out", "../game-server/assets/crosstalk", "出力先ディレクトリ")
 		only       = flag.String("only", "", "生成対象を名前で絞る (カンマ区切り。例: aserase_A,kuromaku)")
-		category   = flag.String("category", "", "カテゴリで絞る (jamming/ambient/uneasy/announce/reask)")
+		category   = flag.String("category", "", "カテゴリで絞る (jamming/ambient/uneasy/announce/reask/ending)")
 		dryRun     = flag.Bool("dry-run", false, "APIを呼ばず、生成されるプロンプトとファイル名だけ表示する")
 		force      = flag.Bool("force", false, "既存ファイルがあっても再生成する (skip_existing を無視)")
 		list       = flag.Bool("list", false, "生成対象の一覧だけ表示する")
@@ -97,9 +97,9 @@ func run(configPath, outDir, only, category string, dryRun, force, list bool) er
 func filterJobs(jobs []Job, only, category string) ([]Job, error) {
 	if category != "" {
 		switch category {
-		case catJamming, catAmbient, catUneasy, catAnnounce, catReask:
+		case catJamming, catAmbient, catUneasy, catAnnounce, catReask, catEnding:
 		default:
-			return nil, fmt.Errorf("unknown category %q (jamming/ambient/uneasy/announce/reask)", category)
+			return nil, fmt.Errorf("unknown category %q (jamming/ambient/uneasy/announce/reask/ending)", category)
 		}
 		var out []Job
 		for _, j := range jobs {
@@ -179,7 +179,7 @@ type result struct {
 }
 
 func generateAll(ctx context.Context, cfg *Config, gen *Generator, jobs []Job, outDir string, skipExisting bool) error {
-	for _, cat := range []string{catJamming, catAmbient, catUneasy, catAnnounce, catReask} {
+	for _, cat := range []string{catJamming, catAmbient, catUneasy, catAnnounce, catReask, catEnding} {
 		if err := os.MkdirAll(filepath.Join(outDir, cat), 0o755); err != nil {
 			return fmt.Errorf("mkdir: %w", err)
 		}

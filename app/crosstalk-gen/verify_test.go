@@ -140,10 +140,10 @@ func TestStripTags(t *testing.T) {
 // 重複すると「自称犯人がナビゲーターと同じ声で『ナビゲーターを信じるな』と言う」
 // といった演出の破綻が起きる。混線は本物の声と区別がつくことが前提。
 //
-// **announce と reask は対象外**。自動送信局アナウンスはカラス本人が名乗る放送なので、
+// **announce・reask・ending は対象外**。自動送信局アナウンスはカラス本人が名乗る放送なので、
 // カラスと同じ声であることが正しい (TestAnnounceUsesCrowVoice で逆を担保する)。
 // 聞き直しはナビゲーター本人の声で流すので、同じ声であることが正しい
-// (TestReaskMatchesCharacters で担保する)。
+// (TestReaskMatchesCharacters で担保する)。終幕も同じ (TestEndingMatchesCharacters)。
 func TestVoicesDoNotCollideWithNavigators(t *testing.T) {
 	protected := map[string]string{}
 
@@ -190,8 +190,8 @@ func TestVoicesDoNotCollideWithNavigators(t *testing.T) {
 		t.Fatalf("build: %v", err)
 	}
 	for _, j := range jobs {
-		// announce はカラス本人、reask はナビゲーター本人の声で正しい
-		if j.Category == catAnnounce || j.Category == catReask {
+		// announce はカラス本人、reask・ending はナビゲーター本人の声で正しい
+		if j.Category == catAnnounce || j.Category == catReask || j.Category == catEnding {
 			continue
 		}
 		if owner, ok := protected[j.VoiceID]; ok {
@@ -357,5 +357,73 @@ func TestReaskMatchesCharacters(t *testing.T) {
 	}
 	if len(reask) != want {
 		t.Errorf("reask のジョブ %d 件 != キャラクター定義の台詞 %d 件 (余分な定義が無いか)", len(reask), want)
+	}
+}
+
+// 終幕の音声が、ナビゲーターの定義 (声・台詞) と一致していること。
+//
+// game-server は assets/ending/<キャラクターID>_<defused|exploded>_<n>.ogg を、
+// キャラクター定義の defused_lines / exploded_lines の n 番目として再生し、
+// 会話ログへ (表情タグを除いた) 同じ文を残す。声が違えば別人に聞こえ、台詞が
+// 違えば会話ログと音声が食い違う。
+func TestEndingMatchesCharacters(t *testing.T) {
+	chars, err := filepath.Glob("../game-server/navigator/characters/*.toml")
+	if err != nil || len(chars) == 0 {
+		t.Fatalf("キャラクター定義が見つからない: %v", err)
+	}
+
+	cfg, err := LoadConfig("crosstalk.toml")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	jobs, err := cfg.BuildJobs()
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	ending := map[string]Job{}
+	for _, j := range jobs {
+		if j.Category == catEnding {
+			ending[j.Name] = j
+		}
+	}
+
+	want := 0
+	for _, path := range chars {
+		var c struct {
+			ID            string   `toml:"id"`
+			Voice         string   `toml:"tts_voice"`
+			DefusedLines  []string `toml:"defused_lines"`
+			ExplodedLines []string `toml:"exploded_lines"`
+		}
+		if _, err := toml.DecodeFile(path, &c); err != nil {
+			t.Fatalf("decode %s: %v", path, err)
+		}
+		for kind, lines := range map[string][]string{"defused": c.DefusedLines, "exploded": c.ExplodedLines} {
+			if len(lines) != 3 {
+				t.Errorf("%s: %s_lines が %d 本 (3本のはず)", c.ID, kind, len(lines))
+			}
+			for i, line := range lines {
+				want++
+				name := fmt.Sprintf("%s_%s_%d", c.ID, kind, i+1)
+				j, ok := ending[name]
+				if !ok {
+					t.Errorf("crosstalk.toml の [[ending]] に %q が無い", name)
+					continue
+				}
+				if j.VoiceID != c.Voice {
+					t.Errorf("%s: voice=%q だがキャラクターは %q", name, j.VoiceID, c.Voice)
+				}
+				if j.Text != line {
+					t.Errorf("%s: 台詞が違う\n  crosstalk.toml: %q\n  キャラクター定義: %q", name, j.Text, line)
+				}
+				// 「どうぞ」は応答を求める言葉。終幕では付けない (ADR 決定46)
+				if strings.Contains(line, "どうぞ") {
+					t.Errorf("%s: 終幕に「どうぞ」が入っている: %q", name, line)
+				}
+			}
+		}
+	}
+	if len(ending) != want {
+		t.Errorf("ending のジョブ %d 件 != キャラクター定義の台詞 %d 件 (余分な定義が無いか)", len(ending), want)
 	}
 }

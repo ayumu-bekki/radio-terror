@@ -84,10 +84,10 @@ for p in 0 1 2 3 4 5; do
   go test -run TestSimulateAllStages -simulate -sim-stages 209 -sim-panel-start $p -v
 done
 
-# **終幕 (解除成功・爆発) のシミュレーション** (実APIを呼ぶ。約10秒)
-# ステージ横断シミュレーションはここを通らない。キャラ差が最も大きい場面
-# なので、キャラシートを触ったら回す。既定で各3回 (ADR V-1)
-go test -run TestSimulateEndings -ending -ending-character shrike -v
+# **終幕 (解除成功・爆発) は生成せず事前収録の音声を流す** (ADR G-9)。
+# 台詞は characters/*.toml の defused_lines / exploded_lines。直したら音声を作り直す:
+#   cd app/crosstalk-gen && go run . -category ending -out ../game-server/assets -force
+# (生成版の終幕シミュレーション TestSimulateEndings とトリガー指示は 2026-10-02 に削除した)
 ```
 
 `gofmt -w <file>` は編集後に必ず実行する(`gofmt -l *.go` が何も出さない状態を保つ)。
@@ -213,6 +213,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | セッション開始・中断 | `game_coordinator.go` |
 | デバイス進行イベントの演出 | `game_events.go`(`HandleDeviceMessage` と各イベント) |
 | ナビゲーター発話生成 | `navigator_speaker.go` → `navigator_prompt.go` |
+| 終幕 (解除成功・爆発) の再生 | `navigator_ending.go`(事前収録の音声。ADR G-9) |
 | 誤った報告の照合と数え方 | `navigator_color_check.go`(表示との照合) / `navigator_stage_progress.go`(同じ誤りの回数・言い直し) |
 | モールスの表と綴りの照合 | `navigator_morse_sheet.go`(資料1の表・読み方・`morseReportNote`) |
 | デバイスとのWS | `ws_session.go` + `device_registry.go` |
@@ -269,6 +270,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | `service_tier` は使わない | Vertex/Enterprise は**どの値でも400**。実装ごと削除済み。公式docの「使える」は Developer API の話で接続先が違う。再追加しない | G-5 |
 | Interactions API は使えない | Go SDK v1.68.0 に `client.Interactions` が無い。APIキー系エンドポイントでもあり G-4 と衝突する | G-6 |
 | モデルを替えたら遅延を測る | 思考レベルは `reasoning_thinking_level`。`gemini-3.8-flash` (low) は p50 4.7秒で 3.5-flash-lite の約5倍、504 も出た。3.5-flash-lite の low は履歴の載る発話で minimal の約2倍 (単発では差が出ないのでシミュレーションで測る)。3.8 系 TTS は Enterprise に無い (404) | G-8 |
+| 終幕は生成しない | 解除成功・爆発は**事前収録の音声3本からランダム** (`EndingPlayer`)。生成だと十数秒遅れた。台詞は `defused_lines` / `exploded_lines` が正本で、直前の交信には触れない。台詞を変えたら `crosstalk-gen -category ending -force`。TTS が 400 を返すときは表情タグを替える | G-9 |
 | 失敗は再試行せず聞き直す | 書き起こし 8秒・発話生成 5秒 (1回あたり) で切り、**既定は再試行しない**。試行回数とタイムアウトは API ごとに設定ファイル。失敗したら**プレイヤーが話した直後に限り**事前収録の「聞き取れなかったのでもう一度」を流す (`ReaskPlayer`)。TTS が捨てられたら**誤った報告の印を戻す** (同じ誤りの二重カウント防止)。**イベント起点・声掛けでは流さない**。音声は `crosstalk-gen -category reask` で作る (未配置は無言)。台詞はキャラ定義の `reask_lines` が正本 | G-7 |
 | 表情タグは6語 | `allowedTTSTags` と `prompt.toml` の両方に書く。片方だけでは効かない | T-5 |
 | ノートに場面を書かない | TTS が場面を演じて相手の発話まで作る | T-6 |
@@ -371,7 +373,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
   下1桁の奇数/偶数が 203 ブループリントの端子系統を決める(採番で奇数偶数を混ぜる)。
   資料2・資料4 の表は実装 (`scenario_codebook.go` / `scenario_panel.go`) に
   固定で持たせてあり、**刷ったら突き合わせる** (`docs/printed_materials.md`)。
-- **音声アセットは全て配置済み**(混線30ファイル + 効果音2ファイル + 聞き直し10ファイル)。
+- **音声アセットは全て配置済み**(混線30ファイル + 効果音2ファイル + 聞き直し10ファイル + 終幕30ファイル)。
   聞き直しは `cd app/crosstalk-gen && go run . -category reask -out ../game-server/assets` で作り直せる
   (Gemini TTS を呼ぶ。400 が散発するので不足分は再実行。台詞を変えたら `-force`)。
   抜けると失敗時の聞き直しが無言になる (起動ログ `[reask] no clip for ...`。テストも検査する)。

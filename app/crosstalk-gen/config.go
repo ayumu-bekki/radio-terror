@@ -33,6 +33,12 @@ type Config struct {
 	// 声と本文は navigator/characters/*.toml の tts_voice / reask_lines と
 	// 一致させる (テストで検査する)。
 	Reask []Voice `toml:"reask"`
+
+	// Ending は解除成功・爆発の最終メッセージ (game-server の navigator_ending.go)。
+	// ファイル名は <キャラクターID>_<defused|exploded>_<n>。声と本文は
+	// navigator/characters/*.toml の tts_voice / defused_lines / exploded_lines と
+	// 一致させる (テストで検査する)。
+	Ending []Voice `toml:"ending"`
 }
 
 type Defaults struct {
@@ -76,7 +82,7 @@ type Voice struct {
 
 // Job は展開後の生成単位 (1ファイル = 1ジョブ)。
 type Job struct {
-	Category string // jamming / ambient / uneasy / announce / reask
+	Category string // jamming / ambient / uneasy / announce / reask / ending
 	Name     string // ファイル名 (拡張子なし)
 	Role     string
 	Model    string
@@ -91,6 +97,7 @@ const (
 	catUneasy   = "uneasy"
 	catAnnounce = "announce"
 	catReask    = "reask"
+	catEnding   = "ending"
 )
 
 func LoadConfig(path string) (*Config, error) {
@@ -223,6 +230,21 @@ func (c *Config) BuildJobs() ([]Job, error) {
 		}
 		jobs = append(jobs, Job{
 			Category: catReask,
+			Name:     v.Name,
+			Role:     v.Role,
+			Model:    c.pickModel(v),
+			VoiceID:  c.pickVoice(v),
+			Prompt:   c.buildPromptWithScene(v.Scene, v.Context, v.Text),
+			Text:     v.Text,
+		})
+	}
+
+	for _, v := range c.Ending {
+		if err := v.validate(catEnding); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, Job{
+			Category: catEnding,
 			Name:     v.Name,
 			Role:     v.Role,
 			Model:    c.pickModel(v),

@@ -44,6 +44,16 @@ type NavigatorCharacter struct {
 	// app/crosstalk-gen の reask カテゴリで作る。台詞を変えたら音声も作り直す
 	// (crosstalk-gen のテストが両者の一致を検査する)。
 	ReaskLines []string `toml:"reask_lines" json:"reask_lines"`
+
+	// DefusedLines / ExplodedLines は終幕 (解除成功・爆発) の台詞。事前収録音声の
+	// 書き起こしで、実行時は1本をランダムに流す (navigator_ending.go。ADR G-9)。
+	//
+	// 音声は assets/ending/<id>_defused_<n>.ogg / <id>_exploded_<n>.ogg (n は 1 始まりで
+	// この配列の順)。**ここが本文の正本**で、先頭の [tag] は TTS への表情指定
+	// (会話ログへは載せない)。音声は app/crosstalk-gen の ending カテゴリで作る。
+	// 台詞を変えたら音声も作り直す (crosstalk-gen のテストが一致を検査する)。
+	DefusedLines  []string `toml:"defused_lines" json:"defused_lines"`
+	ExplodedLines []string `toml:"exploded_lines" json:"exploded_lines"`
 }
 
 // NavigatorPromptConfig は全キャラクター共通のプロンプト定義

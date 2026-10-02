@@ -126,33 +126,39 @@ func (f *fakeSpeaker) Speak(ctx context.Context, sender *AudioSender, session *G
 }
 
 // TestNavigatorReleasedAfterGameEnd は爆発・解除のあとに
-// **ナビゲーターのバインドが解放される**ことを確かめる。
+// **ナビゲーターのバインドが解放される**ことと、**最終メッセージが事前収録の音声で
+// 流れる**ことを確かめる。
 //
 // 解放しないと終了後もナビゲーターが応答し続け、マネージャーのリセット申告にまで
 // 「リセットだな、了解。ランプの状態を教えてくれ」と反応する
 // (実運用で発生)。ゲームはもう進行しないので、開始前と同じくカラスが
 // 引き継ぐのが正しい (docs/operation_flow.md §6)。
 //
-// **最終メッセージを流し終えてから**解放すること。先に解放すると、
-// その最終メッセージ自体が流れなくなる。
+// 最終メッセージは生成せず事前収録を流す (ADR G-9)。流れる前に解放しても
+// 音声は届くこと (解放は応答相手の切り替えだけで、送出には影響しない)。
 func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		msgType string
-		trigger string
+		kind    string
 	}{
-		{"爆発", msgExploded, "exploded"},
-		{"解除成功", msgDefused, "defused"},
+		{"爆発", msgExploded, endingExploded},
+		{"解除成功", msgDefused, endingDefused},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := NewMemoryStore()
 			devices := NewDeviceRegistry()
-			game := NewGameCoordinator(devices, NewBridgeRegistry(), nil, store,
-				rand.New(rand.NewSource(1)))
-			game.SetSessionLogStore(NewSessionLogStore(store))
+			bridges := NewBridgeRegistry()
+			ch := bridges.Register("bridge-1")
+			defer bridges.Unregister("bridge-1", ch)
 
-			speaker := &fakeSpeaker{}
-			game.SetNavigatorSpeaker(speaker)
+			game := NewGameCoordinator(devices, bridges, nil, store,
+				rand.New(rand.NewSource(1)))
+			logs := NewSessionLogStore(store)
+			game.SetSessionLogStore(logs)
+			game.SetEndingPlayer(NewEndingPlayer(
+				writeEndingAssets(t, endingTestOwl), []NavigatorCharacter{endingTestOwl},
+				logs, nil, rand.New(rand.NewSource(1))))
 
 			conn := &fakeDeviceConn{}
 			devices.Register("0001", conn)
@@ -160,7 +166,7 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 			session := &GameSession{
 				SessionID: "s-1", DeviceID: "0001", BridgeID: "bridge-1",
 				State: deviceStatePlaying, StageIndex: 0, RemainingMS: 10000,
-				StartedAt: time.Now(),
+				StartedAt: time.Now(), Character: endingTestOwl,
 			}
 			session.progress.Reset()
 			game.binder.Bind("bridge-1", "0001", session)
@@ -174,21 +180,31 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 			})
 
 			// **引き継ぎは終了した瞬間に起きる** (finishSession で Finished を
-			// 立てる)。以前は最終メッセージを流し終えてから立てていたため、
-			// 生成と送出にかかる十数秒の間にプレイヤーが喋ると通常の指示が
-			// 返っていた。ここが同期でなくなると、その穴が戻る。
+			// 立てる)。ここが遅れると、終幕の間にプレイヤーが喋ったとき
+			// 通常の指示が返る。
 			if game.SessionForBridge("bridge-1") != nil {
 				t.Fatal("終了後もバインドが残っている — ナビゲーターが応答し続ける")
 			}
 
-			// 最終メッセージ自体は非同期なので、流れるまで待つ。
-			// 引き継ぎの印とは無関係に必ず流れること。
-			deadline := time.Now().Add(2 * time.Second)
-			for time.Now().Before(deadline) && len(speaker.triggers) == 0 {
-				time.Sleep(10 * time.Millisecond)
+			// 最終メッセージ (事前収録) が bridge へ届いている
+			select {
+			case <-ch:
+			default:
+				t.Errorf("最終メッセージ (%s) が bridge へ届いていない", tc.kind)
 			}
-			if len(speaker.triggers) == 0 || speaker.triggers[0] != tc.trigger {
-				t.Errorf("最終メッセージ %q が流れていない: %v", tc.trigger, speaker.triggers)
+
+			// 会話ログへ台詞が残る (表情タグは除く)
+			entries := logs.Entries("s-1")
+			found := false
+			for _, e := range entries {
+				for _, line := range endingTestLines(tc.kind) {
+					if e.Sender == "フクロウ" && e.Message == stripTTSTags(line) {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Errorf("会話ログに終幕の台詞が無い: %+v", entries)
 			}
 		})
 	}

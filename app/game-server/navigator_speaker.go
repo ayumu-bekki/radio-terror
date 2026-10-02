@@ -5,16 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"time"
-)
-
-// 効果音アセット (docs/operation_flow.md §6)。
-// 成功・失敗のメッセージは効果音と連結して再生する。
-const (
-	sfxSuccessFile = "success.ogg"
-	sfxFailureFile = "failure.ogg"
 )
 
 // navigatorMaxRunes は1発話の**目安**の上限 (navigator/prompt.toml の出力ルールと同じ値)。
@@ -64,9 +55,6 @@ type GeminiNavigator struct {
 
 	// config はナビゲーター設定 (navigator/ 以下のTOML)
 	config *NavigatorConfig
-
-	// sfxDir は効果音アセットのディレクトリ
-	sfxDir string
 }
 
 func NewGeminiNavigator(
@@ -74,14 +62,12 @@ func NewGeminiNavigator(
 	ttsClient *TTSClient,
 	logs *SessionLogStore,
 	config *NavigatorConfig,
-	sfxDir string,
 ) *GeminiNavigator {
 	return &GeminiNavigator{
 		processor: processor,
 		ttsClient: ttsClient,
 		logs:      logs,
 		config:    config,
-		sfxDir:    sfxDir,
 	}
 }
 
@@ -108,10 +94,8 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	// **ここでは印を立てない。** 生成に失敗した発話でも立ててしまうと、
 	// 一度も伝えないまま「伝えた」ことになる。送出できてから立てる (呼び出し側)。
 	//
-	// **終幕の発話では告知しない** — 爆発・解除はもう時間の話をする場面ではない。
 	announceUrgent = !session.urgentNoticed &&
-		remainingMS > 0 && remainingMS <= n.config.Prompt.UrgentThresholdMS &&
-		trigger != "exploded" && trigger != "defused"
+		remainingMS > 0 && remainingMS <= n.config.Prompt.UrgentThresholdMS
 	// 誤った報告は**プレイヤー発話への応答でだけ**扱う (ADR N-9b)。
 	// 無応答の声掛けなど他のトリガーで反応すると、古い報告を蒸し返す。
 	wrongReport, wrongCount, wrongMismatch := "", 0, false
@@ -122,9 +106,8 @@ func (n *GeminiNavigator) generateReply(ctx context.Context, session *GameSessio
 	morseLessons := 0
 	morseMentioned := false
 	playerDecoded, readabilityAsked, confirmAsked := false, false, false
-	// 押し間違えは無応答の声掛けでも伝える (黙っているあいだに列が戻っている)。
-	// 終幕では伝えない (決定156)
-	pushSeqReset := session.progress.PushSeqReset && trigger != "exploded" && trigger != "defused"
+	// 押し間違えは無応答の声掛けでも伝える (黙っているあいだに列が戻っている。決定156)
+	pushSeqReset := session.progress.PushSeqReset
 	justAdvanced := false
 	if trigger == "player_message" {
 		wrongReport = session.progress.LastWrongReport
@@ -320,19 +303,6 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		return err
 	}
 
-	// 成功・失敗は効果音を**メッセージと1つの音声に連結して**送る (§6)。
-	//
-	// 効果音を別パケットで先に送ると、効果音が鳴り終わってから TTS の生成を
-	// 待つ数秒の無音が無線に乗る。連結すれば「効果音 → メッセージ」が
-	// 途切れずに流れ、生成にかかる時間がそのまま演出の「間」になる。
-	var sfxPCM []int16
-	switch trigger {
-	case "defused":
-		sfxPCM = n.loadSFX(sfxSuccessFile)
-	case "exploded":
-		sfxPCM = n.loadSFX(sfxFailureFile)
-	}
-
 	// 表情は読み方の指定 (ディレクターズノート) と本文中の表情タグの
 	// 両方で伝える (tts_prompt.go 参照)。
 	note := directorNote(trigger)
@@ -340,9 +310,8 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	buildPrompt := func(body string) string {
 		return buildTTSPrompt(session.Character.TTSStyle, note, body)
 	}
-	// duration は効果音を連結した後の全長 (speakTTS が連結してから測る)。
 	duration, err := speakTTS(ctx, n.ttsClient, sender, text, buildPrompt,
-		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]", sfxPCM)
+		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]")
 	if err != nil {
 		return err
 	}
@@ -370,26 +339,4 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 		n.crosstalk.SetBusy(session.DeviceID, duration)
 	}
 	return nil
-}
-
-// loadSFX は効果音アセットを読み込み、連結できる PCM へデコードする。
-// 未制作・デコード不能の場合は nil を返し、発話だけを送る
-// (効果音が無くてもゲームは続行できるため、ここで失敗させない)。
-func (n *GeminiNavigator) loadSFX(name string) []int16 {
-	if n.sfxDir == "" {
-		return nil
-	}
-	path := filepath.Join(n.sfxDir, name)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("[navigator] sfx not available (%s): %v", path, err)
-		return nil
-	}
-	pcm, err := decodeOggOpusToPCM(data)
-	if err != nil {
-		// レート違い等で連結できない。アセットを 24kHz mono で作り直す必要がある。
-		log.Printf("[navigator] WARN sfx decode failed (%s): %v", path, err)
-		return nil
-	}
-	return pcm
 }
