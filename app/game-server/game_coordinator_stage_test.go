@@ -156,6 +156,7 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 				rand.New(rand.NewSource(1)))
 			logs := NewSessionLogStore(store)
 			game.SetSessionLogStore(logs)
+			game.endingAfter = 0 // 待ちの検証は TestEndingWaitsAfterEvent
 			game.SetEndingPlayer(NewEndingPlayer(
 				writeEndingAssets(t, endingTestOwl), []NavigatorCharacter{endingTestOwl},
 				logs, nil, rand.New(rand.NewSource(1))))
@@ -186,11 +187,11 @@ func TestNavigatorReleasedAfterGameEnd(t *testing.T) {
 				t.Fatal("終了後もバインドが残っている — ナビゲーターが応答し続ける")
 			}
 
-			// 最終メッセージ (事前収録) が bridge へ届いている
+			// 最終メッセージ (事前収録) が bridge へ届いている (非同期なので待つ)
 			select {
 			case <-ch:
-			default:
-				t.Errorf("最終メッセージ (%s) が bridge へ届いていない", tc.kind)
+			case <-time.After(2 * time.Second):
+				t.Fatalf("最終メッセージ (%s) が bridge へ届いていない", tc.kind)
 			}
 
 			// 会話ログへ台詞が残る (表情タグは除く)
@@ -428,5 +429,75 @@ func TestPendingStateAcceptsSessionStart(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("IsReady(%s) = %v, want %v", tc.state, got, tc.want)
 		}
+	}
+}
+
+// TestEndingWaitsAfterEvent は終幕の音声が**すぐには流れず**、解除・破裂の
+// 少しあとに流れることを確かめる (実機で「すぐ再生されてタイミングが悪い」と判明。2026-10-03)。
+//
+// 解除は `defused` から endingAfter、爆発は**破裂から** endingAfter。
+// `exploded` はソレノイド駆動前に届くので、`detonate_delay_ms` ぶんも待つ。
+func TestEndingWaitsAfterEvent(t *testing.T) {
+	const after = 200 * time.Millisecond
+	const detonate = 300 // ms
+
+	for _, tc := range []struct {
+		name    string
+		msgType string
+		kind    string
+		wait    time.Duration // 最低でもこれだけ待つ
+	}{
+		{"解除成功は解除から", msgDefused, endingDefused, after},
+		{"爆発は破裂から", msgExploded, endingExploded, after + detonate*time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewMemoryStore()
+			devices := NewDeviceRegistry()
+			bridges := NewBridgeRegistry()
+			ch := bridges.Register("bridge-1")
+			defer bridges.Unregister("bridge-1", ch)
+
+			game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
+			logs := NewSessionLogStore(store)
+			game.SetSessionLogStore(logs)
+			game.endingAfter = after
+			game.SetEndingPlayer(NewEndingPlayer(
+				writeEndingAssets(t, endingTestOwl), []NavigatorCharacter{endingTestOwl},
+				logs, nil, rand.New(rand.NewSource(1))))
+			devices.Register("0001", &fakeDeviceConn{})
+
+			session := &GameSession{
+				SessionID: "s-1", DeviceID: "0001", BridgeID: "bridge-1",
+				State: deviceStatePlaying, RemainingMS: 10000,
+				StartedAt: time.Now(), Character: endingTestOwl,
+				Built: &BuiltSession{DetonateDelayMS: detonate},
+			}
+			session.progress.Reset()
+			game.binder.Bind("bridge-1", "0001", session)
+
+			start := time.Now()
+			game.HandleDeviceMessage(context.Background(), &deviceMessage{
+				Type: tc.msgType, DeviceID: "0001", RemainingMS: 10000,
+			})
+
+			// 待っている間は流れない。ただし引き継ぎは終了の瞬間に済んでいる
+			select {
+			case <-ch:
+				t.Fatal("終幕が待たずに流れた")
+			case <-time.After(tc.wait - 80*time.Millisecond):
+			}
+			if game.SessionForBridge("bridge-1") != nil {
+				t.Error("待っている間もナビゲーターが応答相手のまま")
+			}
+
+			select {
+			case <-ch:
+				if got := time.Since(start); got < tc.wait {
+					t.Errorf("流れるまで %v (>= %v のはず)", got, tc.wait)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("待ったあとも終幕が流れない")
+			}
+		})
 	}
 }

@@ -28,6 +28,12 @@ const (
 	sfxFailureFile = "failure.ogg"
 )
 
+// endingDelayAfterEvent は解除・破裂から終幕の音声を流すまでの間。
+// すぐ流すと達成感・衝撃を味わう間が無い (実機で確認。2026-10-03)。
+// 爆発は `exploded` がソレノイド駆動前に届くため、`detonate_delay_ms` を足して
+// **破裂から**この時間を取る (game_coordinator.go の playEndingLater)。
+const endingDelayAfterEvent = 2 * time.Second
+
 // endingBusyMargin は再生完了予定に足す余裕。聞き直し・混線と揃えてある。
 const endingBusyMargin = 2 * time.Second
 

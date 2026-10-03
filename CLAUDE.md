@@ -270,7 +270,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | `service_tier` は使わない | Vertex/Enterprise は**どの値でも400**。実装ごと削除済み。公式docの「使える」は Developer API の話で接続先が違う。再追加しない | G-5 |
 | Interactions API は使えない | Go SDK v1.68.0 に `client.Interactions` が無い。APIキー系エンドポイントでもあり G-4 と衝突する | G-6 |
 | モデルを替えたら遅延を測る | 思考レベルは `reasoning_thinking_level`。`gemini-3.8-flash` (low) は p50 4.7秒で 3.5-flash-lite の約5倍、504 も出た。3.5-flash-lite の low は履歴の載る発話で minimal の約2倍 (単発では差が出ないのでシミュレーションで測る)。3.8 系 TTS は Enterprise に無い (404) | G-8 |
-| 終幕は生成しない | 解除成功・爆発は**事前収録の音声3本からランダム** (`EndingPlayer`)。生成だと十数秒遅れた。台詞は `defused_lines` / `exploded_lines` が正本で、直前の交信には触れない。台詞を変えたら `crosstalk-gen -category ending -force`。TTS が 400 を返すときは表情タグを替える | G-9 |
+| 終幕は生成しない | 解除成功・爆発は**事前収録の音声3本からランダム** (`EndingPlayer`)。生成だと十数秒遅れた。**流すのは解除・破裂の2秒後** (爆発は `detonate_delay_ms` を足して受信から約4秒。すぐだと間が悪い)。台詞は `defused_lines` / `exploded_lines` が正本で、直前の交信には触れない。台詞を変えたら `crosstalk-gen -category ending -force`。TTS が 400 を返すときは表情タグを替える | G-9 |
 | 失敗は再試行せず聞き直す | 書き起こし 8秒・発話生成 5秒 (1回あたり) で切り、**既定は再試行しない**。試行回数とタイムアウトは API ごとに設定ファイル。失敗したら**プレイヤーが話した直後に限り**事前収録の「聞き取れなかったのでもう一度」を流す (`ReaskPlayer`)。TTS が捨てられたら**誤った報告の印を戻す** (同じ誤りの二重カウント防止)。**イベント起点・声掛けでは流さない**。音声は `crosstalk-gen -category reask` で作る (未配置は無言)。台詞はキャラ定義の `reask_lines` が正本 | G-7 |
 | 表情タグは6語 | `allowedTTSTags` と `prompt.toml` の両方に書く。片方だけでは効かない | T-5 |
 | ノートに場面を書かない | TTS が場面を演じて相手の発話まで作る | T-6 |

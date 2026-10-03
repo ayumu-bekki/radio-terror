@@ -189,9 +189,8 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 			fmt.Sprintf("✗✗ 爆発 (%s) — 解体失敗", describeExplodeReason(msg)),
 			msg.StageIndex, msg.RemainingMS)
 		c.finishSession(ctx, session, 0)
-		// 最終メッセージは事前収録の音声 (生成しないので待たずに流せる。ADR G-9)
-		c.endings.Play(sender, session, endingExploded)
-		c.releaseAfterFinish(context.WithoutCancel(ctx), session)
+		// 最終メッセージは事前収録の音声。破裂の2秒後に流す (ADR G-9)
+		c.playEndingLater(ctx, sender, session, endingExploded)
 
 		// 他チームのCoreの爆発を契機に「別現場の通信」を流す (§5.1 イベント駆動)
 		if c.crosstalk != nil {
@@ -204,9 +203,8 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 			fmt.Sprintf("★ 解除成功 — スコア(残り時間) %.1f秒", float64(msg.RemainingMS)/1000),
 			msg.StageIndex, msg.RemainingMS)
 		c.finishSession(ctx, session, msg.RemainingMS)
-		// 最終メッセージは事前収録の音声 (生成しないので待たずに流せる。ADR G-9)
-		c.endings.Play(sender, session, endingDefused)
-		c.releaseAfterFinish(context.WithoutCancel(ctx), session)
+		// 最終メッセージは事前収録の音声。解除の2秒後に流す (ADR G-9)
+		c.playEndingLater(ctx, sender, session, endingDefused)
 	}
 
 	c.persist(ctx, session)

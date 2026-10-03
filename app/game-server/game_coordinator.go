@@ -110,6 +110,8 @@ type GameCoordinator struct {
 	silence   *SilenceWatcher
 	// endings は解除成功・爆発の最終メッセージ (事前収録。ADR G-9)
 	endings *EndingPlayer
+	// endingAfter は解除・破裂から終幕の音声を流すまでの間 (既定 endingDelayAfterEvent)
+	endingAfter time.Duration
 
 	// testResponder は疎通確認応答 (カラス)。セッション開始時に文脈を破棄する。
 	testResponder *TestResponder
@@ -134,6 +136,8 @@ func NewGameCoordinator(
 		store:   store,
 		rng:     rng,
 		binder:  NewSessionBinder(),
+
+		endingAfter: endingDelayAfterEvent,
 	}
 }
 
@@ -650,6 +654,39 @@ func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender
 	case <-time.After(wait):
 	case <-ctx.Done():
 	}
+}
+
+// playEndingLater は終幕の音声を、解除・破裂の少しあとに流す。
+//
+// **すぐ流すとタイミングが悪い** (実機で確認。2026-10-03)。解除の達成感・破裂の
+// 衝撃を味わう間が無いまま声が入る。解除は `defused` を受けてから `endingAfter`、
+// 爆発は**破裂 (ソレノイド駆動) から** `endingAfter` 後に流す。`exploded` は
+// ソレノイド駆動の**前** (赤点灯+ブザーを始めた時点) に届くので、
+// `detonate_delay_ms` ぶんも待つ (ADR G-9)。
+//
+// 履歴の確定 (`releaseAfterFinish`) は台詞を会話ログへ残したあとで行う。先に確定すると
+// 終幕の台詞が履歴に載らない。**引き継ぎの印 (`Finished`) は終了の瞬間に立て済み**なので、
+// 待っている間にプレイヤーが喋ってもカラスが応える。
+// 待っている間に中断された (リセット・再起動) セッションには流さない。
+func (c *GameCoordinator) playEndingLater(ctx context.Context, sender *AudioSender, session *GameSession, kind string) {
+	wait := c.endingAfter
+	if kind == endingExploded && session.Built != nil {
+		wait += time.Duration(session.Built.DetonateDelayMS) * time.Millisecond
+	}
+	ctx = context.WithoutCancel(ctx)
+	time.AfterFunc(wait, func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("[game] ending panic: %v", rec)
+			}
+		}()
+		if c.sessionFor(session.DeviceID) == session {
+			c.endings.Play(sender, session, kind)
+		} else {
+			log.Printf("[game] ending skipped (session released): device=%s kind=%s", session.DeviceID, kind)
+		}
+		c.releaseAfterFinish(ctx, session)
+	})
 }
 
 // releaseAfterFinish はゲーム終了後の後始末を行う。
