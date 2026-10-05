@@ -311,6 +311,8 @@ context = """
 中音域の落ち着いた女性の声。平坦だが明瞭。感情を抑えた分析的な読み方で。
 """
 text = "こちらアオサギ。よく聞き取れませんでした。もう一度お願いします。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "heron_2"
@@ -324,6 +326,23 @@ context = """
 中音域の落ち着いた女性の声。平坦だが明瞭。感情を抑えた分析的な読み方で。
 """
 text = "こちらアオサギ。雑音で聞き逃しました。もう一度お願いできますか。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+[[reask]]
+name = "heron_3"
+role = "アオサギの聞き直し (3) — ノイズで一部が欠けた音"
+voice = "Kore"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+中音域の落ち着いた女性の声。平坦だが明瞭。感情を抑えた分析的な読み方で。
+"""
+text = "こちらアオサギ。電波が乱れ、途中の音声が欠けました。もう一度お願いします。どうぞ"
+# 生成後に加工する (owl_3 と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "lark_1"
@@ -337,6 +356,8 @@ context = """
 明るく若い女性の声。テンポは速め、抑揚は大きめ。元気よく、少し早口で。
 """
 text = "こちらヒバリ、ごめんなさい、よく聞き取れませんでした! もう一度お願いします! どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "lark_2"
@@ -350,6 +371,23 @@ context = """
 明るく若い女性の声。テンポは速め、抑揚は大きめ。元気よく、少し早口で。
 """
 text = "こちらヒバリ、雑音が入っちゃいました! もう一度お願いします! どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+[[reask]]
+name = "lark_3"
+role = "ヒバリの聞き直し (3) — ノイズで一部が欠けた音"
+voice = "Leda"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+明るく若い女性の声。テンポは速め、抑揚は大きめ。元気よく、少し早口で。
+"""
+text = "こちらヒバリです。えっと、電波がザーザーして、途中が聞こえませんでした! もう一度お願いします! どうぞ"
+# 生成後に加工する (owl_3 と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "owl_1"
@@ -363,6 +401,8 @@ context = """
 低音で落ち着いた男性の声。テンポは遅め。無駄なく淡々と、しかし芯のある話し方で。
 """
 text = "こちらフクロウ。よく聞き取れなかった、もう一度頼む。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "owl_2"
@@ -376,6 +416,29 @@ context = """
 低音で落ち着いた男性の声。テンポは遅め。無駄なく淡々と、しかし芯のある話し方で。
 """
 text = "こちらフクロウ。ノイズで聞こえなかった。もう一度言ってくれ。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+[[reask]]
+name = "owl_3"
+role = "フクロウの聞き直し (3) — ノイズで一部が欠けた音"
+voice = "Charon"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+低音で落ち着いた男性の声。テンポは遅め。無駄なく淡々と、しかし芯のある話し方で。
+"""
+text = "こちらフクロウ。電波が乱れて、途中が聞こえなかった。もう一度頼む。どうぞ"
+# 生成後に加工する (degrade.go)。**電波が弱い FM** の聞きにくさ。台詞はだいたい分かるが、
+# ノイズが入っていて、1か所だけ聞こえない:
+#   - 台詞の最初の間 (「こちらフクロウ。」のあと) から 450ms だけ声を消してザッとノイズを入れる (スケルチ)
+#   - **声は元と同じ音量** (帯域を絞ってこもらせても (band_limit) 元の大きさへ戻す)。
+#     ノイズだけを SN比 (snr_db。10 = ノイズが目立つが言葉ははっきり分かる) で足し、
+#     電波の揺れで膨らませる (noise_swell。1 で SN比が前後3dBほど動く)
+# 聞いて、声とノイズのバランスを調整する (snr_db を下げるとノイズが増える)
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "shrike_1"
@@ -389,6 +452,8 @@ context = """
 30代男性の声。関西のイントネーションで、テンポは速め。歯切れよく、語尾を跳ね上げるように。芝居がからず、現場で指示を飛ばす調子で。
 """
 text = "こちらモズ。すまん、よう聞き取れんかった。もう一回頼むわ。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "shrike_2"
@@ -402,6 +467,23 @@ context = """
 30代男性の声。関西のイントネーションで、テンポは速め。歯切れよく、語尾を跳ね上げるように。芝居がからず、現場で指示を飛ばす調子で。
 """
 text = "こちらモズ。雑音が入ってもうた。もう一回言うてくれるか。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+[[reask]]
+name = "shrike_3"
+role = "モズの聞き直し (3) — ノイズで一部が欠けた音"
+voice = "Algieba"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+30代男性の声。関西のイントネーションで、テンポは速め。歯切れよく、語尾を跳ね上げるように。芝居がからず、現場で指示を飛ばす調子で。
+"""
+text = "こちらモズや。電波が悪うて、途中が聞こえへんかったわ。もういっぺん頼むで。どうぞ"
+# 生成後に加工する (owl_3 と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "thrush_1"
@@ -415,6 +497,8 @@ context = """
 中性的な声。抑揚を抑え、力を抜いた自然な読み方で。急がず、間を取って。エフェクトはかけず、素の声で。
 """
 text = "うーん、よく聞き取れなかったな。もう一度、聞かせてもらえるといいな。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 [[reask]]
 name = "thrush_2"
@@ -428,6 +512,23 @@ context = """
 中性的な声。抑揚を抑え、力を抜いた自然な読み方で。急がず、間を取って。エフェクトはかけず、素の声で。
 """
 text = "ごめん、ノイズで聞こえなかったよ。もう一度、話してもらえるかな。どうぞ"
+# 生成後に加工する (3本目と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+[[reask]]
+name = "thrush_3"
+role = "ツグミの聞き直し (3) — ノイズで一部が欠けた音"
+voice = "Iapetus"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+中性的な声。抑揚を抑え、力を抜いた自然な読み方で。急がず、間を取って。エフェクトはかけず、素の声で。
+"""
+text = "あれ、ごめん。電波が乱れて、途中が聞こえなかったよ。もう一度、話してくれるかな。どうぞ"
+# 生成後に加工する (owl_3 と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 # ---------------------------------------------------------------------------
 # 6. 終幕 (ending) — キャラクターごとに 解除成功3本 + 爆発3本 = 30ファイル

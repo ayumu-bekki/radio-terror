@@ -225,6 +225,17 @@ func generateOne(ctx context.Context, cfg *Config, gen *Generator, j Job, outDir
 		return result{job: j, err: err}
 	}
 
+	// ノイズ・欠落の加工 (指定があるものだけ)。encode の前に PCM へ掛ける
+	if j.Degrade != nil {
+		degraded, info, err := ApplyDegrade(pcm, *j.Degrade, j.Name)
+		if err != nil {
+			fmt.Printf("[FAIL]  %s/%s.ogg: degrade: %v\n", j.Category, j.Name, err)
+			return result{job: j, err: err}
+		}
+		pcm = degraded
+		fmt.Printf("[degrade] %s/%s: SN比 %.0fdB %s\n", j.Category, j.Name, j.Degrade.SnrDB, info)
+	}
+
 	ogg, err := encodePCMToOggOpus(pcm, cfg.Defaults.OpusBitrate)
 	if err != nil {
 		fmt.Printf("[FAIL]  %s/%s.ogg: encode: %v\n", j.Category, j.Name, err)

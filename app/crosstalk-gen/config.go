@@ -78,6 +78,10 @@ type Voice struct {
 	// 既定の scene は「傍受した混線」を前提に書かれているため、
 	// 直接送信するアナウンスではそのまま使えない。
 	Scene string `toml:"scene"`
+
+	// Degrade は生成後の音声へ加えるノイズ・欠落 (degrade.go)。
+	// 「ノイズで一部が途切れて聞こえにくい」聞き直しに使う。省略すれば加工しない。
+	Degrade *Degrade `toml:"degrade"`
 }
 
 // Job は展開後の生成単位 (1ファイル = 1ジョブ)。
@@ -89,6 +93,9 @@ type Job struct {
 	VoiceID  string
 	Prompt   string // Scene + Context + 本文を組み立てたもの
 	Text     string // 本文のみ (ログ表示用)
+
+	// Degrade は生成後に加えるノイズ・欠落。nil なら加工しない。
+	Degrade *Degrade
 }
 
 const (
@@ -236,6 +243,7 @@ func (c *Config) BuildJobs() ([]Job, error) {
 			VoiceID:  c.pickVoice(v),
 			Prompt:   c.buildPromptWithScene(v.Scene, v.Context, v.Text),
 			Text:     v.Text,
+			Degrade:  v.Degrade,
 		})
 	}
 
@@ -274,6 +282,11 @@ func (v Voice) validate(category string) error {
 	// jamming の name に "_" があるとファイル名の解釈がずれる。
 	if category == catJamming && strings.Contains(v.Name, "_") {
 		return fmt.Errorf("jamming %q: name must not contain '_' (色サフィックスと衝突する)", v.Name)
+	}
+	if v.Degrade != nil {
+		if err := v.Degrade.validate(); err != nil {
+			return fmt.Errorf("%s %q: %w", category, v.Name, err)
+		}
 	}
 	return nil
 }

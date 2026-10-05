@@ -20,7 +20,7 @@ assets/
 ├── announce/
 │   └── station_id.ogg … 自動送信局アナウンス (15分ごと)
 ├── reask/
-│   └── {キャラID}_{n}.ogg … 聞き直し (キャラごとに2本。下記)
+│   └── {キャラID}_{n}.ogg … 聞き直し (キャラごとに3本。下記)
 └── ending/
     └── {キャラID}_{defused|exploded}_{n}.ogg … 終幕 (キャラごとに解除成功3本+爆発3本。下記)
 ```
@@ -101,7 +101,7 @@ cd app/crosstalk-gen
 go run . -category announce -out ../game-server/assets
 ```
 
-## 聞き直し (reask) — 5キャラ × 2本 = 10ファイル
+## 聞き直し (reask) — 5キャラ × 3本 = 15ファイル
 
 書き起こし・発話生成に失敗したときに、実行時のAPIを使わずに流す
 「よく聞き取れなかったので、もう一度お願いします」(ADR G-7)。
@@ -111,6 +111,10 @@ go run . -category announce -out ../game-server/assets
   `navigator/characters/*.toml` の `reask_lines` の順に対応する
 - 台詞と声はキャラクター定義が正本。`app/crosstalk-gen/crosstalk.toml` の `[[reask]]` と
   一致させる (テストで検査)
+- **15本すべて、生成後にノイズと欠落を加えてある** (電波が弱い FM の聞きにくさ。声は元と同じ音量・
+  ノイズだけ SN比 10dB で重ね、台詞の最初の間のあとの450msだけ聞こえない)。3本目 (`{キャラID}_3.ogg`) は
+  「電波が乱れて、途中が聞こえなかった」系の台詞。加工は `crosstalk.toml` の `degrade` で指定する
+  (`app/crosstalk-gen/degrade.go`)。位置は TTS の読み方で毎回少しずれる
 - 生成: `cd app/crosstalk-gen && go run . -category reask -out ../game-server/assets`
 - **未配置でも起動する**が、そのキャラの聞き直しは無言になる。起動ログの
   `[reask] loaded N clip(s) for M/K character(s)` で確かめる
