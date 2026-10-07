@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -261,14 +262,39 @@ func (c GeminiConfig) ReasoningThinkingConfig() *genai.ThinkingConfig {
 // 認証は ADC (gcloud auth application-default login、または
 // GOOGLE_APPLICATION_CREDENTIALS のサービスアカウントキー)。
 func NewGenAIClient(ctx context.Context, c GeminiConfig) (*genai.Client, error) {
+	return newGenAIClient(ctx, c, false)
+}
+
+// priorityPayGoHeader は Priority PayGo を指定するリクエストヘッダー (ADR G-5b)。
+// `service_tier` (G-5。Enterprise では 400) とは別の仕組みで、ヘッダーで指定する。
+const (
+	priorityPayGoHeaderName  = "X-Vertex-AI-LLM-Shared-Request-Type"
+	priorityPayGoHeaderValue = "priority"
+)
+
+// NewPriorityGenAIClient は Priority PayGo を常時指定したクライアントを作る。
+// TTS 以外の呼び出し (書き起こし・発話生成・カラス) 用。
+// Provisioned Throughput は使っていないので、ヘッダーは priority のみ
+// (`X-Vertex-AI-LLM-Request-Type: shared` は付けない)。
+func NewPriorityGenAIClient(ctx context.Context, c GeminiConfig) (*genai.Client, error) {
+	return newGenAIClient(ctx, c, true)
+}
+
+func newGenAIClient(ctx context.Context, c GeminiConfig, priority bool) (*genai.Client, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	return genai.NewClient(ctx, &genai.ClientConfig{
+	cfg := &genai.ClientConfig{
 		Backend:  genai.BackendEnterprise,
 		Project:  c.Project,
 		Location: c.Location,
-	})
+	}
+	if priority {
+		cfg.HTTPOptions = genai.HTTPOptions{
+			Headers: http.Header{priorityPayGoHeaderName: []string{priorityPayGoHeaderValue}},
+		}
+	}
+	return genai.NewClient(ctx, cfg)
 }
 
 type LogConfig struct {

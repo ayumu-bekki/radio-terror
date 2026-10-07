@@ -20,12 +20,12 @@ import (
 // 戻り値は送出した音声の再生時間 (送出しなかった場合は 0)。呼び出し元は
 // これを使って「無線が塞がっている時間」を知る (crosstalk の割り込み防止)。
 // ctx がキャンセルされた場合は ctx.Err() を返す。logPrefix はログ出力の接頭辞。
-func speakTTS(ctx context.Context, ttsClient *TTSClient, sender *AudioSender, text string, buildPrompt func(string) string, voice, logPrefix string) (time.Duration, error) {
+func speakTTS(ctx context.Context, ttsClient *TTSClient, sender *AudioSender, text string, buildPrompt func(string) TTSRequest, voice, logPrefix string) (time.Duration, error) {
 	if text == "" {
 		return 0, nil
 	}
 
-	pcm, err := ttsClient.GeneratePCM24kFromPrompt(ctx, buildPrompt(text), voice)
+	pcm, err := ttsClient.Generate(ctx, buildPrompt(text), voice)
 	if err != nil {
 		if ctx.Err() != nil {
 			return 0, ctx.Err()

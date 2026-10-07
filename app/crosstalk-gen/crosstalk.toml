@@ -21,7 +21,7 @@ project  = "radio-terror"
 location = "global"
 
 # 各発話で model / voice を省略したときに使われる値。
-model = "gemini-3.1-flash-tts-preview"
+model = "gemini-3.8-flash-lite-tts"
 voice = "Sulafat"
 
 # 出力フォーマット。opus_bitrate は 16000 だと無線らしい帯域感になる。
@@ -528,6 +528,54 @@ context = """
 """
 text = "あれ、ごめん。電波が乱れて、途中が聞こえなかったよ。もう一度、話してくれるかな。どうぞ"
 # 生成後に加工する (owl_3 と同じ。degrade.go)。台詞の最初の間のあとの450msが聞こえない
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+# カラス (疎通確認・終了後の無線の相手) の聞き直し。台詞は game-server の
+# testResponderReaskLines、声は testResponderTTSVoice と一致させる (game-server のテストが検査する)。
+
+[[reask]]
+name = "crow_1"
+role = "カラスの聞き直し (1)"
+voice = "Achird"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+落ち着いた低めの中性的な声。淡々と、事務的に読み上げる。
+"""
+text = "こちらカラス。よく聞き取れなかった。もう一度言ってくれ。どうぞ"
+# 生成後に加工する (ナビゲーターの聞き直しと同じ。degrade.go)
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+[[reask]]
+name = "crow_2"
+role = "カラスの聞き直し (2)"
+voice = "Achird"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+落ち着いた低めの中性的な声。淡々と、事務的に読み上げる。
+"""
+text = "こちらカラス。ノイズで聞こえなかった。もう一度頼む。どうぞ"
+# 生成後に加工する (ナビゲーターの聞き直しと同じ。degrade.go)
+degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
+
+[[reask]]
+name = "crow_3"
+role = "カラスの聞き直し (3)"
+voice = "Achird"
+scene = """
+業務用トランシーバー(特定小電力無線)での交信。
+ナビゲーターが、無線の向こうのプレイヤーへ直接話している。
+"""
+context = """
+落ち着いた低めの中性的な声。淡々と、事務的に読み上げる。
+"""
+text = "こちらカラス。電波が乱れて、途中が聞こえなかった。もう一度言ってくれ。どうぞ"
+# 生成後に加工する (ナビゲーターの聞き直しと同じ。degrade.go)
 degrade = { snr_db = 10, noise_swell = 1, band_limit = true, dropout_ms = 450, dropout_after_pause = 1 }
 
 # ---------------------------------------------------------------------------

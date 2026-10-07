@@ -307,7 +307,7 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	// 両方で伝える (tts_prompt.go 参照)。
 	note := directorNote(trigger)
 
-	buildPrompt := func(body string) string {
+	buildPrompt := func(body string) TTSRequest {
 		return buildTTSPrompt(session.Character.TTSStyle, note, body)
 	}
 	duration, err := speakTTS(ctx, n.ttsClient, sender, text, buildPrompt,

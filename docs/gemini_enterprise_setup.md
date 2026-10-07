@@ -140,7 +140,7 @@ location = "us-central1"
 
 transcribe_model = "gemini-3.1-flash-lite"
 reasoning_model  = "gemini-3.5-flash-lite"
-tts_model        = "gemini-3.1-flash-tts-preview"
+tts_model        = "gemini-3.8-flash-lite-tts"
 ```
 
 **`service_tier` は設定しない** (項目自体を削除済み)。Vertex/Enterprise は
@@ -318,5 +318,11 @@ crosstalk-gen には `max_requests` (1回の実行の上限) があり、
 | 18 | 推論モデルの思考レベルを `reasoning_thinking_level` で指定する。TTS の 3.8 系は未提供なので `gemini-3.1-flash-tts-preview` のまま | 要望で推論を `gemini-3.8-flash` (思考 low) にした (2026-09-28)。**同じプロンプトで p50 4.73秒** (3.5-flash-lite は 0.99秒)、全ステージのシミュレーションで平均5.3秒・p90 10.4秒・**111回中8回が504** (20秒切れ)。`minimal` は 8/8 がエラー。TTS の `gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts` (と `-preview`) は global・us・us-central1・europe-west4・asia-northeast1 の全てで 404 (公開情報でも Enterprise は「今後提供」)。ADR G-8 |
 | 19 | 書き起こし・発話生成は**再試行しない**。タイムアウトは1回あたり 8秒・5秒で、試行回数とあわせて API ごとに設定できる。失敗したらプレイヤーへ事前収録の聞き直しを流す | 決定17 は 429 の混雑を1回撃ち直すだけだったが、502 などの他の障害でも無音のまま20秒以上待たされていた。撃ち直しより、聞き直してもらうほうが無線の間が短い。試行ごとに期限を切るので、決定17の「504 は残り時間が無い」も当たらなくなった。値は実運用ログで調整する前提。ADR G-7・NV 決定164 |
 | 19 | 推論は `gemini-3.5-flash-lite` の思考 low を試す (2026-09-28) | 3.8-flash が遅すぎたため。思考レベル指定なしは minimal と同じ。単発の中央値は minimal 1.01秒・low 0.98秒 (最大 2.36秒) と差が無いが、**履歴の載るシミュレーション** (101・102・202・303、26発話) では low 平均2.03秒・p90 3.12秒・最大4.33秒、minimal 平均0.99秒・最大1.24秒で **low は約2倍**。所見は low 0件・minimal 1件 (字数のみ)。1回ずつなので質の差はまだ言えない (V-1) |
+
+| 20 | TTS を `gemini-3.8-flash-lite-tts` へ載せ替える (2026-10-07) | 要望。決定18 では 404 だったが、2026-10-07 の実測で global の `gemini-3.8-flash-lite-tts` が使えた (`-preview` 付きは 404)。事前収録の音声は全て作り直した。ADR G-8 |
+| 21 | TTS 以外は Priority PayGo を**ヘッダー** `X-Vertex-AI-LLM-Shared-Request-Type: priority` で常時指定する。TTS・crosstalk-gen には付けない | 要望。決定12 で覆った `service_tier` とは別の仕組み。ヘッダーは受理される (400 にならない) が、実測では全モデルで `usageMetadata.trafficType` が `ON_DEMAND` のまま (`ON_DEMAND_PRIORITY` にならない)。成功のたびに trafficType をログへ出す。原因は未特定。ADR G-5b |
+
+| 22 | 3.8 TTS は text を逐語録として読む。話し方は `speech_metadata.style` へ分け、事前収録 (crosstalk-gen) を作り直した | [Enterprise 版移行ガイド](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/text-to-speech/migration-guide?hl=ja)。3.1 の「次のセリフを読み上げてください」「# Scene」が声に出る不具合が出た (終幕が 25.8秒になった例)。分離後は台詞の長さに見合う尺になり、ユーザーが聞いて確認。ADR G-8。**実行時 TTS (game-server) は未対応** |
+| 23 | カラスの聞き直しを事前収録で持つ (`assets/reask/crow_<n>.ogg`) | 開始・リセットの音声コマンドはカラスが受けるため、失敗して無言だとマネージャーが失敗かどうか判定できない。ADR G-7 |
 
 <!-- EOF -->

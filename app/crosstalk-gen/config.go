@@ -91,8 +91,9 @@ type Job struct {
 	Role     string
 	Model    string
 	VoiceID  string
-	Prompt   string // Scene + Context + 本文を組み立てたもの
-	Text     string // 本文のみ (ログ表示用)
+	Prompt   string // Style + 読み上げ本文 (-dry-run の表示用)
+	Text     string // 本文のみ (ログ表示用。角括弧タグを含む元の台詞)
+	Speech   Speech // TTS へ渡す組み立て済みの値 (3.8 TTS。style と本文を分ける)
 
 	// Degrade は生成後に加えるノイズ・欠落。nil なら加工しない。
 	Degrade *Degrade
@@ -178,7 +179,7 @@ func (c *Config) BuildJobs() ([]Job, error) {
 				Role:     v.Role,
 				Model:    c.pickModel(v),
 				VoiceID:  c.pickVoice(v),
-				Prompt:   c.buildPrompt(v.Context, text),
+				Speech:   c.buildSpeech("", v.Context, text),
 				Text:     text,
 			})
 		}
@@ -196,7 +197,7 @@ func (c *Config) BuildJobs() ([]Job, error) {
 			Role:     v.Role,
 			Model:    c.pickModel(v),
 			VoiceID:  c.pickVoice(v),
-			Prompt:   c.buildPrompt(ctx, v.Text),
+			Speech:   c.buildSpeech("", ctx, v.Text),
 			Text:     v.Text,
 		})
 	}
@@ -211,7 +212,7 @@ func (c *Config) BuildJobs() ([]Job, error) {
 			Role:     v.Role,
 			Model:    c.pickModel(v),
 			VoiceID:  c.pickVoice(v),
-			Prompt:   c.buildPrompt(v.Context, v.Text),
+			Speech:   c.buildSpeech("", v.Context, v.Text),
 			Text:     v.Text,
 		})
 	}
@@ -226,7 +227,7 @@ func (c *Config) BuildJobs() ([]Job, error) {
 			Role:     v.Role,
 			Model:    c.pickModel(v),
 			VoiceID:  c.pickVoice(v),
-			Prompt:   c.buildPromptWithScene(v.Scene, v.Context, v.Text),
+			Speech:   c.buildSpeech(v.Scene, v.Context, v.Text),
 			Text:     v.Text,
 		})
 	}
@@ -241,7 +242,7 @@ func (c *Config) BuildJobs() ([]Job, error) {
 			Role:     v.Role,
 			Model:    c.pickModel(v),
 			VoiceID:  c.pickVoice(v),
-			Prompt:   c.buildPromptWithScene(v.Scene, v.Context, v.Text),
+			Speech:   c.buildSpeech(v.Scene, v.Context, v.Text),
 			Text:     v.Text,
 			Degrade:  v.Degrade,
 		})
@@ -257,9 +258,13 @@ func (c *Config) BuildJobs() ([]Job, error) {
 			Role:     v.Role,
 			Model:    c.pickModel(v),
 			VoiceID:  c.pickVoice(v),
-			Prompt:   c.buildPromptWithScene(v.Scene, v.Context, v.Text),
+			Speech:   c.buildSpeech(v.Scene, v.Context, v.Text),
 			Text:     v.Text,
 		})
+	}
+
+	for i := range jobs {
+		jobs[i].Prompt = jobs[i].Speech.String()
 	}
 
 	if len(jobs) == 0 {
@@ -319,23 +324,35 @@ func (c *Config) pickVoice(v Voice) string {
 	return c.Defaults.Voice
 }
 
-// buildPrompt は Scene / Sample Context / 本文を組み立てる。
+// Speech は TTS へ渡す値。**style と読み上げ本文を分ける** (Gemini 3.8 TTS)。
 //
-// 読み上げ本文にはタグを入れず、口調指定は context に一本化している
-// (docs/crosstalk_audio_generation.md 決定記録 #3)。
-func (c *Config) buildPrompt(context, text string) string {
-	return c.buildPromptWithScene("", context, text)
+// 3.8 TTS は text を厳密な逐語録として読むので、「次のセリフを読み上げてください」や
+// 状況説明を text に混ぜると**そのまま声に出る** (3.1 からの移行で実際に出た)。
+// 話し方・状況の指示は `speech_metadata.style` で渡し、text は読ませる台詞だけにする。
+type Speech struct {
+	Style  string // speech_metadata.style (Scene / 話し方 / 台詞中の演技指示)
+	Spoken string // 読み上げる本文 (<short pause> などの山かっこタグだけ含みうる)
 }
 
-// buildPromptWithScene は scene を差し替えてプロンプトを組み立てる。
+// String は -dry-run の表示用。
+func (s Speech) String() string {
+	return "[style]\n" + s.Style + "\n\n[text]\n" + s.Spoken
+}
+
+// buildSpeech は Scene / Sample Context / 本文から style と読み上げ本文を作る。
 //
 // scene が空なら [defaults] の共通 scene を使う。アナウンスのように
 // **傍受した混線ではない**音声では、共通 scene をそのまま使うと
 // 「偶然漏れ聞こえた」という前提が邪魔になる。
-func (c *Config) buildPromptWithScene(scene, context, text string) string {
+//
+// 本文の角括弧タグ ([relieved] など) は演技指示なので text から外し、
+// 登場順に style へ移す。3.8 の山かっこタグは一時的な音声イベント専用で、
+// 表情は style で伝える。[pause] だけは <short pause> として本文に残す。
+func (c *Config) buildSpeech(scene, context, text string) Speech {
 	if strings.TrimSpace(scene) == "" {
 		scene = c.Defaults.Scene
 	}
+	spoken, directions := splitTags(text)
 
 	var b strings.Builder
 	b.WriteString("# Scene\n")
@@ -344,17 +361,34 @@ func (c *Config) buildPromptWithScene(scene, context, text string) string {
 		b.WriteString("\n\n# Sample Context\n")
 		b.WriteString(s)
 	}
-	b.WriteString("\n\n# 読み上げるセリフ\n")
-	// 角括弧は演技指示であって読み上げ対象ではない、と明示する。
-	// これを書かないと TTS がタグを言葉として読んでしまうことがある。
-	//
-	// この一文に "[...]" というリテラルを使うと、TTS API が
-	// 400 (INVALID_ARGUMENT) を返す (実測で再現。"[abc]" や「...」なら通る)。
-	// 角括弧を日本語で言い表して回避する。
-	b.WriteString("次のセリフだけを読み上げてください。前後に説明や補足を加えないこと。\n")
-	b.WriteString("角括弧の中は演技の指示です。声に出して読まず、その通りの話し方に反映してください。\n\n")
-	b.WriteString(strings.TrimSpace(text))
-	return b.String()
+	if len(directions) > 0 {
+		b.WriteString("\n\n# 台詞中の演技指示 (登場順。声に出して読まない)\n")
+		b.WriteString(strings.Join(directions, " → "))
+	}
+	return Speech{Style: b.String(), Spoken: spoken}
+}
+
+// splitTags は本文から角括弧タグを外し、演技指示を登場順に返す。
+// "[whispering, slowly]" はカンマで分けて別々の指示にする。
+func splitTags(text string) (spoken string, directions []string) {
+	spoken = tagPattern.ReplaceAllStringFunc(text, func(m string) string {
+		inner := strings.TrimSpace(m[1 : len(m)-1])
+		var kept []string
+		for _, name := range strings.Split(inner, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if strings.EqualFold(name, "pause") {
+				kept = append(kept, "<short pause>")
+				continue
+			}
+			directions = append(directions, name)
+		}
+		return strings.Join(kept, " ")
+	})
+	spoken = strings.TrimSpace(strings.Join(strings.Fields(spoken), " "))
+	return spoken, directions
 }
 
 // tagPattern は本文中の非言語タグ (例: [whispering]) にマッチする。

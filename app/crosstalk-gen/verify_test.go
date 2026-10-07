@@ -321,7 +321,9 @@ func TestReaskMatchesCharacters(t *testing.T) {
 	}
 	reask := map[string]Job{}
 	for _, j := range jobs {
-		if j.Category == catReask {
+		// crow_<n> はカラス (ナビゲーターではない)。台詞は game-server の
+		// testResponderReaskLines と一致させ、game-server 側のテストが検査する。
+		if j.Category == catReask && !strings.HasPrefix(j.Name, "crow_") {
 			reask[j.Name] = j
 		}
 	}

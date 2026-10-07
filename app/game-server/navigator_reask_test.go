@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 // writeReaskAssets は指定のファイル名で聞き直し音声 (1秒の無音) を作る。
@@ -224,5 +228,78 @@ func TestReaskRealAssetsCoverEveryLine(t *testing.T) {
 				t.Errorf("%s_%d.ogg: 尺 %v が想定外 (2〜12秒)", c.ID, i+1, clip.duration)
 			}
 		}
+	}
+}
+
+// カラスの聞き直し: 実際に置いてある音声が台詞ぶん読み込めること。
+// 抜けると、開始・リセットの失敗や疎通確認の失敗が無言になる。
+func TestReaskRealAssetsCoverCrow(t *testing.T) {
+	r := NewReaskPlayer("assets", nil, nil, nil, rand.New(rand.NewSource(1)))
+	clips := r.clips[crowReaskID]
+	if len(clips) != len(testResponderReaskLines) {
+		t.Fatalf("カラス: 音声 %d 本 != 台詞 %d 行 (assets/reask/crow_<n>.ogg が足りない)",
+			len(clips), len(testResponderReaskLines))
+	}
+	for i, clip := range clips {
+		if clip.duration < 2*time.Second || clip.duration > 12*time.Second {
+			t.Errorf("crow_%d.ogg: 尺 %v が想定外 (2〜12秒)", i+1, clip.duration)
+		}
+	}
+}
+
+// crosstalk.toml の [[reask]] crow_<n> が、カラスの台詞・声と一致していること。
+// 声や台詞が違えば、会話ログ・疎通確認の声と食い違う。
+func TestCrowReaskMatchesCrosstalkConfig(t *testing.T) {
+	var cfg struct {
+		Reask []struct {
+			Name  string `toml:"name"`
+			Voice string `toml:"voice"`
+			Text  string `toml:"text"`
+		} `toml:"reask"`
+	}
+	if _, err := toml.DecodeFile("../crosstalk-gen/crosstalk.toml", &cfg); err != nil {
+		t.Fatalf("decode crosstalk.toml: %v", err)
+	}
+	got := map[string][2]string{}
+	for _, v := range cfg.Reask {
+		if strings.HasPrefix(v.Name, crowReaskID+"_") {
+			got[v.Name] = [2]string{v.Voice, v.Text}
+		}
+	}
+	if len(got) != len(testResponderReaskLines) {
+		t.Errorf("crosstalk.toml の crow_* %d 件 != 台詞 %d 行", len(got), len(testResponderReaskLines))
+	}
+	for i, line := range testResponderReaskLines {
+		name := fmt.Sprintf("%s_%d", crowReaskID, i+1)
+		v, ok := got[name]
+		if !ok {
+			t.Errorf("crosstalk.toml の [[reask]] に %q が無い", name)
+			continue
+		}
+		if v[0] != testResponderTTSVoice {
+			t.Errorf("%s: voice=%q だがカラスは %q", name, v[0], testResponderTTSVoice)
+		}
+		if v[1] != line {
+			t.Errorf("%s: 台詞が違う\n  crosstalk.toml: %q\n  testResponderReaskLines: %q", name, v[1], line)
+		}
+	}
+}
+
+// カラスの聞き直しは bridge ごとに管理し、鳴っている間は重ねない。
+func TestPlayCrowDoesNotOverlap(t *testing.T) {
+	assetDir := writeReaskAssets(t, "crow_1.ogg", "crow_2.ogg", "crow_3.ogg")
+	r := NewReaskPlayer(assetDir, nil, nil, nil, rand.New(rand.NewSource(1)))
+	if len(r.clips[crowReaskID]) != 3 {
+		t.Fatalf("crow clips = %d, want 3", len(r.clips[crowReaskID]))
+	}
+	registry := NewBridgeRegistry()
+	sender := NewAudioSender(registry, "bridge-1")
+	// 送信先が無くても、2回目は「鳴っている間」で弾かれることは pick で確かめる
+	if _, ok := r.pick("bridge:bridge-1", crowReaskID); !ok {
+		t.Fatal("1回目は選べるはず")
+	}
+	r.until["bridge:bridge-1"] = time.Now().Add(time.Minute)
+	if r.PlayCrow(sender) {
+		t.Error("鳴っている間に重ねて流した")
 	}
 }

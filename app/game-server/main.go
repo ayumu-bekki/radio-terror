@@ -233,10 +233,12 @@ func main() {
 
 	// 書き起こし・発話生成に失敗したときの聞き直し (事前収録。ADR G-7)。
 	// 専用の乱数源を渡す (共有の rng は別ゴルーチンから引くと競合する)。
-	pipeline.SetReaskPlayer(NewReaskPlayer(
+	reaskPlayer := NewReaskPlayer(
 		assetDir, navigatorCfg.Characters, sessionLogs, crosstalk,
 		rand.New(rand.NewSource(time.Now().UnixNano())),
-	))
+	)
+	pipeline.SetReaskPlayer(reaskPlayer)
+	game.SetReaskPlayer(reaskPlayer) // 開始の差し戻しを音声にできなかったときのカラス
 
 	// 解除成功・爆発の最終メッセージ (事前収録。ADR G-9)
 	game.SetEndingPlayer(NewEndingPlayer(

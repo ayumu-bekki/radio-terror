@@ -47,7 +47,7 @@ project  = "radio-terror"
 location = "us-central1"
 transcribe_model = "gemini-3.1-flash-lite"
 reasoning_model  = "gemini-3.5-flash-lite"
-tts_model        = "gemini-3.1-flash-tts-preview"
+tts_model        = "gemini-3.8-flash-lite-tts"
 transcribe_prompt_file = "transcribe_prompt.txt"
 transcribe_schema_file = "transcribe_schema.json"
 

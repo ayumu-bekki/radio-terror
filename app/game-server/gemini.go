@@ -52,7 +52,8 @@ func (p *GeminiProcessor) noteResult(err error) {
 }
 
 func NewGeminiProcessor(ctx context.Context, cfg GeminiConfig) (*GeminiProcessor, error) {
-	client, err := NewGenAIClient(ctx, cfg)
+	// TTS 以外は Priority PayGo を常時指定する (ADR G-5b)
+	client, err := NewPriorityGenAIClient(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
@@ -331,7 +332,12 @@ func retryCall[T any](ctx context.Context, label string, attempts int, timeout t
 // 呼び出し側 (API ごとの設定) が渡す。
 func (p *GeminiProcessor) generateContent(ctx context.Context, label string, attempts int, timeout time.Duration, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
 	return retryCall(ctx, label, attempts, timeout, func(ctx context.Context) (*genai.GenerateContentResponse, error) {
-		return p.client.Models.GenerateContent(ctx, model, contents, config)
+		resp, err := p.client.Models.GenerateContent(ctx, model, contents, config)
+		if err == nil && resp != nil && resp.UsageMetadata != nil {
+			// 実際に使われた課金枠 (Priority に載ったか標準に落ちたか) を残す
+			log.Printf("[gemini] %s traffic type: %v", label, resp.UsageMetadata.TrafficType)
+		}
+		return resp, err
 	})
 }
 

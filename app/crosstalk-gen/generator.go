@@ -192,9 +192,20 @@ func shortErr(err error) string {
 }
 
 func (g *Generator) synthesizeOnce(ctx context.Context, j Job) ([]int16, error) {
+	// 3.8 TTS は text を逐語録として読むため、style は speech_metadata へ分ける。
+	// Go SDK に型が無いので、リクエスト本文を差し替えて載せる。
+	provide := func(body map[string]any) map[string]any {
+		part := map[string]any{"text": j.Speech.Spoken}
+		if j.Speech.Style != "" {
+			part["speech_metadata"] = map[string]any{"style": j.Speech.Style}
+		}
+		body["contents"] = []any{map[string]any{"role": "user", "parts": []any{part}}}
+		return body
+	}
 	resp, err := g.client.Models.GenerateContent(ctx, j.Model,
-		[]*genai.Content{genai.NewContentFromText(j.Prompt, genai.RoleUser)},
+		[]*genai.Content{genai.NewContentFromText(j.Speech.Spoken, genai.RoleUser)},
 		&genai.GenerateContentConfig{
+			HTTPOptions:        &genai.HTTPOptions{ExtrasRequestProvider: provide},
 			ResponseModalities: []string{"audio"},
 			SpeechConfig: &genai.SpeechConfig{
 				VoiceConfig: &genai.VoiceConfig{
