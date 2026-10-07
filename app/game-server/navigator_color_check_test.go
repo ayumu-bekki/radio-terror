@@ -446,3 +446,42 @@ func TestNoteConfirmQuestion(t *testing.T) {
 		}
 	}
 }
+
+// 1つの文節に色が2つあるとき、光り方は**その色に付いた言い方だけ**を読む。
+//
+// 実機のテストプレイで、102 の「青が点滅して白が光っています」(青=点滅・白=点灯で
+// 正しい報告) が「白が点滅」と誤判定され、確かめ直しのあと同じ報告で不正解の線へ
+// 誘導された。「点滅」を文節全体で読み、白にも付けていたため。
+func TestLampReportReadsStatePerColor(t *testing.T) {
+	// 102: 青=点滅 (押すボタン) / 白=点灯 (切る線)
+	states := LampStates{"D": {lampBlink: true}, "E": {lampOn: true}}
+
+	correct := []string{
+		"青が点滅して白が光っています",
+		"青が点滅していて、白が光っています",
+		"白が光っていて青が点滅しています",
+		"青が点滅して白が点灯しています",
+		"青は点滅で白はつきっぱなしです",
+		"青が点滅、白が点灯",
+		// 光り方が色の前に来る言い方は読み取れないので、色だけを照合する (誤りにしない)
+		"点滅している青と点灯している白",
+		"青と白が光っていて青が点滅しています",
+	}
+	for _, text := range correct {
+		if wrong, _ := checkLampReport(text, states); wrong != "" {
+			t.Errorf("正しい報告 %q を誤りと判定した: %q", text, wrong)
+		}
+	}
+
+	// 色ごとの取り違えは、複数の色が並んでいても見つける
+	wrong := map[string]string{
+		"青が点灯して白が点滅しています": "青が点灯",
+		"青が点滅して白が点滅しています": "白が点滅",
+		"青が点灯、白が点灯":       "青が点灯",
+	}
+	for text, want := range wrong {
+		if got, _ := checkLampReport(text, states); got != want {
+			t.Errorf("checkLampReport(%q) wrong = %q, want %q", text, got, want)
+		}
+	}
+}
