@@ -1,5 +1,6 @@
 services:
   game-server:
+    restart: always
     build:
       # context を**リポジトリルート**にしているのは、`go build` が commit id を
       # 自動で埋め込む (vcs.revision) のに `.git` が要るため。
@@ -67,6 +68,7 @@ services:
       - radio-terror-network
 
   radio-bridge-br01:
+    restart: always
     build:
       context: ..
       dockerfile: app/radio-bridge/Dockerfile
@@ -93,6 +95,7 @@ services:
       - radio-terror-network
 
   radio-bridge-br02:
+    restart: always
     build:
       context: ..
       dockerfile: app/radio-bridge/Dockerfile
@@ -119,6 +122,7 @@ services:
       - radio-terror-network
 
   valkey:
+    restart: always
     image: valkey/valkey:8-alpine
     command: valkey-server --save 60 1 --loglevel warning
     volumes:
