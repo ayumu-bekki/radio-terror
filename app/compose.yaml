@@ -15,7 +15,7 @@ services:
     # 公開DNSを直接指定して回避する。ルーターが変わる本番でも効くようにしてある。
     dns:
       - 8.8.8.8
-      - 1.1.1.1
+      - 8.8.4.4
     volumes:
       - type: bind
         source: ./game-server/config.toml
@@ -73,8 +73,8 @@ services:
     environment:
       RADIO_BRIDGE_ID: BR01
       # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
-      RADIO_BRIDGE_INPUT_DEVICE: "hw:0,0"
-      RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:0,0"
+      RADIO_BRIDGE_INPUT_DEVICE: "hw:SC_BR01,0"
+      RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:SC_BR01,0"
       # PTT制御用GPIOピン(BCM番号)。PCB配線はbridgeごとに異なる。
       RADIO_BRIDGE_PTT_PIN: "26"
     depends_on:
@@ -92,31 +92,31 @@ services:
     networks:
       - radio-terror-network
 
-  #radio-bridge-br02:
-  #  build:
-  #    context: .
-  #    dockerfile: radio-bridge/Dockerfile
-  #  environment:
-  #    RADIO_BRIDGE_ID: BR02
-  #    # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
-  #    RADIO_BRIDGE_INPUT_DEVICE: "hw:2,0"
-  #    RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:2,0"
-  #    # PTT制御用GPIOピン(BCM番号)。PCB配線はbridgeごとに異なる。
-  #    RADIO_BRIDGE_PTT_PIN: "16"
-  #  depends_on:
-  #    game-server:
-  #      condition: service_healthy
-  #  volumes:
-  #    - type: bind
-  #      source: ./radio-bridge/config.toml
-  #      target: /app/config.toml
-  #      read_only: true
-  #    #- type: bind
-  #    #  source: ./radio-bridge/dump_audio
-  #    #  target: /app/dump_audio
-  #  privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
-  #  networks:
-  #    - radio-terror-network
+  radio-bridge-br02:
+    build:
+      context: ..
+      dockerfile: app/radio-bridge/Dockerfile
+    environment:
+      RADIO_BRIDGE_ID: BR02
+      # デバイス名は実機で `aplay -l` / `arecord -l` で確認する。
+      RADIO_BRIDGE_INPUT_DEVICE: "hw:SC_BR02,0"
+      RADIO_BRIDGE_OUTPUT_DEVICE: "plughw:SC_BR02,0"
+      # PTT制御用GPIOピン(BCM番号)。PCB配線はbridgeごとに異なる。
+      RADIO_BRIDGE_PTT_PIN: "16"
+    depends_on:
+      game-server:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./radio-bridge/config.toml
+        target: /app/config.toml
+        read_only: true
+      #- type: bind
+      #  source: ./radio-bridge/dump_audio
+      #  target: /app/dump_audio
+    privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
+    networks:
+      - radio-terror-network
 
   valkey:
     image: valkey/valkey:8-alpine

@@ -6,7 +6,7 @@ server_addr = "http://game-server:50051"
 
 # この bridge の ID。環境変数 RADIO_BRIDGE_ID があればそちらが優先される。
 # チーム(周波数)ごとに1プロセス動かすため、プロセスごとに異なるIDを付ける。
-bridge_id = "BR01"
+bridge_id = "BR00"
 
 # 切断時の再接続待機間隔(秒)
 reconnect_interval_secs = 5
@@ -22,8 +22,8 @@ ptt_pin = 26
 # 環境変数 RADIO_BRIDGE_OUTPUT_DEVICE / RADIO_BRIDGE_INPUT_DEVICE を優先する。
 # ここの値は環境変数が無い場合のフォールバック。
 # 実機のデバイス名は `aplay -l` / `arecord -l` で確認する。
-output_device       = "plughw:2,0"
-input_device        = "hw:2,0"
+output_device       = "plughw:0,0"
+input_device        = "hw:0,0"
 input_threshold_rms      = 1000
 input_silence_ms         = 2000
 input_min_recording_ms   = 800   # これ未満の録音はブロードキャストしない
@@ -32,9 +32,9 @@ dump_ogg_enabled = false
 dump_ogg_dir     = "/app/dump_audio"
 
 [timing]
-ptt_on_delay_ms  = 500
-ptt_off_delay_ms = 100
-cooldown_ms      = 500
+ptt_on_delay_ms  = 500 # GPIO HIGH の直後、再生の前 IC-4310は500でよいが、おもちゃは800ms必要
+ptt_off_delay_ms = 50 # 再生完了後、GPIO LOW の前
+cooldown_ms      = 500 # GPIO LOWの後のインターバル
 
 [queue]
 max_audio_duration_secs = 40
