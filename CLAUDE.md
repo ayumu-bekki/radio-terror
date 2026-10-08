@@ -399,6 +399,7 @@ Core は受信後 **Wi-Fi が切れても単体でゲームを完遂**する。C
 | `docs/manager_manual.md` | 当日の運営手順書(現場で見る) |
 | `docs/gemini_enterprise_setup.md` | Gemini Enterprise Agent Platform(旧 Vertex AI)への切り替え手順 |
 | `docs/crosstalk_audio_generation.md` | 混線音声の生成テキストと TTS 設定 |
+| `docs/usb_audio_naming.md` | 同型USBオーディオのカードID固定(udev。bridge ホストの設定手順) |
 
 ## 作業の進め方
 
