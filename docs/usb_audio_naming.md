@@ -79,6 +79,10 @@ radio-bridge は入力デバイスを**5秒ごとに開き直し**、開けて�
 - 動作中に抜けた: `alsa capture error` のあと切断される。マネージャー画面からは
   その bridge が未接続になる。挿し直せば自動で復帰する(再起動不要)。
 - 再生側は都度 open するので、入力が戻れば再生も戻る。
+- **`compose.yaml` で `/dev/snd` を bind mount している**。`privileged: true` の `/dev` は
+  起動時のスナップショットで、抜き差し後の新しい `/dev/snd/*` がコンテナに現れず、
+  ホストでは見えているのにコンテナの ALSA が `Cannot get card index for SC_BR01` /
+  `No such device (19)` を返し続ける(実機で確認)。外すと再接続が検知できなくなる。
 
 ## トラブルシュート
 

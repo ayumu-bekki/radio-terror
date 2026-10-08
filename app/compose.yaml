@@ -90,6 +90,12 @@ services:
       #- type: bind
       #  source: ./radio-bridge/dump_audio
       #  target: /app/dump_audio
+      # privileged の /dev は起動時のスナップショットで、USB オーディオを抜き差しすると
+      # 新しい /dev/snd/* がコンテナに現れず、再接続したカードが見つからない。
+      # ディレクトリごと bind して、ホストのノードの増減をそのまま見せる
+      - type: bind
+        source: /dev/snd
+        target: /dev/snd
     privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
     networks:
       - radio-terror-network
@@ -117,6 +123,12 @@ services:
       #- type: bind
       #  source: ./radio-bridge/dump_audio
       #  target: /app/dump_audio
+      # privileged の /dev は起動時のスナップショットで、USB オーディオを抜き差しすると
+      # 新しい /dev/snd/* がコンテナに現れず、再接続したカードが見つからない。
+      # ディレクトリごと bind して、ホストのノードの増減をそのまま見せる
+      - type: bind
+        source: /dev/snd
+        target: /dev/snd
     privileged: true  # GPIO (/dev/gpiochip*) と ALSA (/dev/snd/*) へのアクセスに privileged が必要
     networks:
       - radio-terror-network
