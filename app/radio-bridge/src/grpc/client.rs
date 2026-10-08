@@ -145,13 +145,20 @@ impl BridgeClient {
         let value: MetadataValue<_> = self.bridge_id.parse()?;
         request.metadata_mut().insert(BRIDGE_ID_METADATA_KEY, value);
 
-        let response = client.connect(request).await?;
-        let mut inbound = response.into_inner();
+        // **`connect` の await も監視の対象に含める。** 双方向ストリームのため、サーバーが
+        // 最初の音声を送る (= レスポンスヘッダを返す) まで `connect().await` が戻らない。
+        // 待機中の bridge はここで止まっているので、受信ループだけを監視しても
+        // デバイスが失われたことに気づけず、切断されない (実機で確認。2026-10-09)。
+        let stream = async {
+            let response = client.connect(request).await?;
+            let mut inbound = response.into_inner();
+            // サーバーから届く音声 (TTS・効果音・混線) をキューへ積む
+            self.receive_loop(&mut inbound).await
+        };
 
-        // サーバーから届く音声 (TTS・効果音・混線) をキューへ積む
-        // 入力デバイスが失われたら受信を打ち切って切断する
+        // 入力デバイスが失われたら打ち切って切断する
         let result = tokio::select! {
-            r = self.receive_loop(&mut inbound) => r,
+            r = stream => r,
             _ = self.wait_input_lost() => {
                 Err("audio input device lost, disconnecting".into())
             }
