@@ -140,6 +140,7 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 
 	case msgSessionAccepted:
 		log.Printf("[game] session accepted by device %s", msg.DeviceID)
+		c.notifyAccepted(msg.DeviceID)
 		return
 
 	case msgSessionRejected:

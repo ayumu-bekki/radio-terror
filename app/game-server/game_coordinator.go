@@ -99,6 +99,10 @@ type NavigatorSpeaker interface {
 
 // GameCoordinator はバインド・セッション開始・デバイスイベントの演出接続を束ねる。
 type GameCoordinator struct {
+	// session_accepted の到着を待つ開始処理 (device_id → 通知)。第一声を Core の開始に合わせる
+	acceptedMu   sync.Mutex
+	acceptedWait map[string]chan struct{}
+
 	devices   *DeviceRegistry
 	bridges   *BridgeRegistry
 	builder   *ScenarioBuilder
@@ -323,7 +327,25 @@ func (c *GameCoordinator) StartSessionWith(
 	//
 	// 発話 → 鳴り終わり → countdownStartDelay → カウントダウン開始 の順にする。
 	// 猶予はプレイヤーが装置に向き直る間で、無線が空くのを待つ意味もある。
-	c.announceReady(ctx, sender, session)
+	//
+	// **第一声は、この待ちと並行して先に作っておく** (first)。Core が開始した直後に
+	// 鳴らすため。開始のあとで作ると、ブザーから声までが空き、生成が失敗すれば
+	// ゲームだけが進んで無言になる。
+	first := c.announceReady(ctx, sender, session)
+
+	// 第一声が用意できるまでカウントダウンを始めない。作れなかったときは**開始しない**
+	// (session_abort で Core を Setup へ戻す)。ゲームを始めてから無言と分かるより、
+	// 申告からやり直させるほうが現場の損が小さい。
+	if first != nil {
+		if err := first.wait(ctx, firstSpeechMaxWait); err != nil {
+			return c.cancelStart(ctx, sender, session, err)
+		}
+		// 待っている間にリセットされた (バインドが外れた) セッションは始めない
+		if c.sessionFor(deviceID) != session {
+			log.Printf("[game] start cancelled (session released while preparing): device=%s", deviceID)
+			return nil
+		}
+	}
 
 	// session_start を送信する (ここでデバイスのカウントダウンが始まる)
 	payload := built.SessionStartPayload(deviceID)
@@ -331,6 +353,9 @@ func (c *GameCoordinator) StartSessionWith(
 	if err != nil {
 		return fmt.Errorf("marshal session_start: %w", err)
 	}
+	// 送る前に待ち受けを登録する (session_accepted が先に届いても取りこぼさない)
+	accepted := c.expectAccepted(deviceID)
+	defer c.forgetAccepted(deviceID)
 	if err := c.devices.SendSessionStart(deviceID, raw); err != nil {
 		return fmt.Errorf("send session_start: %w", err)
 	}
@@ -370,6 +395,27 @@ func (c *GameCoordinator) StartSessionWith(
 	// **ここが「プレイヤーへの第一声」**。直前の session_ready は
 	// マネージャー向けなので相手が変わる — 改めて名乗ってから
 	// ランプの状態を尋ねる (決定32・36)。
+	if first != nil {
+		// Core の開始 (session_accepted。直後にブザーが鳴る) を待って流す。
+		// 届かなくても無言にはしない。
+		if !session.ConsoleMode {
+			select {
+			case <-accepted:
+			case <-time.After(acceptedTimeout):
+				log.Printf("[game] session_accepted not received in %v, playing first speech anyway: device=%s",
+					acceptedTimeout, deviceID)
+			case <-ctx.Done():
+				return nil
+			}
+			time.Sleep(firstSpeechAfterBuzzer)
+		}
+		if err := first.play(sender, session); err != nil {
+			// 作ったのに送れなかった。ゲームは始まっているので続行し、
+			// 以降は無応答の声掛け (SilenceWatcher) に任せる。
+			log.Printf("[game] first speech play error (開始は継続): device=%s: %v", deviceID, err)
+		}
+		return nil
+	}
 	return c.speak(ctx, sender, session, "session_start", "")
 }
 
@@ -624,7 +670,135 @@ func (c *GameCoordinator) speak(ctx context.Context, sender *AudioSender, sessio
 //
 // プレイヤーが装置に向き直る間であり、「始まる」と分かってから
 // 実際に始まるまでの心構えの時間でもある。
+//
+// 第一声の生成はこの間に並行して進める。猶予が終わっても生成が済んでいなければ、
+// `firstSpeechMaxWait` まで追加で待つ。
 const countdownStartDelay = 5 * time.Second
+
+// firstSpeechMaxWait は猶予 (countdownStartDelay) のあと、第一声の用意を待つ上限。
+// 生成が遅いときに開始をここまで遅らせてよい。超えたら開始を取りやめる (cancelStart)。
+// (テストで短くするため var)
+var firstSpeechMaxWait = 10 * time.Second
+
+// firstSpeechAfterBuzzer は session_accepted を受けてから第一声を流すまでの間。
+// Core は受理の直後に開始のブザー (100ms) を鳴らす。声がブザーに被らないようにする。
+// 実機で詰める値。
+const firstSpeechAfterBuzzer = 100 * time.Millisecond
+
+// acceptedTimeout は session_accepted を待つ上限。届かなくても第一声は流す。
+const acceptedTimeout = 2 * time.Second
+
+// firstSpeech はバックグラウンドで用意している第一声。
+type firstSpeech struct {
+	preparer SpeechPreparer
+	cancel   context.CancelFunc // 待ちきれないときに生成を打ち切る
+	done     chan struct{}
+	speech   *PreparedSpeech
+	err      error
+}
+
+// wait は用意が終わるのを最大 timeout まで待つ。作れなかった・間に合わなかった
+// ときはエラーを返し、生成を打ち切る。
+func (f *firstSpeech) wait(ctx context.Context, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-f.done:
+		return f.err
+	case <-timer.C:
+		f.cancel()
+		return fmt.Errorf("first speech not ready within %v", timeout)
+	case <-ctx.Done():
+		f.cancel()
+		return ctx.Err()
+	}
+}
+
+func (f *firstSpeech) play(sender *AudioSender, session *GameSession) error {
+	return f.preparer.Play(sender, session, f.speech)
+}
+
+// prepareFirstSpeech は第一声 (session_start) の生成を別ゴルーチンで始める。
+// speaker が先に用意する方式に対応していなければ nil (従来どおり開始後に発話する)。
+func (c *GameCoordinator) prepareFirstSpeech(ctx context.Context, session *GameSession) *firstSpeech {
+	preparer, ok := c.speaker.(SpeechPreparer)
+	if !ok {
+		return nil
+	}
+	// wait の上限を超えたら打ち切れるよう、専用の cancel を持たせる
+	prepCtx, cancel := context.WithCancel(ctx)
+	f := &firstSpeech{preparer: preparer, cancel: cancel, done: make(chan struct{})}
+	go func() {
+		defer cancel()
+		defer close(f.done)
+		defer func() {
+			if rec := recover(); rec != nil {
+				f.err = fmt.Errorf("prepare panic: %v", rec)
+			}
+		}()
+		start := time.Now()
+		f.speech, f.err = preparer.Prepare(prepCtx, session, "session_start", "")
+		log.Printf("[game] first speech prepared in %v (err=%v): device=%s",
+			time.Since(start).Round(time.Millisecond), f.err, session.DeviceID)
+	}()
+	return f
+}
+
+// cancelStart は第一声を用意できなかったときに開始を取りやめる。
+//
+// Core へ session_abort を送って Setup へ戻し、バインドを外す。マネージャーには
+// カラスが理由を返す (申告からやり直してもらう)。
+func (c *GameCoordinator) cancelStart(ctx context.Context, sender *AudioSender, session *GameSession, cause error) error {
+	deviceID := session.DeviceID
+	if ctx.Err() != nil {
+		// 中断 (リセットや停止)。理由を語る相手がいない
+		return nil
+	}
+	log.Printf("[game] start cancelled (first speech failed): device=%s: %v", deviceID, cause)
+
+	// 待っている間にリセットされていたら、既に片付いている
+	if c.sessionFor(deviceID) == session {
+		c.binder.Release(deviceID)
+		if err := c.devices.SendSessionAbort(deviceID); err != nil {
+			log.Printf("[game] send session_abort failed: device=%s: %v", deviceID, err)
+		}
+		c.logEvent(session, EventAborted,
+			"ナビゲーターの第一声を用意できなかったため開始を取りやめた", 0, session.RemainingMS)
+	}
+	return c.replyStartRejected(ctx, sender, "ナビゲーターの音声を用意できませんでした")
+}
+
+// expectAccepted は session_accepted の到着を待つチャンネルを登録する。
+func (c *GameCoordinator) expectAccepted(deviceID string) chan struct{} {
+	c.acceptedMu.Lock()
+	defer c.acceptedMu.Unlock()
+	if c.acceptedWait == nil {
+		c.acceptedWait = make(map[string]chan struct{})
+	}
+	ch := make(chan struct{}, 1)
+	c.acceptedWait[deviceID] = ch
+	return ch
+}
+
+func (c *GameCoordinator) forgetAccepted(deviceID string) {
+	c.acceptedMu.Lock()
+	defer c.acceptedMu.Unlock()
+	delete(c.acceptedWait, deviceID)
+}
+
+// notifyAccepted は session_accepted を待っている開始処理へ知らせる。
+func (c *GameCoordinator) notifyAccepted(deviceID string) {
+	c.acceptedMu.Lock()
+	ch := c.acceptedWait[deviceID]
+	c.acceptedMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
 
 // announceReady はカウントダウン開始前に、マネージャーの開始申告へ応答する。
 // 発話が鳴り終わるのを待ってから戻る。
@@ -634,20 +808,30 @@ const countdownStartDelay = 5 * time.Second
 //
 // 発話に失敗しても**セッションは開始する**。無線が無言になるのは痛いが、
 // 装置の前にプレイヤーが立っている以上、開始できない方が困る。
-func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender, session *GameSession) {
+// (第一声の用意に失敗したときは別で、開始を取りやめる。cancelStart)
+//
+// 戻り値は並行して用意している第一声 (対応していない speaker では nil)。
+// 呼び出し側が wait で完成を待つ。
+func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender, session *GameSession) *firstSpeech {
 	if c.speaker == nil {
-		return
+		return nil
 	}
 
 	// 応答は**名乗りと待機完了だけ**。CoreID や難易度は渡さない —
 	// マネージャーは自分が申告した内容を知っており、聞きたいのは
 	// 「伝わって準備ができたか」だけ。無線は短いほどよい。
 	start := time.Now()
-	if err := c.speak(ctx, sender, session, "session_ready", ""); err != nil {
+	err := c.speak(ctx, sender, session, "session_ready", "")
+
+	// 第一声の用意は session_ready の発話が会話ログに載ったあとに始める
+	// (直前のやり取りを踏まえて「改めて名乗る」ため)。失敗していても始める。
+	first := c.prepareFirstSpeech(ctx, session)
+
+	if err != nil {
 		// 生成AI・TTS の障害。マネージャー介入で運用する (§9) ため、
 		// ここでは開始を止めずログに残すだけにする。
 		log.Printf("[game] session_ready speak error (開始は継続): %v", err)
-		return
+		return first
 	}
 
 	// 発話は送出済みだが、bridge はこれから再生する。
@@ -663,6 +847,7 @@ func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender
 	case <-time.After(wait):
 	case <-ctx.Done():
 	}
+	return first
 }
 
 // playEndingLater は終幕の音声を、解除・破裂の少しあとに流す。

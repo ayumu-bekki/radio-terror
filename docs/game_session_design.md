@@ -293,8 +293,12 @@ WiFiが無いと永久に起動しなかった。
 マネージャーの開始申告
   ├─ サーバーが受理 ──▶ session_pending 送信 ──▶ Pending (青点滅)
   ├─ ナビゲーターがマネージャーへ応答 (生成 + TTS で数秒)
-  ├─ 鳴り終わり + 5秒 (countdownStartDelay)
+  │   └─ 並行して第一声 (session_start) を生成 + TTS
+  ├─ 鳴り終わり + 5秒 (countdownStartDelay) かつ 第一声の用意完了
+  │   (未完成なら最大 +10秒 firstSpeechMaxWait)
+  │   └─ 用意できなければ開始せず session_abort (Setup へ戻す)
   └─ session_start 送信 ──▶ Playing (カウントダウン開始)
+        └─ session_accepted を受けて第一声を再生 (ブザーの直後)
 ```
 
 **なぜ要るか。** 申告からカウントダウン開始まで数秒あり、その間
@@ -318,7 +322,7 @@ WiFiが無いと永久に起動しなかった。
 | `session_start` 受信 | **受理する**(通常はこちらを通る) |
 
 `session_start` は Ready **または Pending** で受理する。Ready だけにすると、
-申告のあと5秒間だけ「サーバーが送った `session_start` をデバイスが拒否する」
+申告のあと数秒間だけ「サーバーが送った `session_start` をデバイスが拒否する」
 状態ができてしまう。
 
 カウントダウンはまだ動いていないので、**7セグは消灯・kLED は全消灯**。
@@ -894,6 +898,7 @@ GameTaskのキュー待ちを100msタイムアウト付きにして、以下を�
 | 66 | 未使用コードの削除(整理時) | `deadcode` と識別子の出現数走査で、**本番から到達しない関数3件**を削除した。`TTSClient.GenerateOggOpusFromPrompt`(効果音を PCM で連結する方式へ移した際に置き換わり、現在の発話は全て `speakTTS` → `GeneratePCM24kFromPrompt` を通る)、`CrosstalkLibrary.AssetSummary` / `AssetPathHint`(いずれも「Web画面用」と書かれていたが画面は作られず、アセット件数は起動ログ `[crosstalk] loaded assets:` が担っている)。<br>**残したものもある** — `AnnounceScheduler.Enabled` / `Interval` はテストからしか呼ばれないが、「音声が未配置なら黙って無効になる」「不正な周期は15分へ倒す」という**運用上の約束を検査する足場**がここしか無い。削ると検査ごと消えるため、doc コメントを実態に合わせるだけに留めた。<br>**`replyStartRejected` と `time_warning` は未実装であって不要ではない** — 前者は `manager_manual.md` §4.4 が「準備が完了していません」等の無線応答を運営に約束しているのに実装がログ出力のみ、後者は `navigator_design.md` の表に載っているが発火させる箇所が無い。**消さずに残す**(消すと約束が失われる)。→ **どちらも 2026-09-05 に決着した**。前者はカラスが返す形で実装 (ADR P-10)、後者はトリガーを廃止し「次の返答へ1回だけ添える」形へ作り替えた (ADR P-11) |
 | 67 | ペナルティに赤の閃光を追加・誤操作の発話を全廃止(要望で決定) | `ApplyPenalty` を通る全ての誤操作(push_seq誤操作・forbidden_rotary違反・色合わせのミス・timeout)で、上面LEDを強い赤(255,0,0・最高光度)で**100ms一瞬発光**させてから通常表示(Playingの赤点滅)へ戻すようにした(§4.1)。Playing中の通常表示は50msしか光らない短い点滅なので、ミスの瞬間をその中に埋もれさせず、破裂の閃光(決定61)と同じ手法で一段強く焚く。色は破裂の白(`kLookBurst`)と混同しないよう赤(`kLookPenalty`)を使う。`FireSolenoid` と同じく `GameTask` 自身のスレッドで `vTaskDelay` する(`Pl9823Task` は別タスク・別コアの非同期描画なので他タスクをブロックしない)。`ApplyPenalty` が `EnterDetonating`(timeout)へ遷移する場合は直後に赤点灯で上書きされるため問題ない。<br>**あわせてナビゲーターの `wrong_action` 発話を全廃止した**(ADR N-26)。以前は線を切る操作を伴う誤操作(push_seq誤操作・forbidden_rotary違反)だけ発話し、色合わせのミスは決定48で除外していたが、扱いを分ける理由が薄く、無線が入ると手が止まる実害の方が大きいため揃えて黙らせた。ログ(`EventWrongAction`)と `progress.WrongActions` カウンタ(ヒントレベル判定に使用)は変更なし。誤操作は閃光とブザーが唯一のフィードバックになる |
 | 68 | リセットでバインドも外す・リセット直後の書き戻しを防ぐ(実運用で発覚) | リセット後も bridge ⇔ CoreID が「バインド済み」のまま残り、サーバー再起動でセッションが有効に戻っていた。`SessionBinder.Release` が bridge → device も消す。`AbortSession` は **binder を abort 送信より先に外し**(Core の応答で `persist` が走ると消した Valkey のセッションが書き戻される)、`persist` は binder に無いセッションを保存しない |
+| 69 | 開始時の第一声はカウントダウン前に用意する(2026-10-09) | 第一声の生成 + TTS を `session_start` の**前**へ移した。Core は `session_accepted` の直後 (`EnterPlaying` のブザー) に鳴らし、サーバーはそれを合図に第一声を再生する。**ファームは変更なし** (`session_accepted` は元から `EnterPlaying` の直前に送っている)。用意できなければ (失敗、または猶予後 +10秒でも未完成) Pending のまま `session_abort` で Setup へ戻す (§4.2)。`countdownStartDelay` は 5秒のまま。経緯は `operation_flow.md` 決定25・ADR P-12 |
 
 **残る調整項目**(いずれも実機で詰める前提の初期値):
 `forbidden_rotary` の違反確定時間(300ms)、

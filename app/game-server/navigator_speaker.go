@@ -340,3 +340,85 @@ func (n *GeminiNavigator) Speak(ctx context.Context, sender *AudioSender, sessio
 	}
 	return nil
 }
+
+// PreparedSpeech は生成と TTS を終え、送出を待つだけになった発話。
+//
+// 開始時の第一声はこれで用意する。Core が開始した直後に鳴らしたいが、生成と TTS は
+// 数秒から十数秒かかる。開始のあとで作ると、ブザーから声までが空き、失敗すれば
+// ゲームだけが進んで無言になる。先に作り、Core の開始に合わせて Play する。
+type PreparedSpeech struct {
+	trigger        string
+	ogg            []byte // コンソールモードでは nil (送出しない)
+	duration       time.Duration
+	announceUrgent bool
+	remainingMS    int
+}
+
+// SpeechPreparer は発話を先に用意しておける NavigatorSpeaker。
+// 実装していない speaker (テスト用など) は、従来どおり Speak で都度発話する。
+type SpeechPreparer interface {
+	Prepare(ctx context.Context, session *GameSession, trigger, event string) (*PreparedSpeech, error)
+	Play(sender *AudioSender, session *GameSession, prepared *PreparedSpeech) error
+}
+
+// Prepare は発話の生成と TTS までを行い、送出はしない。
+//
+// 混線の busy 予約はここでは触らない。呼ばれるのは開始前で、混線はまだ始まっていない。
+// 音声にできなかったときは errSpeechDropped を返す。
+func (n *GeminiNavigator) Prepare(ctx context.Context, session *GameSession, trigger, event string) (*PreparedSpeech, error) {
+	session.mu.Lock()
+	consoleMode := session.ConsoleMode
+	session.mu.Unlock()
+
+	text, announceUrgent, remainingMS, undo, err := n.generateReply(ctx, session, trigger, event)
+	if err != nil {
+		return nil, err
+	}
+	prepared := &PreparedSpeech{trigger: trigger, announceUrgent: announceUrgent, remainingMS: remainingMS}
+	// コンソールモードは無線演出を使わない (Speak と同じ。ADR M-7)
+	if consoleMode {
+		return prepared, nil
+	}
+
+	note := directorNote(trigger)
+	buildPrompt := func(body string) TTSRequest {
+		return buildTTSPrompt(session.Character.TTSStyle, note, body)
+	}
+	ogg, duration, err := synthesizeTTS(ctx, n.ttsClient, text, buildPrompt,
+		session.Character.TTSVoice, "[navigator "+session.DeviceID+"]")
+	if err != nil {
+		return nil, err
+	}
+	if ogg == nil {
+		undo()
+		return nil, errSpeechDropped
+	}
+	prepared.ogg, prepared.duration = ogg, duration
+	return prepared, nil
+}
+
+// Play は Prepare 済みの発話を送出する。送出後の扱い (残り時間の告知の印・
+// 無線が塞がる時間の予約) は Speak と同じ。
+func (n *GeminiNavigator) Play(sender *AudioSender, session *GameSession, prepared *PreparedSpeech) error {
+	if prepared == nil || prepared.ogg == nil {
+		return nil
+	}
+	prefix := "[navigator " + session.DeviceID + "]"
+	if !sender.Send(oneshot(prepared.ogg)) {
+		log.Printf("%s send failed (bridge=%s)", prefix, sender.BridgeID())
+		return errSpeechDropped
+	}
+	log.Printf("%s sent", prefix)
+
+	if prepared.announceUrgent {
+		session.mu.Lock()
+		session.urgentNoticed = true
+		session.mu.Unlock()
+		log.Printf("[navigator %s] urgent notice delivered (remaining %ds)",
+			session.DeviceID, prepared.remainingMS/1000)
+	}
+	if prepared.duration > 0 && n.crosstalk != nil {
+		n.crosstalk.SetBusy(session.DeviceID, prepared.duration)
+	}
+	return nil
+}

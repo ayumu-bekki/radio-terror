@@ -31,7 +31,7 @@
 | 5 | ナビゲーター — キャラクター | `N-17` 〜 `N-21c` (7件) |
 | 6 | ナビゲーター — 発話長とヒントレベル | `N-22` 〜 `N-57` (37件) |
 | 7 | TTS・音声 | `T-1` 〜 `T-12` (12件) |
-| 8 | セッション進行 | `P-1` 〜 `P-11` (14件) |
+| 8 | セッション進行 | `P-1` 〜 `P-12` (15件) |
 | 9 | core-system (ファームウェア) | `C-1` 〜 `C-15` (18件) |
 | 10 | WebSocket / デバイス通信 | `W-1` 〜 `W-4` (4件) |
 | 11 | Management Console | `M-1` 〜 `M-5` (5件) |
@@ -2658,6 +2658,37 @@ commit id は `go build` が `.git` から自動で埋め込むため、
 
 > 回帰: `go test -run "TestUrgentNotice|TestTimeWarning"`
 > 出典: 実装 2026-09-05
+
+### P-12. 開始時の第一声は先に用意し、Core の開始(ブザー)に合わせて流す
+
+第一声(`session_start` トリガー)は**生成AIで作る**(動作確認を兼ねる。プリセットにしない)。
+ただし `session_start` を送った**あとで**作ると、ブザーから声までが生成待ちで空き、
+失敗すればゲームだけが進んで無言になる。
+
+- **開始前に生成 + TTS を終える**。`session_ready` の発話が会話ログに載った直後に
+  別ゴルーチンで始め(直前のやり取りを踏まえて名乗り直すため)、
+  `session_ready` の再生と `countdownStartDelay` の間に済ませる
+  (`GeminiNavigator.Prepare`)。用意できるまで `session_start` を送らない
+- **流すのは `session_accepted` を受けたとき**(`Play`)。Core はこれを `EnterPlaying`
+  (開始のブザー100ms)の直前に送るので、固定の待ち時間ではなく Core の応答が合図になる。
+  声がブザーに被らないよう `firstSpeechAfterBuzzer` (100ms) を足す。
+  届かなくても `acceptedTimeout` (2秒)で流す。コンソールモードは待たない
+- **用意できなければ(失敗、または上限超過)開始しない**。`session_abort` で Core を Setup へ戻し、バインドを外し、
+  カラスが理由を返す。再試行はしない(API ごとの試行回数・タイムアウトの設定に従う。G-7)。
+  ゲームを始めてから無言と分かるより、申告からやり直させるほうが損が小さい
+- `countdownStartDelay` は **5秒のまま**。猶予が終わっても生成が済んでいなければ
+  **さらに最大10秒**(`firstSpeechMaxWait`)待って開始を遅らせる。超えたら取りやめる
+  (生成を打ち切って `session_abort`。最悪でも申告から約15秒+発話の長さで結論が出る)
+- `Speak` を実装した speaker は従来どおり動く。`SpeechPreparer` を持たない speaker
+  (テスト用など)は開始後に `Speak` する従来の経路
+- 用意中にリセットされた(バインドが外れた)セッションは開始しない
+
+**壊しやすい点**: 第一声の用意を `session_ready` の発話より前に始めない
+(名乗り直しの文脈が欠ける)。`Play` を `session_start` の送信より前に呼ばない。
+
+> 回帰: `go test -run "TestFirstSpeech|TestStartCancelled|TestAnnounceReady"`
+> 実機で詰める値: `firstSpeechAfterBuzzer`、生成が猶予内に収まる頻度・10秒の上限の妥当性(ログ `first speech prepared in`)
+> 出典: 実装 2026-10-09 (operation_flow.md 決定25・game_session_design.md 決定69)
 
 ---
 
