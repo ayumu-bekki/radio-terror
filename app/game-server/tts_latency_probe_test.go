@@ -68,7 +68,7 @@ func TestTTSLatencyProbe(t *testing.T) {
 
 	cases := []struct {
 		name   string
-		prompt string
+		prompt TTSRequest
 	}{
 		// --- 実運用で観測された2つをそのまま ---
 		{"実測:遅かった本文", buildTTSPrompt(style, note, "さあ、光の色を告げよ。どうぞ")},
@@ -83,7 +83,7 @@ func TestTTSLatencyProbe(t *testing.T) {
 		{"三点リーダ なし", buildTTSPrompt(style, note, "私は見ている。どうぞ")},
 
 		// --- 前置き (声質指定・場面説明) の影響 ---
-		{"前置きなし 本文のみ", "さあ、光の色を告げよ。どうぞ"},
+		{"前置きなし 本文のみ", TTSRequest{Text: "さあ、光の色を告げよ。どうぞ"}},
 		{"声質指定のみ", buildTTSPrompt(style, "", "さあ、光の色を告げよ。どうぞ")},
 
 		// --- 命令形かどうか (「告げよ」は古風な命令形) ---
@@ -105,7 +105,7 @@ func TestTTSLatencyProbe(t *testing.T) {
 		s := stat{name: c.name}
 		for i := 0; i < *ttsProbeRepeat; i++ {
 			start := time.Now()
-			pcm, err := client.GeneratePCM24kFromPrompt(ctx, c.prompt, voice)
+			pcm, err := client.Generate(ctx, c.prompt, voice)
 			elapsed := time.Since(start)
 
 			if err != nil {
@@ -207,7 +207,7 @@ func TestTTSConcurrencyProbe(t *testing.T) {
 					prompt := buildTTSPrompt(style, note, texts[i%len(texts)])
 					go func() {
 						start := time.Now()
-						_, err := client.GeneratePCM24kFromPrompt(ctx, prompt, voice)
+						_, err := client.Generate(ctx, prompt, voice)
 						ch <- result{d: time.Since(start), err: err}
 					}()
 				}
@@ -307,7 +307,7 @@ func TestTTSStreamingProbe(t *testing.T) {
 		var failed error
 
 		for resp, err := range client.Models.GenerateContentStream(ctx, model,
-			[]*genai.Content{genai.NewContentFromText(prompt, genai.RoleUser)}, genConfig) {
+			[]*genai.Content{genai.NewContentFromText(prompt.Text, genai.RoleUser)}, genConfig) {
 			if err != nil {
 				failed = err
 				break
@@ -413,9 +413,9 @@ func TestTTSStreamingProducesValidAudio(t *testing.T) {
 
 	for _, text := range texts {
 		prompt := buildTTSPrompt(style, note, text)
-		pcm, err := client.GeneratePCM24kFromPrompt(ctx, prompt, "Charon")
+		pcm, err := client.Generate(ctx, prompt, "Charon")
 		if err != nil {
-			t.Fatalf("GeneratePCM24kFromPrompt(%q): %v", text, err)
+			t.Fatalf("Generate(%q): %v", text, err)
 		}
 
 		seconds := float64(len(pcm)) / sampleRate
@@ -535,7 +535,7 @@ func TestTTSEmotionTagProbe(t *testing.T) {
 				prompt := buildTTSPromptRaw(style, c.note, c.text)
 
 				start := time.Now()
-				pcm, err := client.GeneratePCM24kFromPrompt(ctx, prompt, voice)
+				pcm, err := client.Generate(ctx, prompt, voice)
 				elapsed := time.Since(start)
 
 				if err != nil {
@@ -586,16 +586,8 @@ func TestTTSEmotionTagProbe(t *testing.T) {
 
 // buildTTSPromptRaw は stripTTSTags を通さずにプロンプトを組み立てる。
 // 表情タグの検証用 (通常経路の buildTTSPrompt はタグを除去してしまう)。
-func buildTTSPromptRaw(style, note, chunk string) string {
-	var b strings.Builder
-	b.WriteString(style)
-	if note != "" {
-		b.WriteString("\n")
-		b.WriteString(note)
-	}
-	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "次のセリフを読み上げてください:\n%s", chunk)
-	return b.String()
+func buildTTSPromptRaw(style, note, chunk string) TTSRequest {
+	return TTSRequest{Style: style + "\n" + note, Text: chunk}
 }
 
 // TestTTSEmotionTagAudioDump は表情タグ入り/なしの音声をファイルに書き出す。
@@ -642,7 +634,7 @@ func TestTTSEmotionTagAudioDump(t *testing.T) {
 
 	for _, c := range cases {
 		prompt := buildTTSPromptRaw(style, c.note, c.text)
-		pcm, err := client.GeneratePCM24kFromPrompt(ctx, prompt, voice)
+		pcm, err := client.Generate(ctx, prompt, voice)
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue

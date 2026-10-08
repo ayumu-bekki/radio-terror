@@ -35,7 +35,7 @@
 | 9 | core-system (ファームウェア) | `C-1` 〜 `C-15` (18件) |
 | 10 | WebSocket / デバイス通信 | `W-1` 〜 `W-4` (4件) |
 | 11 | Management Console | `M-1` 〜 `M-5` (5件) |
-| 12 | 生成AI基盤 (Gemini Enterprise) | `G-1` 〜 `G-9` (9件) |
+| 12 | 生成AI基盤 (Gemini Enterprise) | `G-1` 〜 `G-9` (10件。G-5b を含む) |
 | 13 | 紙資料 | `D-1` 〜 `D-9` (9件) |
 | 14 | 検証の進め方 | `V-1` 〜 `V-5` (5件) |
 | 15 | 運用上の前提 | (箇条書き) |
@@ -3248,6 +3248,30 @@ Priority を取りに戻ると、移行の理由だったレート制限が再�
 
 Priority を使いたければ Interactions API 経由になるが、こちらは G-6 で見送っている。
 
+### G-5b. TTS 以外は Priority PayGo をヘッダーで常時指定する (効果は未確認)
+
+**G-5 の `service_tier` とは別の仕組み。** Vertex の Priority PayGo はリクエストヘッダー
+`X-Vertex-AI-LLM-Shared-Request-Type: priority` で指定する ([公式](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/priority-paygo))。
+`NewPriorityGenAIClient` がこのヘッダーを載せたクライアントを作り、**書き起こし・発話生成・カラス・ウォームアップ**
+(`GeminiProcessor`) が使う。**TTS (`TTSClient`) と crosstalk-gen には付けない** (ユーザー判断)。
+Provisioned Throughput は使っていないので `X-Vertex-AI-LLM-Request-Type: shared` は付けない。
+
+**どちらの枠で処理されたかは成功のたびにログへ出す** (`[gemini] <Reply|Transcribe> traffic type: ...`。
+`usageMetadata.trafficType`)。Priority に載れば `ON_DEMAND_PRIORITY`、標準なら `ON_DEMAND`。
+
+**2026-10-07 の実測: ヘッダーは 400 にならず受理されるが、全モデルで `ON_DEMAND` のままだった**
+(`gemini-3.5-flash-lite` / `3.1-flash-lite` / `3.8-flash` / `2.5-flash` / `2.5-flash-lite` / `2.5-pro` /
+`3.5-flash` / `3-flash-preview` / `3.1-pro-preview`)。ヘッダーは SDK が実際に載せている
+(`api_client.go`)。**常時指定の実装は入っているが、今のところ課金も優先度も標準のまま**。
+公式ドキュメント ([日本語版](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/priority-paygo?hl=ja)。
+最終更新 2026-10-07) では `gemini-3.5-flash-lite` / `3.1-flash-lite` を含む対応モデルで global も可、事前契約・立ち上げ期間は不要と
+書いてある。**`Request-Type: shared` を足した2ヘッダー版でも `ON_DEMAND`** だった。ドキュメント上は
+「優先処理の予備容量が無いときだけ Standard へダウングレード (trafficType=`ON_DEMAND`)」なので、**ダウングレードされ続けている**
+か、提供の反映が追いついていない可能性がある。原因は未特定。
+`ON_DEMAND_PRIORITY` がログに出るまで「Priority になった」と言わない。
+
+> 出典: gemini_enterprise_setup 決定20・21
+
 ### G-6. Interactions API へは移行しない (2026-08 時点)
 
 Gemini のドキュメントは Interactions API (`v1beta2/interactions`) を推奨し
@@ -3314,6 +3338,16 @@ grep で当たる `InteractionStatus` は **Live API (WebSocket) の応答フィ
   TTS に崩れた台詞を読ませると途切れ方が毎回変わり 400 も出やすいので、**普通に生成してから加工**する。
   乱数は名前から決まる (作り直しても同じノイズ)。位置は TTS の間の取り方で生成のたびに少しずれる。
   声とノイズのバランスは `snr_db` で調整する (下げるとノイズが増える)
+- **カラスにも聞き直しがある** (2026-10-07。ユーザー指摘)。カラスは開始前・終了後の無線の相手で、
+  開始・リセットの音声コマンドもここで受けるため、**失敗して無言だとマネージャーが失敗かどうか判定できない**。
+  台詞は `testResponderReaskLines` (3本。3本目は電波が乱れた台詞)、音声は `assets/reask/crow_<n>.ogg`、
+  声は `testResponderTTSVoice` (Achird)。ナビゲーターと同じノイズ加工。`ReaskPlayer.PlayCrow` が流し、
+  bridge ごとに重ならないよう管理する (会話ログは無い)。流す場面は
+  **セッションの無い bridge での書き起こし失敗**・**疎通確認応答 (`Respond`) の失敗**・
+  **開始申告の差し戻しを音声にできなかったとき** (`replyStartRejected`。拒否は拒否のまま返す)・
+  **マネージャーコマンド (開始・リセット) の実行エラー**。音声は
+  `crosstalk-gen -category reask -only crow_1,crow_2,crow_3 -force`。台詞と声の一致は
+  `TestCrowReaskMatchesCrosstalkConfig`、音声の有無と尺は `TestReaskRealAssetsCoverCrow` が検査する
 - 効いている値は起動ログ `[boot] gemini limits:` に出る。ウォームアップは再試行しない (起動を待たせない)
 - 出発点の値であり、**実運用ログの遅延分布 (`[gemini] reply latency` など) を見て調整する**。
   reply は 3.5-flash-lite で約1秒 (履歴の載る発話で約2倍)、書き起こしは通常2秒前後で
@@ -3322,7 +3356,7 @@ grep で当たる `InteractionStatus` は **Live API (WebSocket) の応答フィ
 > 出典: NV 決定164・gemini_enterprise_setup.md 決定19 (旧: 決定17)
 
 
-### G-8. 推論の思考レベルは設定で指定する。3.8 系 TTS は Enterprise で未提供
+### G-8. 推論の思考レベルは設定で指定する。TTS は 3.8 Flash Lite
 
 - `[gemini] reasoning_thinking_level` (`minimal` / `low` / `medium` / `high`。省略でモデル既定) を
   ナビゲーター発話・カラスの返答・起動時の温めに渡す。不正値は起動時に落とす。
@@ -3333,8 +3367,17 @@ grep で当たる `InteractionStatus` は **Live API (WebSocket) の応答フィ
 - `gemini-3.5-flash-lite` は思考レベル指定なし = minimal。**low にすると履歴の載る発話で約2倍**
   (シミュレーション平均 0.99秒 → 2.03秒、最大 4.33秒)。単発の短いプロンプトでは差が出ないので、
   遅延は必ずシミュレーションで測る。
-- **`gemini-3.8-flash-tts` / `gemini-3.8-flash-lite-tts` は 2026-09-28 時点で Enterprise に無い**
-  (5リージョン・`-preview` 付きも 404)。Developer API (APIキー) 側だけの提供で、G-4 により使わない。
+- **TTS は `gemini-3.8-flash-lite-tts` を使う** (2026-10-07 に載せ替え。ユーザー判断)。2026-09-28 時点では
+  Enterprise で 404 だったが、2026-10-07 に global で提供開始を確認した (`-preview` 付きは今も 404)。
+  `gemini-3.8-flash-tts` は未確認。設定は `tts_model` と `crosstalk.toml` の `model`、既定値 `defaultTTSModel`。
+  **3.8 は text を厳密な逐語録として読む** (移行ガイド。2026-10-07)。3.1 流の「次のセリフを読み上げてください」
+  「# Scene」を text に混ぜると**そのまま声に出た**。話し方・状況は `speech_metadata.style` へ分け、text は台詞だけにする。
+  角括弧の演技タグ (`[relieved]`) は text から外して style の「台詞中の演技指示」へ移し、`[pause]` だけ `<short pause>` にする
+  (山かっこタグは一時的な音声イベント専用)。Go SDK に型が無いので `ExtrasRequestProvider` でリクエスト本文を差し替える。
+  **crosstalk-gen (事前収録) は対応済み。game-server の実行時 TTS (`tts_prompt.go` の `buildTTSPrompt`) は未対応で、
+  同じ問題が出る** (次の作業)。
+  載せ替えに伴い**事前収録の音声 (混線・聞き直し・終幕・アナウンス) を全て作り直した**
+  (`crosstalk-gen -category <各カテゴリ> -force`)。声質・間は旧モデルと変わりうるので実機で聞いて確かめる。
 
 > 出典: gemini_enterprise_setup 決定18・19
 

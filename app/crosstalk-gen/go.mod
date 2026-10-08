@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/hraban/opus v0.0.0-20251117090126-c76ea7e21bf3
 	github.com/kazzmir/opus-go v1.3.0
-	google.golang.org/genai v1.58.0
+	google.golang.org/genai v1.68.0
 )
 
 require (

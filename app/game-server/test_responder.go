@@ -77,6 +77,17 @@ const testResponderTTSVoice = "Achird"
 // ナビゲーターの誰とも違う声にして、聞き分けられるようにする。
 const testResponderTTSStyle = "落ち着いた低めの中性的な声。淡々と、事務的に読み上げる。"
 
+// testResponderReaskLines は書き起こし・応答の生成に失敗したときに、カラスが流す聞き直しの台詞。
+// ナビゲーターの `reask_lines` に当たるもの。音声は assets/reask/crow_<n>.ogg
+// (n は 1 始まりでこの順)。台詞を変えたら crosstalk.toml の [[reask]] crow_<n> と
+// 揃えて音声を作り直す (`crosstalk-gen -category reask -only crow_1,crow_2,crow_3 -force`)。
+// 3本目は生成後にノイズと欠落を加えた音声 (ナビゲーターの3本目と同じ)。
+var testResponderReaskLines = []string{
+	"こちらカラス。よく聞き取れなかった。もう一度言ってくれ。どうぞ",
+	"こちらカラス。ノイズで聞こえなかった。もう一度頼む。どうぞ",
+	"こちらカラス。電波が乱れて、途中が聞こえなかった。もう一度言ってくれ。どうぞ",
+}
+
 // TestResponder はセッション未バインドの bridge へ応答する疎通確認用の相手。
 //
 // マネージャーの開始申告 (docs/bridge_connection_design.md §5) が行われる前は
@@ -145,7 +156,7 @@ func (r *TestResponder) Respond(ctx context.Context, sender *AudioSender, result
 		Sender: TestResponderCallsign, Receiver: "相手", Message: text,
 	})
 
-	buildPrompt := func(body string) string {
+	buildPrompt := func(body string) TTSRequest {
 		return buildTTSPrompt(testResponderTTSStyle, "", body)
 	}
 	// 疎通確認用なので混線とは無関係。再生時間は使わない
@@ -244,7 +255,7 @@ func (r *TestResponder) RespondStartRejected(ctx context.Context, sender *AudioS
 	// **交信ログには残さない。** 差し戻しはゲームの文脈ではなく運営のやり取りで、
 	// このあと開始し直したときにカラスの雑談履歴へ混ざると、
 	// 疎通確認の会話が差し戻しの話を引きずる。
-	buildPrompt := func(body string) string {
+	buildPrompt := func(body string) TTSRequest {
 		return buildTTSPrompt(testResponderTTSStyle, "", body)
 	}
 	_, err = speakTTS(ctx, r.ttsClient, sender, text, buildPrompt,

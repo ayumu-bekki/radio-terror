@@ -38,8 +38,8 @@ func TestBuildTTSPromptDropsUnknownTags(t *testing.T) {
 		"タグなしの発話。どうぞ。",
 	} {
 		p := buildTTSPrompt("低音で落ち着いた男性の声。", "落ち着いた場面。", chunk)
-		if strings.Contains(p, "[") || strings.Contains(p, "]") {
-			t.Errorf("プロンプトに未知タグの角括弧が残っている:\n%s", p)
+		if all := p.Style + p.Text; strings.Contains(all, "[") || strings.Contains(all, "]") {
+			t.Errorf("TTS 入力に角括弧が残っている:\n%+v", p)
 		}
 	}
 }
@@ -53,9 +53,18 @@ func TestBuildTTSPromptContainsParts(t *testing.T) {
 	)
 
 	p := buildTTSPrompt(style, note, body)
-	for _, want := range []string{style, note, body} {
-		if !strings.Contains(p, want) {
-			t.Errorf("プロンプトに %q が入っていない:\n%s", want, p)
+	for _, want := range []string{style, note} {
+		if !strings.Contains(p.Style, want) {
+			t.Errorf("style に %q が入っていない:\n%s", want, p.Style)
+		}
+	}
+	// 本文だけが text。指示文を混ぜると 3.8 TTS はそのまま読み上げる
+	if p.Text != body {
+		t.Errorf("text = %q, want %q (本文だけにすること)", p.Text, body)
+	}
+	for _, bad := range []string{style, note, "読み上げてください", "セリフ"} {
+		if strings.Contains(p.Text, bad) {
+			t.Errorf("text に指示文 %q が混ざっている: %q", bad, p.Text)
 		}
 	}
 }
@@ -63,11 +72,11 @@ func TestBuildTTSPromptContainsParts(t *testing.T) {
 // 読み方の指定が空なら省略すること (余計な改行を残さない)。
 func TestBuildTTSPromptOmitsEmptyNote(t *testing.T) {
 	p := buildTTSPrompt("style", "", "本文。")
-	if strings.Contains(p, "\n\n\n") {
-		t.Errorf("読み方の指定が空のとき余分な改行が入っている:\n%q", p)
+	if p.Style != "style" {
+		t.Errorf("読み方の指定が空のとき style に余計なものが入っている: %q", p.Style)
 	}
-	if !strings.Contains(p, "本文。") {
-		t.Error("本文が入っていない")
+	if p.Text != "本文。" {
+		t.Errorf("text = %q, want 本文。", p.Text)
 	}
 }
 
@@ -150,14 +159,18 @@ func TestSanitizeTTSTags(t *testing.T) {
 // ここで誤って全タグを除去すると、表情指定が効かなくなる
 // (docs/navigator_design.md §5 決定17)。
 func TestBuildTTSPromptKeepsAllowedTags(t *testing.T) {
-	prompt := buildTTSPrompt("声質", "場面", "[relieved] よくやった。")
-	if !strings.Contains(prompt, "[relieved]") {
-		t.Errorf("許可タグが除去されている: %q", prompt)
+	// 許可タグは演技指示として style へ移り、本文には残らない (3.8 TTS は text を逐語録で読む)
+	req := buildTTSPrompt("声質", "場面", "[relieved] よくやった。")
+	if !strings.Contains(req.Style, "relieved") {
+		t.Errorf("許可タグが style に移っていない: %+v", req)
+	}
+	if req.Text != "よくやった。" {
+		t.Errorf("本文にタグが残っている: %q", req.Text)
 	}
 
-	prompt = buildTTSPrompt("声質", "場面", "[excited] よくやった。")
-	if strings.Contains(prompt, "[excited]") {
-		t.Errorf("未知タグが残っている: %q", prompt)
+	req = buildTTSPrompt("声質", "場面", "[excited] よくやった。")
+	if strings.Contains(req.Style, "excited") || strings.Contains(req.Text, "excited") {
+		t.Errorf("未知タグが残っている: %+v", req)
 	}
 }
 

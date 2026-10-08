@@ -67,9 +67,17 @@ func (p *AudioPipeline) HandleAudio(ctx context.Context, bridgeID string, data [
 		// 何を言ったか分からないので、体験中の bridge なら聞き直す。
 		// 再試行はしない (失敗したAPIを待つより、もう一度話してもらうほうが早い)。
 		// 終了処理でやめた場合 (ctx が終わっている) は流さない。
-		if ctx.Err() == nil && p.reask != nil && p.game != nil {
-			if session := p.game.SessionForBridge(bridgeID); session != nil {
-				p.reask.Play(NewAudioSender(p.registry, bridgeID), session)
+		// セッションが無い bridge (開始前・終了後) の相手はカラス。
+		if ctx.Err() == nil && p.reask != nil {
+			sender := NewAudioSender(p.registry, bridgeID)
+			var session *GameSession
+			if p.game != nil {
+				session = p.game.SessionForBridge(bridgeID)
+			}
+			if session != nil {
+				p.reask.Play(sender, session)
+			} else {
+				p.reask.PlayCrow(sender)
 			}
 		}
 		return
@@ -87,6 +95,11 @@ func (p *AudioPipeline) HandleAudio(ctx context.Context, bridgeID string, data [
 		handled, err := p.commands.Handle(ctx, sender, result)
 		if err != nil {
 			log.Printf("[audio %s] manager command error: %v", bridgeID, err)
+			// 開始・リセットが失敗したのに無言だと、マネージャーは失敗を判定できない。
+			// 事前収録のカラスの聞き直しで、うまくいかなかったことを伝える。
+			if ctx.Err() == nil && p.reask != nil {
+				p.reask.PlayCrow(sender)
+			}
 		}
 		if handled {
 			return
@@ -110,6 +123,10 @@ func (p *AudioPipeline) HandleAudio(ctx context.Context, bridgeID string, data [
 	if p.testResponder != nil && isTestResponderTarget(result) {
 		if err := p.testResponder.Respond(ctx, sender, result); err != nil {
 			log.Printf("[audio %s] test responder error: %v", bridgeID, err)
+			// 応答を生成できなかった (または音声にできなかった)。聞き直してもらう。
+			if ctx.Err() == nil && p.reask != nil {
+				p.reask.PlayCrow(sender)
+			}
 		}
 		return
 	}

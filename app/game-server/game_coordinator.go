@@ -115,8 +115,10 @@ type GameCoordinator struct {
 
 	// testResponder は疎通確認応答 (カラス)。セッション開始時に文脈を破棄する。
 	testResponder *TestResponder
-	rng           *rand.Rand
-	rngMu         sync.Mutex
+	// reask は事前収録の聞き直し。開始の差し戻しを音声にできなかったときにカラスが流す。
+	reask *ReaskPlayer
+	rng   *rand.Rand
+	rngMu sync.Mutex
 
 	// binder は bridge ⇔ device のバインドと進行中セッションを管理する
 	binder *SessionBinder
@@ -174,6 +176,9 @@ func (c *GameCoordinator) SilenceWatcher() *SilenceWatcher {
 func (c *GameCoordinator) SetTestResponder(responder *TestResponder) {
 	c.testResponder = responder
 }
+
+// SetReaskPlayer は失敗時の聞き直し (事前収録) の再生先を設定する。
+func (c *GameCoordinator) SetReaskPlayer(reask *ReaskPlayer) { c.reask = reask }
 
 // SetNavigatorConfig はキャラクター割当に使う設定を渡す。
 func (c *GameCoordinator) SetNavigatorConfig(cfg *NavigatorConfig) {
@@ -736,6 +741,11 @@ func (c *GameCoordinator) replyStartRejected(ctx context.Context, sender *AudioS
 	}
 	if err := c.testResponder.RespondStartRejected(ctx, sender, reason); err != nil {
 		log.Printf("[game] reply start rejected speak error: %v", err)
+		// 無言だと「受理されたのか、障害か」がマネージャーに区別できない。
+		// 事前収録のカラスの聞き直しを流し、失敗したことだけは伝える。
+		if ctx.Err() == nil && c.reask != nil {
+			c.reask.PlayCrow(sender)
+		}
 	}
 	return nil
 }

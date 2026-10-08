@@ -33,7 +33,7 @@ location               = "global"
 transcribe_model       = "gemini-3.1-flash-lite"
 reasoning_model        = "gemini-3.5-flash-lite"
 reasoning_thinking_level = "low"
-tts_model              = "gemini-3.1-flash-tts-preview"
+tts_model              = "gemini-3.8-flash-lite-tts"
 transcribe_prompt_file = "transcribe_prompt.txt"
 transcribe_schema_file = "transcribe_schema.json"
 
@@ -43,9 +43,9 @@ transcribe_schema_file = "transcribe_schema.json"
 # 待ちの最悪値は タイムアウト × 試行回数。上限を切らないと無制限に待つ。
 #
 #   API          タイムアウト既定  試行回数既定
-#   transcribe   5秒               1 (再試行しない)
-#   reply        5秒               1 (再試行しない)
-#   tts          8秒              1 (再試行しない)
+#   transcribe   3秒               2 (再試行する)
+#   reply        4秒               2 (再試行する)
+#   tts          10秒              1 (再試行しない)
 #
 # **書き起こし・発話生成は短く切って再試行しない。** 失敗 (タイムアウト・429・502 など) したら、
 # 事前収録の「よく聞き取れなかったので、もう一度お願いします」を流す
@@ -53,20 +53,13 @@ transcribe_schema_file = "transcribe_schema.json"
 # 遅い回を切りすぎるなら秒数を延ばし、聞き直しが多すぎるなら試行回数を 2 に上げる。
 # 効いている値は起動ログの `[boot] gemini limits:` で確かめられる。
 # 再試行の対象は 429・408・5xx・タイムアウトだけ (400/401/403/404 は撃ち直さない)。
-#
-# TTS は**応答をストリーミングで受け取る**ようにしてから安定した。
-# 一括受信では音声5秒ぶんに対し 24〜56秒待たされる回が混じっていたが
-# (15回中4回が10秒超)、ストリーミングでは15回すべて 2.2〜3.8秒に収まった。
-# そのため上限は 10 秒で足りる。**再試行しない (tts_attempts = 1)**。10秒で切れなかった・
-# 失敗した発話は、聞き直しを流してもう一度話してもらう。聞き直しが多すぎるなら
-# tts_attempts を上げる (打ち切った呼び出しをその回数まで作り直す。最悪 10秒 x 回数 の無音)。
 # 1 = 再試行0回、2 = 再試行1回。
-transcribe_timeout_sec = 5
-reply_timeout_sec      = 5
-tts_timeout_sec        = 8
+transcribe_timeout_sec = 3
+reply_timeout_sec      = 4
+tts_timeout_sec        = 10
 
-transcribe_attempts = 1
-reply_attempts      = 1
+transcribe_attempts = 2
+reply_attempts      = 2
 tts_attempts        = 1
 
 [scenario]

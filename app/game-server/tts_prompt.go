@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -108,14 +107,31 @@ func directorNote(trigger string) string {
 	return directorNotes[trigger]
 }
 
-// buildTTSPrompt は声質指定と本文から TTS プロンプトを組み立てる。
+// TTSRequest は TTS へ渡す値。**style と読み上げ本文を分ける** (Gemini 3.8 TTS)。
+//
+// 3.8 TTS は text を厳密な逐語録として読むので、「次のセリフを読み上げてください」や
+// 声質・場面の指示を text に混ぜると**そのまま声に出る**。話し方は
+// `speech_metadata.style` で渡し、text は読ませる台詞だけにする
+// (docs/gemini_enterprise_setup.md 決定22)。
+type TTSRequest struct {
+	Style string // speech_metadata.style (声質・読み方・台詞中の演技指示)
+	Text  string // 読み上げる本文 (角括弧タグは含まない)
+}
+
+// buildTTSPrompt は声質指定と本文から TTS への入力を組み立てる。
 //
 // note は読み方の指定 (ディレクターズノート)。空なら省略する。
-// chunk に含まれる角括弧タグは**許可リストのものだけ残す** — TTS に
-// 演技指示として解釈させるため (ファイル冒頭の経緯を参照)。
-// 一覧外のタグは読み上げ事故になるので落とす。
-func buildTTSPrompt(style, note, chunk string) string {
+// 本文中の角括弧タグは**許可リストのものだけ**を演技指示として拾い、本文からは外して
+// style の「台詞中の演技指示」へ登場順に移す (3.8 の山かっこタグは一時的な音声イベント
+// 専用で、表情は style で伝える)。一覧外のタグは読み上げ事故になるので落とす。
+func buildTTSPrompt(style, note, chunk string) TTSRequest {
 	chunk = sanitizeTTSTags(chunk)
+
+	var directions []string
+	text := ttsTagPattern.ReplaceAllStringFunc(chunk, func(m string) string {
+		directions = append(directions, strings.TrimSpace(m[1:strings.Index(m, "]")]))
+		return ""
+	})
 
 	var b strings.Builder
 	b.WriteString(style)
@@ -123,7 +139,9 @@ func buildTTSPrompt(style, note, chunk string) string {
 		b.WriteString("\n")
 		b.WriteString(note)
 	}
-	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "次のセリフを読み上げてください:\n%s", chunk)
-	return b.String()
+	if len(directions) > 0 {
+		b.WriteString("\n台詞中の演技指示 (登場順。声に出して読まない): ")
+		b.WriteString(strings.Join(directions, " → "))
+	}
+	return TTSRequest{Style: b.String(), Text: strings.TrimSpace(text)}
 }

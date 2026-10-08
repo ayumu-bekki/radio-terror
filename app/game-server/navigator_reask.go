@@ -98,7 +98,55 @@ func NewReaskPlayer(assetDir string, characters []NavigatorCharacter, logs *Sess
 		}
 	}
 	log.Printf("[reask] loaded %d clip(s) for %d/%d character(s)", loaded, covered, len(characters))
+
+	// カラス (疎通確認・終了後の無線の相手)。セッションが無いので会話ログは使わない。
+	for i, text := range testResponderReaskLines {
+		path := filepath.Join(assetDir, reaskAssetDir, fmt.Sprintf("%s_%d.ogg", crowReaskID, i+1))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("[reask] asset not found: %s", path)
+			continue
+		}
+		r.clips[crowReaskID] = append(r.clips[crowReaskID], reaskClip{
+			text: text, data: data, duration: oggOpusDuration(data),
+		})
+	}
+	if len(r.clips[crowReaskID]) == 0 {
+		log.Printf("[reask] no clip for crow: カラスの聞き直しは無言になる")
+	} else {
+		log.Printf("[reask] loaded %d clip(s) for crow", len(r.clips[crowReaskID]))
+	}
 	return r
+}
+
+// crowReaskID はカラスの聞き直し音声のキー (ファイル名 crow_<n>.ogg)。
+// ナビゲーターのキャラクターIDと重ならない名前にしてある。
+const crowReaskID = "crow"
+
+// PlayCrow はカラスの聞き直しを流す。流せたら true。
+//
+// セッション未バインドの bridge (開始前の疎通確認・終了後) で、書き起こしや応答の
+// 生成に失敗したときに使う。セッションが無いので会話ログへは残さない。
+// 鳴っている間は重ねない (bridge ごとに管理する)。
+func (r *ReaskPlayer) PlayCrow(sender *AudioSender) bool {
+	if r == nil || sender == nil {
+		return false
+	}
+	key := "bridge:" + sender.BridgeID()
+	clip, ok := r.pick(key, crowReaskID)
+	if !ok {
+		return false
+	}
+	if !sender.Send(oneshot(clip.data)) {
+		log.Printf("[reask] send failed (bridge=%s)", sender.BridgeID())
+		return false
+	}
+	log.Printf("[reask] played to %s (crow, %.1fs): %s", sender.BridgeID(), clip.duration.Seconds(), clip.text)
+
+	r.mu.Lock()
+	r.until[key] = time.Now().Add(clip.duration + reaskBusyMargin)
+	r.mu.Unlock()
+	return true
 }
 
 // Play は聞き直しを流し、会話ログへ同じ文を残す。流せたら true。

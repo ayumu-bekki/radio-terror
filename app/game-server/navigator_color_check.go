@@ -14,6 +14,7 @@ package main
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -193,21 +194,70 @@ func lampReportClaims(text string) []lampClaim {
 		if segment == "" || hasAnyForm(segment, notLampReportForms) || !soundsLikeLampReport(segment) {
 			continue
 		}
-		blink := strings.Contains(segment, "点滅")
-		steady := hasAnyForm(segment, steadyPhrases)
-		state := ""
-		if blink && !steady {
-			state = lampBlink
-		} else if steady && !blink {
-			state = lampOn
-		}
-		for _, c := range lampColorWords {
-			if strings.Contains(segment, c.word) {
-				claims = append(claims, lampClaim{line: c.line, state: state})
+		hits := colorHitsInOrder(segment)
+		for i, h := range hits {
+			state := ""
+			if len(hits) == 1 {
+				// 色が1つの文節は、文節全体の言い方から光り方を読む
+				state = claimedState(segment)
+			} else {
+				// 色が2つ以上ある文節は、**その色に付いた言い方だけ**を読む
+				// (「青が点滅して白が光っています」の「点滅」は青のもの。
+				// 文節全体で読むと白も点滅と取り違え、正しい報告を誤りと判定した)。
+				// 色の直後の「が」「は」で始まる区間だけを、その色の光り方とみなす。
+				// 「点滅している青と点灯している白」のように光り方が色の前に来る
+				// 言い方は読み取れないので、色だけを照合する。
+				end := len(segment)
+				if i+1 < len(hits) {
+					end = hits[i+1].pos
+				}
+				span := segment[h.pos+len(h.word) : end]
+				if strings.HasPrefix(span, "が") || strings.HasPrefix(span, "は") {
+					state = claimedState(span)
+				}
 			}
+			claims = append(claims, lampClaim{line: h.line, state: state})
 		}
 	}
 	return claims
+}
+
+// claimedState は言い方から読み取れた光り方を返す。読み取れなければ空。
+func claimedState(s string) string {
+	blink := strings.Contains(s, "点滅")
+	steady := hasAnyForm(s, steadyPhrases)
+	if blink && !steady {
+		return lampBlink
+	}
+	if steady && !blink {
+		return lampOn
+	}
+	return ""
+}
+
+// colorHit は文節の中の色の言い方1つと、その位置。
+type colorHit struct {
+	word string
+	line string
+	pos  int
+}
+
+// colorHitsInOrder は文節に出てくる色を、言った順に全て返す
+// (同じ色を2回言えば2つ。区間を次の色の手前で切るため)。
+func colorHitsInOrder(segment string) []colorHit {
+	var hits []colorHit
+	for _, c := range lampColorWords {
+		for from := 0; from < len(segment); {
+			i := strings.Index(segment[from:], c.word)
+			if i < 0 {
+				break
+			}
+			hits = append(hits, colorHit{word: c.word, line: c.line, pos: from + i})
+			from += i + len(c.word)
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].pos < hits[j].pos })
+	return hits
 }
 
 // checkLampReport は報告を表示と照合する。

@@ -24,7 +24,7 @@ const (
 	opusGranuleRate = 48000
 )
 
-const defaultTTSModel = "gemini-3.1-flash-tts-preview"
+const defaultTTSModel = "gemini-3.8-flash-lite-tts"
 
 // ttsSlowThreshold を超えた TTS 呼び出しはプロンプト全文をログに残す。
 // 実測の正常値は 2.2〜5.7 秒なので、その上に取ってある。
@@ -70,14 +70,14 @@ func NewTTSClient(ctx context.Context, cfg GeminiConfig) (*TTSClient, error) {
 	}, nil
 }
 
-// GeneratePCM24kFromPrompt はプロンプトからTTS音声を生成し、24kHz mono の PCM(int16)で返す。
+// Generate は style と本文からTTS音声を生成し、24kHz mono の PCM(int16)で返す。
 //
 // voice はキャラクターごとのボイス名 (navigator/characters/*.toml の tts_voice、
 // 疎通確認は testResponderTTSVoice)。空文字の場合のみ既定値を使う。
 //
 // 失敗した場合は作り直す (attempts 回まで)。ストリーミング受信にしてから
 // 外れ値はほぼ消えたが、通信エラーの保険として残してある。
-func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice string) ([]int16, error) {
+func (t *TTSClient) Generate(ctx context.Context, req TTSRequest, voice string) ([]int16, error) {
 	attempts := t.attempts
 	if attempts <= 0 {
 		attempts = 1
@@ -90,7 +90,7 @@ func (t *TTSClient) GeneratePCM24kFromPrompt(ctx context.Context, prompt, voice 
 			return nil, err
 		}
 
-		pcm, err := t.generateOnce(ctx, prompt, voice)
+		pcm, err := t.generateOnce(ctx, req, voice)
 		if err == nil {
 			if attempt > 1 {
 				log.Printf("[gemini] TTS succeeded on attempt %d/%d", attempt, attempts)
@@ -113,7 +113,7 @@ func (t *TTSClient) Warmup(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, warmupTimeout)
 	defer cancel()
 
-	_, err := t.generateOnce(ctx, "ok", defaultTTSVoice)
+	_, err := t.generateOnce(ctx, TTSRequest{Text: "ok"}, defaultTTSVoice)
 	if err != nil {
 		return fmt.Errorf("warmup tts: %w", err)
 	}
@@ -132,7 +132,7 @@ func (t *TTSClient) Warmup(ctx context.Context) error {
 // 受け取ったチャンクは全て連結してから返す。先頭から順次無線へ流す方式は
 // 採らない — 1チャンクの遅延が発話全体を人質に取る問題を避けるため
 // (docs/navigator_design.md §5 決定12)。
-func (t *TTSClient) generateOnce(ctx context.Context, prompt, voice string) ([]int16, error) {
+func (t *TTSClient) generateOnce(ctx context.Context, req TTSRequest, voice string) ([]int16, error) {
 	if voice == "" {
 		voice = defaultTTSVoice
 	}
@@ -143,7 +143,20 @@ func (t *TTSClient) generateOnce(ctx context.Context, prompt, voice string) ([]i
 		defer cancel()
 	}
 
+	// 3.8 TTS は text を逐語録として読むので、style は speech_metadata へ分ける。
+	// Go SDK に型が無いので、リクエスト本文を差し替えて載せる。
+	provide := func(body map[string]any) map[string]any {
+		part := map[string]any{"text": req.Text}
+		if req.Style != "" {
+			part["speech_metadata"] = map[string]any{"style": req.Style}
+		}
+		body["contents"] = []any{map[string]any{"role": "user", "parts": []any{part}}}
+		return body
+	}
+	prompt := req.Text // ログ用
+
 	genConfig := &genai.GenerateContentConfig{
+		HTTPOptions:        &genai.HTTPOptions{ExtrasRequestProvider: provide},
 		ResponseModalities: []string{"audio"},
 		SpeechConfig: &genai.SpeechConfig{
 			VoiceConfig: &genai.VoiceConfig{
@@ -160,7 +173,7 @@ func (t *TTSClient) generateOnce(ctx context.Context, prompt, voice string) ([]i
 	var streamErr error
 
 	for resp, err := range t.client.Models.GenerateContentStream(ctx, t.model,
-		[]*genai.Content{genai.NewContentFromText(prompt, genai.RoleUser)},
+		[]*genai.Content{genai.NewContentFromText(req.Text, genai.RoleUser)},
 		genConfig,
 	) {
 		if err != nil {
@@ -189,7 +202,7 @@ func (t *TTSClient) generateOnce(ctx context.Context, prompt, voice string) ([]i
 	// 遅かった呼び出しはプロンプト全文を残す。
 	// ストリーミングで外れ値はほぼ消えたが、再発を検知できるようにしておく。
 	if elapsed >= ttsSlowThreshold {
-		log.Printf("[gemini] TTS SLOW (%v) prompt=%q", elapsed, prompt)
+		log.Printf("[gemini] TTS SLOW (%v) style=%q text=%q", elapsed, req.Style, prompt)
 	}
 
 	if t.health != nil {
