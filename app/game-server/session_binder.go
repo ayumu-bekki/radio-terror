@@ -38,12 +38,20 @@ func (b *SessionBinder) Bind(bridgeID, deviceID string, session *GameSession) {
 	b.sessionByDevice[deviceID] = session
 }
 
-// Release はデバイスの進行中セッションを解除する。
-// バインド自体 (bridge → device) は残し、再接続で継続できるようにする。
+// Release はデバイスの進行中セッションと、そのデバイスを指す
+// bridge ⇔ device のバインドを解除する。
+//
+// リセット後も「バインド済み」と表示され続けないよう、バインドも外す。
+// 次の開始申告で Bind し直される。
 func (b *SessionBinder) Release(deviceID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.sessionByDevice, deviceID)
+	for bridgeID, bound := range b.bindingByBridge {
+		if bound == deviceID {
+			delete(b.bindingByBridge, bridgeID)
+		}
+	}
 }
 
 // SessionFor は device_id に対応する進行中セッションを返す。

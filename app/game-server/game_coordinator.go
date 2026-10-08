@@ -417,9 +417,15 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 	// デバイスへの送信可否にかかわらず、サーバー側の状態整理とログ記録は必ず行う。
 	// デバイスが切断されている状況こそマネージャーがリセットしたい場面であり、
 	// ここで早期リターンすると「なぜセッションが終わったか」が記録に残らない。
+	//
+	// **binder を先に外す。** abort を送ると Core が device_status を返し、
+	// HandleDeviceMessage が persist する。外す前にそれが走ると、直後に消した
+	// Valkey のセッションが書き戻され、再起動で復活する。
+	session := c.sessionFor(deviceID)
+	c.binder.Release(deviceID)
 	sendErr := c.devices.SendSessionAbort(deviceID)
 
-	if session := c.sessionFor(deviceID); session != nil {
+	if session != nil {
 		session.mu.Lock()
 		stageIndex, remaining, finished := session.StageIndex, session.RemainingMS, session.Finished
 		session.mu.Unlock()
@@ -448,8 +454,6 @@ func (c *GameCoordinator) AbortSession(ctx context.Context, sender *AudioSender,
 			}
 		}
 	}
-
-	c.binder.Release(deviceID)
 
 	if c.crosstalk != nil {
 		c.crosstalk.Stop(deviceID)
@@ -759,6 +763,10 @@ func (c *GameCoordinator) persist(ctx context.Context, session *GameSession) {
 		return
 	}
 	if c.store == nil {
+		return
+	}
+	// リセットで外れたセッションは保存しない (書き戻すと再起動で復活する)。
+	if c.sessionFor(session.DeviceID) != session {
 		return
 	}
 	if err := c.store.SaveSession(ctx, session); err != nil {
