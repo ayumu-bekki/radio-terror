@@ -69,6 +69,17 @@ plughw:SC_BR01,0    # 再生(出力)
 シリアルを調べて、ルールに `SC_BR03` の行を追加するだけ。
 あわせて `compose.yaml` に `radio-bridge-br03` を足す(`RADIO_BRIDGE_ID`・カードID・PTT GPIO を bridge ごとに変える)。
 
+## デバイスが無いとき・抜けたとき
+
+radio-bridge は入力デバイスを**5秒ごとに開き直し**、開けている間だけ game-server へ接続する
+(`bridge_connection_design.md` 決定15)。
+
+- 起動時に無い: ログに `audio input unavailable ... retry_secs=5` と
+  `audio input not available, waiting before connecting` が出る。挿すと自動で接続する。
+- 動作中に抜けた: `alsa capture error` のあと切断される。マネージャー画面からは
+  その bridge が未接続になる。挿し直せば自動で復帰する(再起動不要)。
+- 再生側は都度 open するので、入力が戻れば再生も戻る。
+
 ## トラブルシュート
 
 | 症状 | 原因と対処 |

@@ -17,6 +17,9 @@ use proto::AudioChunk;
 /// (docs/bridge_connection_design.md §2 決定3)。
 const BRIDGE_ID_METADATA_KEY: &str = "bridge-id";
 
+/// 入力デバイスの有無を確かめる間隔。
+const INPUT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
 /// game-server へダイヤルインする gRPC クライアント。
 ///
 /// 接続方向は設計で反転済み (§2 決定1): radio-bridge がクライアントとなり
@@ -53,8 +56,16 @@ impl BridgeClient {
 
     /// 再接続ループ付きで接続を維持する (§3)。
     /// 切断されても待機してから再接続を試み続ける。
+    ///
+    /// **入力デバイス (USB オーディオ) が使える間だけ接続する。** 無いまま接続すると
+    /// game-server からは正常な bridge に見えるが、プレイヤーの声を拾えない。
+    /// デバイスが現れたら接続し、失われたら切る (サーバーからは未接続の bridge になる)。
     pub async fn run(&self) {
         loop {
+            if !self.recorder.is_ready() {
+                self.wait_input_ready().await;
+            }
+
             match self.connect_once().await {
                 Ok(()) => info!(bridge_id = %self.bridge_id, "stream closed by server"),
                 Err(e) => warn!(bridge_id = %self.bridge_id, "connection error: {e}"),
@@ -66,6 +77,22 @@ impl BridgeClient {
                 "reconnecting after delay"
             );
             tokio::time::sleep(self.reconnect_interval).await;
+        }
+    }
+
+    /// 入力デバイスが使えるようになるまで待つ。
+    async fn wait_input_ready(&self) {
+        warn!(bridge_id = %self.bridge_id, "audio input not available, waiting before connecting");
+        while !self.recorder.is_ready() {
+            tokio::time::sleep(INPUT_POLL_INTERVAL).await;
+        }
+        info!(bridge_id = %self.bridge_id, "audio input available");
+    }
+
+    /// 入力デバイスが失われるまで待つ (接続中の監視用)。
+    async fn wait_input_lost(&self) {
+        while self.recorder.is_ready() {
+            tokio::time::sleep(INPUT_POLL_INTERVAL).await;
         }
     }
 
@@ -122,7 +149,13 @@ impl BridgeClient {
         let mut inbound = response.into_inner();
 
         // サーバーから届く音声 (TTS・効果音・混線) をキューへ積む
-        let result = self.receive_loop(&mut inbound).await;
+        // 入力デバイスが失われたら受信を打ち切って切断する
+        let result = tokio::select! {
+            r = self.receive_loop(&mut inbound) => r,
+            _ = self.wait_input_lost() => {
+                Err("audio input device lost, disconnecting".into())
+            }
+        };
 
         send_task.abort();
         result

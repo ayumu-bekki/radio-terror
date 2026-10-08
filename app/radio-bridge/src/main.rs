@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             dump_ogg_dir,
         )?,
     );
-    info!("audio recorder started on device: {}", config.audio.input_device);
+    info!("audio recorder spawned for device: {} (opens in background, retries if missing)", config.audio.input_device);
 
     // game-server へダイヤルインするクライアント
     // (docs/bridge_connection_design.md §2 決定1: 接続方向の反転)

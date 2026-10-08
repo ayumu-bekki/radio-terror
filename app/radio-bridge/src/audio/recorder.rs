@@ -17,11 +17,19 @@ const CAPTURE_CHANNELS: u32 = 2; // ALSAキャプチャはステレオ
 const ENCODE_CHANNELS: u32 = 1;  // Opusエンコードはモノラル
 // 20ms フレーム @ 24kHz
 const FRAME_SIZE: usize = 480;
+/// 入力デバイスを開けない・失われたときに、開き直しを試みる間隔。
+const REOPEN_INTERVAL: Duration = Duration::from_secs(5);
 
 /// マイク入力レベルを監視し、音声検知時に録音→Ogg Opusエンコード→ブロードキャストする。
 /// `is_recording` フラグで現在録音中かどうかをコントローラから参照できる。
+///
+/// **入力デバイスが無い・抜けた場合は `REOPEN_INTERVAL` ごとに開き直す。**
+/// USB オーディオを固定した運用では、抜き差しや起動順で一時的に無くなりうる。
+/// 開けている間だけ `is_ready` が true になり、BridgeClient はこれを見て
+/// game-server への接続を張る・切る (デバイスが無い bridge をサーバーに見せない)。
 pub struct AudioRecorder {
     tx: broadcast::Sender<Vec<u8>>,
+    input_ready: Arc<AtomicBool>,
     is_recording: Arc<AtomicBool>,
     is_transmitting: Arc<AtomicBool>,
     stop_recording: Arc<AtomicBool>,
@@ -44,26 +52,44 @@ impl AudioRecorder {
         let is_transmitting_clone = Arc::clone(&is_transmitting);
         let stop_recording = Arc::new(AtomicBool::new(false));
         let stop_recording_clone = Arc::clone(&stop_recording);
+        let input_ready = Arc::new(AtomicBool::new(false));
+        let input_ready_clone = Arc::clone(&input_ready);
         let device = device.to_string();
 
-        std::thread::spawn(move || {
-            if let Err(e) = record_loop(
+        std::thread::spawn(move || loop {
+            let result = record_loop(
                 &device,
                 threshold_rms,
                 silence_duration,
                 min_recording_duration,
                 max_recording_duration,
-                dump_ogg_dir,
-                tx_clone,
+                dump_ogg_dir.clone(),
+                tx_clone.clone(),
                 &is_recording_clone,
                 &is_transmitting_clone,
                 &stop_recording_clone,
-            ) {
-                error!("audio recorder error: {e}");
+                &input_ready_clone,
+            );
+            // 失われたデバイスのまま録音中・準備完了と見せない
+            input_ready_clone.store(false, Ordering::Relaxed);
+            is_recording_clone.store(false, Ordering::Relaxed);
+            match result {
+                Ok(()) => warn!("audio recorder stopped"),
+                Err(e) => warn!(
+                    device = %device,
+                    retry_secs = REOPEN_INTERVAL.as_secs(),
+                    "audio input unavailable: {e}"
+                ),
             }
+            std::thread::sleep(REOPEN_INTERVAL);
         });
 
-        Ok(Self { tx, is_recording, is_transmitting, stop_recording })
+        Ok(Self { tx, input_ready, is_recording, is_transmitting, stop_recording })
+    }
+
+    /// 入力デバイスを開けていて録音できる状態か。
+    pub fn is_ready(&self) -> bool {
+        self.input_ready.load(Ordering::Relaxed)
     }
 
     /// 現在マイク入力を録音中かどうか。
@@ -98,6 +124,7 @@ fn record_loop(
     is_recording: &AtomicBool,
     is_transmitting: &AtomicBool,
     stop_recording: &AtomicBool,
+    input_ready: &AtomicBool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let pcm = PCM::new(device, Direction::Capture, false)?;
 
@@ -113,6 +140,7 @@ fn record_loop(
     }
 
     pcm.start()?;
+    input_ready.store(true, Ordering::Relaxed);
     info!("audio recorder started, monitoring input level");
 
     let io = pcm.io_i16()?;
@@ -133,6 +161,7 @@ fn record_loop(
             Ok(f) => f,
             Err(e) => {
                 error!("alsa capture error: {e}");
+                // 復旧できない (デバイスが抜けた等) ときはここで抜け、開き直しに回る
                 pcm.try_recover(e, false)?;
                 continue;
             }
