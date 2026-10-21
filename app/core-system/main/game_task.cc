@@ -139,7 +139,7 @@ void GameTask::EnterPlaying() {
 
   // 開始の合図。無線越しでは画面が見えないので**音**で始まりを伝える。
   // 短くして失敗音と区別しようとしたが、短すぎて聞こえないことがあったため
-  // ミス音 (Beep(1) = 200ms) と同じ長さにした。
+  // 200ms (Beep(1)) にした。ミス音は短音3連にして回数で区別する (決定71)。
   buzzer_.Off();
   buzzer_.Beep(1);
 
@@ -190,7 +190,6 @@ void GameTask::EnterDefused() {
   leds_.Reset();
   ApplyLedOutputs();
 
-  buzzer_.Beep(3);
   UpdateFullColorLed();
   // 残り時間はスコアなので停止表示のまま維持する (§4.1)
   TickDisplay();
@@ -663,7 +662,7 @@ void GameTask::UpdateTimerDigitGrace() {
 
 void GameTask::ApplyPenalty(int32_t penalty_ms) {
   remaining_ms_ -= penalty_ms;
-  buzzer_.Beep(1);
+  buzzer_.Beep(3, 1, 1);
 
   // 誤操作の瞬間に強い赤の閃光を焚く。Playing の通常点滅 (50ms点灯) では
   // ミスの瞬間だけ目立たせられないため、破裂の閃光 (FireSolenoid) と
@@ -693,12 +692,16 @@ void GameTask::HandleColorMatchMiss(const StageConfig& stage) {
     ApplyPenalty(penalty);
   } else {
     // ペナルティ無し設定でも、ミスしたことは音で伝える
-    buzzer_.Beep(1);
+    buzzer_.Beep(3, 1, 1);
   }
   sender_.SendWrongAction("color_match", COLOR_NONE, penalty, remaining_ms_);
 }
 
 void GameTask::AdvanceStage() {
+  // ステージ突破の合図。無線越しでは成否が分からないので、開始音と同じ長さ
+  // (Beep(1) = 200ms) で鳴らす。最終ステージも同じ音 (解除専用の音は無い)。
+  buzzer_.Beep(1);
+
   ++stage_index_;
   if (static_cast<int32_t>(session_.stages.size()) <= stage_index_) {
     EnterDefused();

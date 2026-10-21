@@ -330,9 +330,15 @@ var simScripts = map[string]simScript{
 	// 装置を見る前に数字だけ聞かされても頭に入らない。MustMention は
 	// 入り口の発話 (session_start と最初の player_message) のどれかに
 	// 出ていれば満たすので、この変更でも検査はそのまま働く。
+	//
+	// **危険位置は「止めると爆発する」だけを言う** (決定169)。通ること・
+	// 通り過ぎることに触れると「通るってどういうこと?」と聞き返され
+	// (決定118)、一瞬なら触れてよいかのように聞こえて危険位置の上で
+	// 速度を落とす動きを誘う。「通信」に掛からないよう語で絞る。
 	"206": {
-		StageID:     "206",
-		MustMention: []string{"${sim_forbidden}"},
+		StageID:        "206",
+		MustMention:    []string{"${sim_forbidden}"},
+		MustNotMention: simPassingWords,
 		Turns: []simTurn{
 			// マネージャーへの応答 (カウントダウン開始前)。決定36。
 			{Trigger: "session_ready"},
@@ -344,6 +350,10 @@ var simScripts = map[string]simScript{
 			// 報告への返しで**回す指示と危険位置の警告が揃うか**を見る。
 			{Trigger: "player_message",
 				Player: "どこまで回せばいいですか。どうぞ"},
+			// **聞かれたときだけ**「止めなければ大丈夫」と答えるか (決定169)。
+			// 「通る」を台本に入れると MustNotMention の免除に掛かるので避ける。
+			{Trigger: "player_message",
+				Player: "危険な数字に一瞬触れても大丈夫ですか。どうぞ"},
 			{Trigger: "player_message",
 				Player: "指示の位置に合わせました。止まらずに回せました。どうぞ"},
 			{Trigger: "player_message",
@@ -381,7 +391,8 @@ var simScripts = map[string]simScript{
 	// 謎なので、ナビが数字を言うと丸ごと消える。206 綱渡り とは**逆**。
 	// 検査は MustNotMention 側で行う。
 	"209": {
-		StageID: "209",
+		StageID:        "209",
+		MustNotMention: simPassingWords,
 		// **見え方は点灯のみ**になった (決定91)。点滅は「切る線」の合図に
 		// 予約してあるので、現在位置の報告に点滅は出ない。
 		//
@@ -509,6 +520,11 @@ var simScripts = map[string]simScript{
 				Player: "点滅しているランプと点灯しているランプがあります。どうぞ"},
 			{Trigger: "player_message",
 				Player: "点滅している色のボタンを押さえました。どうぞ"},
+			// **離してしまっても終わりではない** (決定169)。離しただけでは
+			// 何も起きず、押さえ直せば続けられる。終わったように扱うと、
+			// 焦って離したまま切らせる (離したまま切ると爆発)。
+			{Trigger: "player_message",
+				Player: "すみません、ボタンから指を離してしまいました。どうぞ"},
 			{Trigger: "player_message",
 				Player: "押さえたままです。いつ切りますか。どうぞ"},
 			{Trigger: "player_message",
@@ -630,6 +646,11 @@ func TestScriptsReportLampsFirst(t *testing.T) {
 		}
 	}
 }
+
+// simPassingWords はダイヤルの危険位置を「通る」ものとして語る言い方
+// (206・209)。危険位置は止めると爆発することだけを言う (決定169)。
+// 「通」1字だと「通信」に掛かるので活用形で並べる。
+var simPassingWords = []string{"通過", "通り過ぎ", "通っ", "通る", "通れ", "通ら"}
 
 // TestMustNotMentionExemptionIsNarrow は、MustNotMention の
 // 「プレイヤーが先に言った語は復唱なので免除」が**広すぎない**ことを確かめる。

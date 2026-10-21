@@ -34,7 +34,7 @@ class Buzzer final {
     Off();
   }
 
-  /// 短音を count 回鳴らす (ペナルティ通知・解除成功の演出用)
+  /// 短音を count 回鳴らす (開始・ステージ突破・ミスの合図)
   void Beep(int32_t count, int32_t on_ticks = 2, int32_t off_ticks = 2) {
     continuous_ = false;
     beep_count_ = count;

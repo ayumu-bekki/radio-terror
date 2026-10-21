@@ -788,7 +788,7 @@ func simCheckTurn(
 		if strings.Contains(body, ng) {
 			findings = append(findings, simFinding{
 				StageID: id, Kind: "told_answer",
-				Detail: fmt.Sprintf("資料から読ませるべき %q を言っている", ng), Reply: reply,
+				Detail: fmt.Sprintf("言ってはいけない %q を言っている", ng), Reply: reply,
 			})
 		}
 	}
