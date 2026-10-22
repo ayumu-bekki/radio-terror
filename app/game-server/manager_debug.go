@@ -10,6 +10,7 @@ package main
 // `StartSessionWith` を通す — 別経路を作ると本番と挙動がずれる。
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -251,7 +252,13 @@ func (w *ManagerWeb) handleDebugStart(rw http.ResponseWriter, r *http.Request) {
 		deviceID, difficulty, bridgeID, r.FormValue("character_id"), stageIDs)
 
 	sender := NewAudioSender(w.bridges, bridgeID)
-	err := w.game.StartSessionWith(r.Context(), sender, deviceID, difficulty, StartOptions{
+	// **リクエストの取り消しを開始へ持ち込まない。** 開始は第一声の用意と
+	// カウントダウン前の猶予で十数秒かかり、その間にブラウザ側で接続が切れると
+	// r.Context() が取り消される。そのまま渡すと第一声の用意が context canceled で
+	// 打ち切られ、Core が青点滅 (Pending) のまま止まった (2026-10-22)。
+	// (混線・無応答監視は元から WithoutCancel で切り離してある)
+	ctx := context.WithoutCancel(r.Context())
+	err := w.game.StartSessionWith(ctx, sender, deviceID, difficulty, StartOptions{
 		StageIDs:    stageIDs,
 		CharacterID: r.FormValue("character_id"),
 	})

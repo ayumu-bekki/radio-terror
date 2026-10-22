@@ -751,7 +751,19 @@ func (c *GameCoordinator) prepareFirstSpeech(ctx context.Context, session *GameS
 func (c *GameCoordinator) cancelStart(ctx context.Context, sender *AudioSender, session *GameSession, cause error) error {
 	deviceID := session.DeviceID
 	if ctx.Err() != nil {
-		// 中断 (リセットや停止)。理由を語る相手がいない
+		// 呼び出し元が取り消された。理由を語る相手はいないが、**セッションが
+		// 残っていれば片付ける** — 放置すると Core は Pending (青点滅) のまま
+		// 止まり、バインドも残って次の開始申告が「使用中」で弾かれる。
+		// リセット済みならバインドは既に外れているので何もしない。
+		if c.sessionFor(deviceID) == session {
+			log.Printf("[game] start cancelled (caller cancelled while preparing): device=%s: %v", deviceID, cause)
+			c.binder.Release(deviceID)
+			if err := c.devices.SendSessionAbort(deviceID); err != nil {
+				log.Printf("[game] send session_abort failed: device=%s: %v", deviceID, err)
+			}
+			c.logEvent(session, EventAborted,
+				"開始処理が取り消されたため開始を取りやめた", 0, session.RemainingMS)
+		}
 		return nil
 	}
 	log.Printf("[game] start cancelled (first speech failed): device=%s: %v", deviceID, cause)

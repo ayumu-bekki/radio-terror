@@ -2733,11 +2733,15 @@ commit id は `go build` が `.git` から自動で埋め込むため、
 - `Speak` を実装した speaker は従来どおり動く。`SpeechPreparer` を持たない speaker
   (テスト用など)は開始後に `Speak` する従来の経路
 - 用意中にリセットされた(バインドが外れた)セッションは開始しない
+- **呼び出し元の context が取り消されても、セッションが残っていれば片付ける**
+  (`session_abort` + バインド解除。理由の返答はしない)。放置すると Core は
+  Pending (青点滅) のまま止まり、次の開始申告も「使用中」で弾かれる
 
 **壊しやすい点**: 第一声の用意を `session_ready` の発話より前に始めない
 (名乗り直しの文脈が欠ける)。`Play` を `session_start` の送信より前に呼ばない。
 
 > 回帰: `go test -run "TestFirstSpeech|TestStartCancelled|TestAnnounceReady"`
+> (呼び出し元の取り消しは `TestStartCancelledByCallerReleasesDevice`)
 > 実機で詰める値: `firstSpeechAfterBuzzer`、生成が猶予内に収まる頻度・10秒の上限の妥当性(ログ `first speech prepared in`)
 > 出典: 実装 2026-10-09 (operation_flow.md 決定25・game_session_design.md 決定69)
 
@@ -3202,6 +3206,12 @@ VS Code での色付けは `.vscode/settings.json` の `files.associations` で�
 **無線 (bridge) の指定は必須**にする。無線を省いて開始できるようにすると、
 ナビゲーターの発話が流れないまま進むため**本番と同じ挙動を確認したことにならない**。
 未接続の無線も弾く (選択肢は接続中のものだけだが、選んだ後に切れることがある)。
+
+**開始には `r.Context()` を渡さず、`context.WithoutCancel` で切り離す** (コンソールモードも同じ)。
+開始は第一声の用意と猶予で十数秒かかり、その間にブラウザ側で接続が切れると
+リクエストの context が取り消される。そのまま渡すと第一声の用意が `context canceled` で
+打ち切られ、Core が青点滅 (Pending) のまま止まった (2026-10-22。P-12 の後片付けも追加)。
+混線・無応答監視は元から `WithoutCancel` で切り離してあり、第一声の用意だけが漏れていた。
 
 運営当日は使わない。**既存ページからのリンクは張らない** — URL を直接叩いて使う。
 

@@ -234,7 +234,8 @@ func (w *ManagerWeb) startConsoleSession(rw http.ResponseWriter, r *http.Request
 	})
 
 	sender := NewAudioSender(w.bridges, bridgeID)
-	err := w.game.StartSessionWith(r.Context(), sender, deviceID, difficulty, StartOptions{
+	// リクエストの取り消しを開始へ持ち込まない (handleDebugStart と同じ理由)
+	err := w.game.StartSessionWith(context.WithoutCancel(r.Context()), sender, deviceID, difficulty, StartOptions{
 		StageIDs:    stageIDs,
 		CharacterID: r.FormValue("character_id"),
 		ConsoleMode: true,

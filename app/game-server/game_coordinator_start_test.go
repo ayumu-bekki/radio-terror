@@ -149,6 +149,32 @@ func TestStartCancelledWhenFirstSpeechFails(t *testing.T) {
 	}
 }
 
+// 第一声の用意中に呼び出し元の context が取り消されても、**Core を Pending のまま
+// 放置しない**こと。デバッグ開始で r.Context() が切れ、青点滅のまま止まった (2026-10-22)。
+func TestStartCancelledByCallerReleasesDevice(t *testing.T) {
+	speaker := &preparingSpeaker{prepareDur: 500 * time.Millisecond}
+	game, conn, sender := newStartTestFixture(t, speaker)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := game.StartSession(ctx, sender, "0001", difficultyEasy); err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	types := sentTypes(conn)
+	for _, ty := range types {
+		if ty == "session_start" {
+			t.Fatalf("取り消されたのに session_start を送った: %v", types)
+		}
+	}
+	if types[len(types)-1] != msgSessionAbort {
+		t.Errorf("session_abort で戻していない (Pending のまま残る): %v", types)
+	}
+	if game.sessionFor("0001") != nil {
+		t.Error("取り消されたのにセッションが残っている (次の開始申告が弾かれる)")
+	}
+}
+
 // 猶予のあと firstSpeechMaxWait を超えても用意できなければ、開始を取りやめること。
 func TestStartCancelledWhenFirstSpeechTooSlow(t *testing.T) {
 	old := firstSpeechMaxWait
