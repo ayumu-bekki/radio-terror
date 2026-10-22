@@ -408,8 +408,13 @@ var simScripts = map[string]simScript{
 			// 0-5 のどこから始まっても成立しなければならない。
 			{Trigger: "player_message",
 				Player: "${sim_panel_lit}が点いています。どうぞ"},
+			// **「位置」が「1」に化けた書き起こし**で報告する (実運用 2026-10-22。決定170)。
+			// 危険位置と「止めずに一気に」が抜け、資料の確認へ戻された
 			{Trigger: "player_message",
-				Player: "資料を見ました。${sim_panel_start}番ですね。危険位置は${sim_panel_forbidden}、解除位置は${sim_panel_release}です。どうぞ"},
+				Player: "えっと資料確認したら危険1が${sim_panel_forbidden}、解除1が${sim_panel_release}になってましたどうぞ"},
+			// 通っても大丈夫かへの返しでも「一気に回す」まで言うか (決定170)
+			{Trigger: "player_message",
+				Player: "${sim_panel_release}にしようとすると${sim_panel_forbidden}を通過しちゃうんですけど、これ大丈夫？どうぞ"},
 			{Trigger: "player_message",
 				Player: "${sim_panel_release}まで回しました。今度は${sim_panel_cut}が点滅しています。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も

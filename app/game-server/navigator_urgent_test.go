@@ -34,10 +34,10 @@ func TestUrgentNoticeBlockPresentOnlyWhenAnnounced(t *testing.T) {
 		t.Fatal("告知ブロックが入っていない")
 	}
 
-	// 実際の残り秒数を渡す。プレイヤーは装置の前でしか時間を読めないため、
-	// 「あとどれくらいか」を言えないと告知の意味が無い。
-	if !strings.Contains(got, "45 秒") {
-		t.Errorf("残り秒数が入っていない:\n%s", got)
+	// **秒数を渡さない** (決定171)。渡すと「残り40秒」と言い、告知が流れるまでの
+	// 遅れのぶん装置の表示とずれた。「わずか」とだけ伝えさせる
+	if strings.Contains(got, "45") {
+		t.Errorf("残り秒数が入っている (言うと装置の表示とずれる):\n%s", got)
 	}
 
 	// **字数の目安から外すことを明示する**。含めると、この一言を足したぶん
@@ -49,7 +49,7 @@ func TestUrgentNoticeBlockPresentOnlyWhenAnnounced(t *testing.T) {
 	// **例文を置かない** (ADR N-21c)。全キャラ共通に渡るブロックなので、
 	// 台詞を書くとその口調に全員が寄る (方言のキャラが標準語に戻る)。
 	//
-	// 検査するのは**発話の形をした引用**だけ。「キャラシートの『残り60秒』の
+	// 検査するのは**発話の形をした引用**だけ。「キャラシートの『残りわずか』の
 	// 例に従え」のような**委ね先の指示**は引用ではないので許す。
 	block := got[strings.Index(got, "# 残り時間の告知"):]
 	if i := strings.Index(block, "\n#"); i > 0 {

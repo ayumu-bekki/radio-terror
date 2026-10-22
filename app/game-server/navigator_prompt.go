@@ -110,7 +110,7 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 	// **字数の目安に数えない**と明記する。数えに含めると、この一言を
 	// 入れたぶん手順や警告が削られる (N-22 と同じ構図)。
 	if in.AnnounceUrgent {
-		b.WriteString(urgentNoticeBlock(in.RemainingMS))
+		b.WriteString(urgentNoticeBlock())
 		b.WriteString("\n")
 	}
 
@@ -128,7 +128,13 @@ func BuildNavigatorPrompt(in NavigatorPromptInput) string {
 				in.StageIndex+1, total))
 		}
 	}
-	b.WriteString(fmt.Sprintf("- 残り時間: 約%d秒\n", in.RemainingMS/1000))
+	// **緊迫時は秒数を渡さない。** 渡すと「残り40秒」と言い、流れるまでの遅れのぶん
+	// 装置の表示とずれた (決定171)。数秒のずれが目立つのは残りが少ないときだけ
+	if style == commStyleUrgent {
+		b.WriteString("- 残り時間: わずか\n")
+	} else {
+		b.WriteString(fmt.Sprintf("- 残り時間: 約%d秒\n", in.RemainingMS/1000))
+	}
 
 	if stage != nil {
 		b.WriteString("\n## 今の課題\n")
@@ -523,23 +529,24 @@ func (in NavigatorPromptInput) currentStage() *BuiltStage {
 //
 // **例文は置かない** (ADR N-21c)。ここは全キャラ共通に渡るブロックなので、
 // 台詞を書くとその口調に全員が寄る (方言のキャラが標準語に戻る)。
-// 言い方はキャラシートの「残り60秒」の例に委ねる。
+// 言い方はキャラシートの「残りわずか」の例に委ねる。
 //
 // **字数の目安から外す**と明記する。含めると、この一言を足したぶん
 // 手順や危険の警告が削られる (ADR N-22)。
-func urgentNoticeBlock(remainingMS int) string {
+func urgentNoticeBlock() string {
 	var b strings.Builder
 	b.WriteString("# 残り時間の告知 (この発話で1回だけ)\n")
-	b.WriteString(fmt.Sprintf(
-		"残り時間は約 %d 秒です。**プレイヤーはまだこれを知りません** — "+
-			"時間の表示は装置の前でしか読めず、手元を見ていない間は気づけません。\n",
-		remainingMS/1000))
-	b.WriteString("**この発話に、残り時間が少ないことを伝える一言を添えてください。**\n")
+	// **秒数は渡さない。** 渡すと「残り40秒」と数字で言い、装置の表示とずれた
+	// (告知は Core の報告と生成・TTS の遅れのぶん遅れて流れる。2026-10-22。決定171)
+	b.WriteString("残り時間がわずかになりました。**プレイヤーはまだこれを知りません** — " +
+		"時間の表示は装置の前でしか読めず、手元を見ていない間は気づけません。\n")
+	b.WriteString("**この発話に、残り時間がわずかなことを伝える一言を添えてください。**" +
+		"**何秒かは言いません** (流れるまでに遅れるので、装置の表示とずれます)。\n")
 	b.WriteString("- **添えるだけです。** 本来の受け答えと次にやることは、そのまま伝えてください。\n")
 	b.WriteString("- **この一言は発話の長さの目安に数えません。** " +
 		"添えるために手順・数字・危険の警告を削らないでください。\n")
 	b.WriteString("- **急かすだけにしないでください。** 手を止めさせると逆に遅くなります。\n")
-	b.WriteString("- **言い方はキャラシートの「残り60秒」の例に従ってください** — " +
+	b.WriteString("- **言い方はキャラシートの「残りわずか」の例に従ってください** — " +
 		"ここに例文は置きません。\n")
 	return b.String()
 }
