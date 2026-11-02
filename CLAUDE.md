@@ -128,6 +128,7 @@ idf.py menuconfig               # Wi-Fi・接続先・CoreID(数字4桁)・バ�
 | `core_system.h/.cc` | 組み立てと配線のみ。状態を持たない |
 | `startup_banner.h` | 起動ログ(commit id・CoreID・設定の有効無効) |
 | `boot_animation.h` | 起動演出・起動インジケータ |
+| `idle_demo_task.h` | 待機中(Ready)の kLED・7セグのデモ表示。専用タスク |
 | `mcp_input_scanner.h` | MCP23017 のピン変化 → GameEvent |
 | `game_task.h/.cc` | 状態機械とゲームルール(中核) |
 | `event_sender.h` | サーバーへの送信。cJSON の組み立て |

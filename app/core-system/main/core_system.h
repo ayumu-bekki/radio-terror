@@ -15,6 +15,7 @@
 #include "game_task.h"
 #include "gpio_input_watch_task.h"
 #include "ht16k33.h"
+#include "idle_demo_task.h"
 #include "mcp23017.h"
 #include "mcp_input_scanner.h"
 #include "pl9823_task.h"
@@ -88,6 +89,7 @@ class System final
   HT16K33 ht16k33_;
   Pl9823Task pl9823_task_;
   BootAnimation boot_animation_;
+  IdleDemoTask idle_demo_task_;
   GameTask game_task_;
   McpInputScanner input_scanner_;
   WSClient ws_client_;

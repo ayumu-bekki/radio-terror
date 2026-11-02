@@ -20,7 +20,8 @@ namespace CoreSystem {
 System::System()
     : pl9823_task_(Esp32Pin::kFullColorLed, Esp32Pin::kFullColorLedNum),
       boot_animation_(&mcp23017_, &ht16k33_, &pl9823_task_),
-      game_task_(&mcp23017_, &ht16k33_, &pl9823_task_,
+      idle_demo_task_(&mcp23017_, &ht16k33_),
+      game_task_(&mcp23017_, &ht16k33_, &pl9823_task_, &idle_demo_task_,
                  CONFIG_CORE_SYSTEM_DEVICE_ID),
       input_scanner_(&mcp23017_,
                      [this](const GameEvent& event) { game_task_.PostEvent(event); }) {}
@@ -144,6 +145,8 @@ void System::StartTasks() {
   // 入力の初期状態を取得してからGameTaskを起動する
   input_scanner_.Scan();
 
+  // 待機デモは GameTask が Ready で有効にするまで何も書かない
+  idle_demo_task_.Start();
   game_task_.Start();
 
   // kLine A-E と MCP23017のINTAピンを監視する
