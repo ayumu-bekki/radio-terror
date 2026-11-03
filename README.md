@@ -1,11 +1,23 @@
-RADIO TERROR
+# リアル危険物解除ゲーム！ ～失敗すると風船がパン！～　
+PJ:RADIO TERROR
 
-トランシーバー(特小無線)で生成AIナビゲーターと交信しながら、
-風船入りの模擬爆弾(Core)を解体するハンズオン。
+特小無線(トランシーバー)を通じてAIナビゲーターと交信しながら、リアルな危険物を解除するゲーム・ハンズオンです。
+
+
+> 無線の声を信じて、危険物を解除せよ
+> 
+> カウントダウンが刻まれる危険物。手元にはニッパーとトランシーバー。
+> 無線の向こうにいるナビゲーターは現場を見ることができない。
+> 頼れるのはあなたの目と、声と、無線越しの言葉だけ。
+> 時折紛れ込む混線に惑わされず、正解のコードを見極めろ。
+> 
+> 息を呑むタイムリミットが、今始まる。
+
+---
 
 ## ドキュメント
 
-- [ゲームセッション設計 (Core)](docs/game_session_design.md)
+- [ゲームセッション設計](docs/game_session_design.md)
 - [radio-bridge 接続設計](docs/bridge_connection_design.md)
 - [体験運用フロー](docs/operation_flow.md)
 - [謎解きステージ集](docs/puzzle_stage_ideas.md)
@@ -18,13 +30,9 @@ RADIO TERROR
 
 ## 構成
 
-```
-[core-system (複数台)] ──WebSocket /ws──▶ [game-server] ◀── gRPC ── [radio-bridge (複数)]
-                                              │
-                                          [Valkey]  ナビゲーター(生成AI)・混線演出
-```
+![構成図](docs/architecture.svg)
 
-周辺機器(Core・radio-bridge)はいずれも **サーバーへダイヤルインする**。
+周辺機器(Core・radio-bridge)はいずれも **サーバーへ接続する**。
 サーバーは周辺機器のアドレスを一切管理しない。
 
 | コンポーネント | 言語 | 役割 |
@@ -32,7 +40,7 @@ RADIO TERROR
 | `app/core-system` | C++ (ESP-IDF) | Core本体。セッションJSONを受け取り単体でゲームを完遂する |
 | `app/game-server` | Go | セッション組み立て・ナビゲーター・混線・永続化・Management Console |
 
-**編集して再起動すれば反映される設定**(再ビルド不要):
+**編集して再起動すれば反映される設定**
 
 | 場所 | 内容 |
 |---|---|
@@ -52,7 +60,7 @@ docker compose up
 ```
 
 - マネージャー向け画面: <http://localhost:8080/manager>
-- Core (core-system) の接続先とCoreIDは `idf.py menuconfig` の
+- Coreの接続先とCoreIDは `idf.py menuconfig` の
   "Core System Configuration" で設定する(CoreIDは数字4桁)。
 
 radio-bridge はチーム(周波数)ごとに1プロセス動かす。プロセスごとに変わる設定は
