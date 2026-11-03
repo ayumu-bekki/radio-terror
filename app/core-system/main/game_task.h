@@ -19,7 +19,7 @@
 #include "event_sender.h"
 #include "game_session.h"
 #include "ht16k33.h"
-#include "idle_demo_task.h"
+#include "idle_demo.h"
 #include "led_controller.h"
 #include "mcp23017.h"
 #include "message_queue.h"
@@ -81,7 +81,7 @@ class GameTask final : public Task {
 
  public:
   GameTask(MCP23017* mcp23017, HT16K33* ht16k33, Pl9823Task* pl9823_task,
-           IdleDemoTask* idle_demo, const std::string& device_id);
+           const std::string& device_id);
   ~GameTask() override;
 
   void Initialize() override;
@@ -182,7 +182,7 @@ class GameTask final : public Task {
   MCP23017* mcp23017_;
   HT16K33* ht16k33_;
   Pl9823Task* pl9823_task_;
-  IdleDemoTask* idle_demo_;
+  IdleDemo idle_demo_;
   Buzzer buzzer_;
   LedController leds_;
   std::string device_id_;

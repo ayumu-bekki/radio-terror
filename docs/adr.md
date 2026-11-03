@@ -3117,14 +3117,16 @@ cut が点滅し、やはり回す前に答えが見える。
 Ready の間だけ、kLED の往復スキャンと7セグ外周のヘビを繰り返す。
 
 - **フルカラーLED(青点灯)とブザーは触らない。**
-- **専用タスク**(`IdleDemoTask`)で回す。100ms tick に乗せると流れがぎこちない。
+- **Ready → Pending のときだけ、kLED と7セグを約1000ms 全点灯する**(決定75)。非ブロッキングで、
+  消灯は tick が行う。Setup・Playing へ直接進むときは点けない。
+- **`GameTask` の100ms tick に乗せる**(`IdleDemo`)。専用タスクにしたが複雑だったので戻した
+  (決定74)。同一スレッドなので排他が要らない。
 - **Ready 以外の遷移(Setup / Pending / Playing / Detonating / Exploded / Defused)と
   `TurnOffAllOutputs` の先頭で止める。** Setup の kLED は復旧ガイド、Pending 以降はゲームの表示。
-  止めるときはデモ側が自分の表示を消す。
-- **`SetEnabled(false)` から戻ったあとデモは書かない**(ミューテックス)。
-  GameTask の直後のクリアを演出の1コマが上書きしない。
+  `Stop()` は流れているときだけ自分の表示を消す。
+- 描くのも止めるのも `GameTask` のスレッドなので、止めた後に1コマ書かれることはない。
 
-> 出典: 要望 2026-11-02 / 決定73 (`game_session_design.md` §4.1b)
+> 出典: 要望 2026-11-02 / 決定73・74・75 (`game_session_design.md` §4.1b)
 
 ### W-1. サーバー → デバイスのメッセージにも device_id を載せる
 

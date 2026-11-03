@@ -1,86 +1,88 @@
-#ifndef IDLE_DEMO_TASK_H_
-#define IDLE_DEMO_TASK_H_
+#ifndef IDLE_DEMO_H_
+#define IDLE_DEMO_H_
 // Core System
 // (C)2026 bekki.jp
 // 待機中 (Ready) のデモ表示 (docs/game_session_design.md §4.1b)
 
 // Include ----------------------
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
-
-#include <string>
-#include <string_view>
+#include <cstdint>
 
 #include "hardware_config.h"
 #include "ht16k33.h"
-#include "logger.h"
 #include "mcp23017.h"
-#include "task.h"
 
 namespace CoreSystem {
 
 /// 待機中 (Ready) に kLED と7セグを流して、通りがかりの人の目を引く。
 ///
-/// ゲーム状態には触れない。GameTask が状態遷移のたびに SetEnabled() を呼ぶだけで、
-/// 滑らかに動かしたいので 100ms tick には乗せず専用タスクで回す。
+/// ゲーム状態には触れない。GameTask が Ready の間だけ 100ms tick から Step() を呼び、
+/// Ready を出るときに Stop() を呼ぶ。GameTask と同じスレッドで動くので排他は要らない。
 /// フルカラーLEDとブザーは触らない (青点灯は StatusIndicator のまま)。
-///
-/// **表示の所有権はミューテックスで渡す。** 無効にした時点で自分の表示を消し、
-/// SetEnabled(false) から戻った後は一切書かない。GameTask が直後にクリアしても、
-/// 演出の1コマが後から上書きして残ることはない。
-class IdleDemoTask final : public Task {
+class IdleDemo final {
  public:
-  static constexpr std::string_view TASK_NAME = "IdleDemoTask";
-  static constexpr int32_t PRIORITY = Task::PRIORITY_LOW + 1;
-  static constexpr int32_t CORE_ID = APP_CPU_NUM;
+  IdleDemo(MCP23017* mcp23017, HT16K33* ht16k33)
+      : mcp23017_(mcp23017), ht16k33_(ht16k33) {}
 
-  IdleDemoTask(MCP23017* mcp23017, HT16K33* ht16k33)
-      : Task(std::string(TASK_NAME).c_str(), PRIORITY, CORE_ID),
-        mcp23017_(mcp23017),
-        ht16k33_(ht16k33),
-        mutex_(xSemaphoreCreateMutex()) {}
-
-  ~IdleDemoTask() override {
-    Stop();
-    if (mutex_ != nullptr) {
-      vSemaphoreDelete(mutex_);
-    }
+  /// 先頭のコマから流し始める。最初のコマは次の Step() で出る
+  void Start() {
+    step_ = 0;
+    flash_ticks_ = 0;
+    active_ = true;
   }
 
-  /// デモの有効/無効を切り替える。同じ値の再設定は何もしない。
-  ///
-  /// 有効にすると先頭のコマから流れる。無効にすると kLED と7セグを消灯する。
-  void SetEnabled(bool enabled) {
-    if (mutex_ == nullptr) {
+  /// 1コマ進める。**状態を問わず** tick ごとに呼ぶ (閃光は Ready を出たあとも続くため)
+  void Step() {
+    if (!active_) {
       return;
     }
-    xSemaphoreTake(mutex_, portMAX_DELAY);
-    if (enabled != enabled_) {
-      enabled_ = enabled;
-      step_ = 0;
-      if (!enabled) {
-        ClearOutputs();
+    if (0 < flash_ticks_) {
+      --flash_ticks_;
+      if (flash_ticks_ == 0) {
+        Stop();
       }
+      return;
     }
-    xSemaphoreGive(mutex_);
+    DrawFrame();
+    ++step_;
   }
 
-  void Update() override {
-    if (mutex_ != nullptr) {
-      xSemaphoreTake(mutex_, portMAX_DELAY);
-      if (enabled_) {
-        DrawFrame();
-        ++step_;
-      }
-      xSemaphoreGive(mutex_);
+  /// 待機を終える合図。kLED と7セグを**全点灯**し、kFlashTicks 後に消灯する。
+  /// 流れていないときは何もしない。消灯は Step() が行う (待たない)。
+  void Flash() {
+    if (!active_) {
+      return;
     }
-    vTaskDelay(pdMS_TO_TICKS(kStepMs));
+    for (const auto& pin : Mcp23017Pin::kLedPinsByColor) {
+      mcp23017_->SetOutputGpio(pin[0], pin[1], true, true);
+    }
+    for (uint8_t d = 0; d < HT16K33::DIGIT_NUM; ++d) {
+      ht16k33_->WriteDigitRaw(d, kSevenSegAllOn);
+    }
+    ht16k33_->WriteDisplay();
+    flash_ticks_ = kFlashTicks;
+  }
+
+  /// 流れていれば kLED と7セグを消灯して止める。流れていなければ何もしない
+  /// (他の状態の表示を消さないため)。LedController のキャッシュと食い違わないよう強制書き込み
+  void Stop() {
+    if (!active_) {
+      return;
+    }
+    active_ = false;
+    flash_ticks_ = 0;
+    for (const auto& pin : Mcp23017Pin::kLedPinsByColor) {
+      mcp23017_->SetOutputGpio(pin[0], pin[1], false, true);
+    }
+    ht16k33_->Clear();
+    ht16k33_->WriteDisplay();
   }
 
  private:
-  /// 1コマの長さ。kLED も7セグもこの間隔で1歩ずつ進める
-  static constexpr uint32_t kStepMs = 80;
+  /// 閃光の長さ (tick 数。100ms x 10 = 約1000ms)
+  static constexpr uint32_t kFlashTicks = 10;
+
+  /// 閃光で7セグへ出す文字 ("8." の全点灯。起動演出と同じ)
+  static constexpr uint8_t kSevenSegAllOn = 0xFF;
 
   /// kLED の往復 (A→E→A) の1周期。端は重ねず A B C D E D C B の8コマ
   static constexpr uint32_t kLedCycle = 2 * (kColorNum - 1);
@@ -117,7 +119,6 @@ class IdleDemoTask final : public Task {
     return kLedCycle - phase;
   }
 
-  /// ミューテックスを持った状態で呼ぶ
   void DrawFrame() {
     // kLED: 先頭と、ひとつ前の位置を点ける (尾を引く)
     const uint32_t head = LedPosition(step_);
@@ -140,23 +141,14 @@ class IdleDemoTask final : public Task {
     ht16k33_->WriteDisplay();
   }
 
-  /// ミューテックスを持った状態で呼ぶ。LedController のキャッシュと食い違わないよう強制書き込み
-  void ClearOutputs() {
-    for (const auto& pin : Mcp23017Pin::kLedPinsByColor) {
-      mcp23017_->SetOutputGpio(pin[0], pin[1], false, true);
-    }
-    ht16k33_->Clear();
-    ht16k33_->WriteDisplay();
-  }
-
   MCP23017* mcp23017_;
   HT16K33* ht16k33_;
-  SemaphoreHandle_t mutex_;
-  bool enabled_ = false;
+  bool active_ = false;
   uint32_t step_ = 0;
+  uint32_t flash_ticks_ = 0;  // 0 でなければ閃光中
 };
 
 }  // namespace CoreSystem
 
-#endif  // IDLE_DEMO_TASK_H_
+#endif  // IDLE_DEMO_H_
 // EOF

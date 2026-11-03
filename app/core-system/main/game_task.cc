@@ -20,12 +20,12 @@
 namespace CoreSystem {
 
 GameTask::GameTask(MCP23017* mcp23017, HT16K33* ht16k33, Pl9823Task* pl9823_task,
-                   IdleDemoTask* idle_demo, const std::string& device_id)
+                   const std::string& device_id)
     : Task(std::string(TASK_NAME).c_str(), PRIORITY, CORE_ID),
       mcp23017_(mcp23017),
       ht16k33_(ht16k33),
       pl9823_task_(pl9823_task),
-      idle_demo_(idle_demo),
+      idle_demo_(mcp23017, ht16k33),
       buzzer_(Esp32Pin::kBuzzer),
       leds_(mcp23017),
       device_id_(device_id),
@@ -87,7 +87,7 @@ bool GameTask::PostEvent(const GameEvent& event) { return message_queue_.Send(ev
 // --- 状態遷移 -------------------------------------------------------------
 
 void GameTask::EnterSetup() {
-  idle_demo_->SetEnabled(false);
+  idle_demo_.Stop();
   state_ = STATE_SETUP;
   session_ = SessionConfig();
   stage_index_ = 0;
@@ -117,18 +117,21 @@ void GameTask::EnterReady() {
   UpdateFullColorLed();
   ApplyLedOutputs();
 
-  // 待機中は kLED と7セグを流して目を引く (§4.1b)。上の全消灯のあとに有効にする
-  idle_demo_->SetEnabled(true);
+  // 待機中は kLED と7セグを流して目を引く (§4.1b)。上の全消灯のあとに始める
+  idle_demo_.Start();
 
   ESP_LOGI(TAG, "state -> Ready");
   SendDeviceStatus();
 }
 
 void GameTask::EnterPending() {
-  idle_demo_->SetEnabled(false);
   state_ = STATE_PENDING;
 
-  // 表示以外は Ready のまま。**カウントダウンはまだ始まっていない**ので
+  // 開始申告が通った合図に、kLED と7セグを約1秒 全点灯する (§4.1b)。
+  // 消灯は tick が行う。デモが流れていた (Ready から来た) ときだけ点く。
+  idle_demo_.Flash();
+
+  // 閃光のあとは Ready のまま。**カウントダウンはまだ始まっていない**ので
   // 7セグには何も出さず、kLED も触らない (session_start で初めて動く)。
   UpdateFullColorLed();
   ApplyLedOutputs();
@@ -138,7 +141,7 @@ void GameTask::EnterPending() {
 }
 
 void GameTask::EnterPlaying() {
-  idle_demo_->SetEnabled(false);
+  idle_demo_.Stop();
   state_ = STATE_PLAYING;
   stage_index_ = 0;
   remaining_ms_ = session_.countdown_ms;
@@ -163,7 +166,7 @@ void GameTask::EnterDetonating(const char* reason, const char* detail, ColorId l
     return;
   }
 
-  idle_demo_->SetEnabled(false);
+  idle_demo_.Stop();
   state_ = STATE_DETONATING;
   detonate_remaining_ms_ = session_.detonate_delay_ms;
   solenoid_fired_ = false;
@@ -184,7 +187,7 @@ void GameTask::EnterDetonating(const char* reason, const char* detail, ColorId l
 }
 
 void GameTask::EnterExploded() {
-  idle_demo_->SetEnabled(false);
+  idle_demo_.Stop();
   state_ = STATE_EXPLODED;
   buzzer_.Off();
   UpdateFullColorLed();
@@ -193,7 +196,7 @@ void GameTask::EnterExploded() {
 }
 
 void GameTask::EnterDefused() {
-  idle_demo_->SetEnabled(false);
+  idle_demo_.Stop();
   state_ = STATE_DEFUSED;
 
   // 以降は全消灯になるため、パターン再生も止める (§4.1)
@@ -480,6 +483,9 @@ void GameTask::HandleForceDetonate() {
 
 void GameTask::Tick() {
   buzzer_.Tick();
+
+  // 待機デモ (§4.1b)。閃光は Ready を出た Pending でも続くので状態を問わず進める
+  idle_demo_.Step();
 
   // Ready / Pending / Exploded / Defused は tick で進む処理を持たない
   if (state_ == STATE_SETUP) {
@@ -972,7 +978,7 @@ void GameTask::FireSolenoid() {
 /// 過放電保護の意味が薄れる。
 void GameTask::TurnOffAllOutputs() {
   buzzer_.Off();
-  idle_demo_->SetEnabled(false);
+  idle_demo_.Stop();
 
   // kLED: パターン再生を止めてから全消灯する
   leds_.Reset();
