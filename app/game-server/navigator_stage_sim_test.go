@@ -994,7 +994,7 @@ var colorPolicyPattern = regexp.MustCompile(
 	`色[^。、!?]{0,8}(言わん|言わない|言いません|言えん|言えない|言えません|教えられ|教えへん|教えない|伏せ)`)
 
 // sheetNamePattern は紙資料の開発側の呼び名 (決定162)。紙に印刷されているのは
-// 「資料N」の番号と、301 の3つの表の見出し (変換表・デコード表・分岐表) だけ。
+// 「資料N」の番号と、301 の3つの表の見出し (ランプ変換表・ダイヤルデコード表・基準カラー表) だけ。
 var sheetNamePattern = regexp.MustCompile(`回路図|対照表|シート`)
 
 // prematureCompletionWords は「装置を解除しきった」ことを意味する語。

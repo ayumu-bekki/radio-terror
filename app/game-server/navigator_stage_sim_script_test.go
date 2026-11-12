@@ -192,7 +192,7 @@ var simScripts = map[string]simScript{
 		},
 	},
 
-	// 301 LED照合: 資料2 (変換表 → デコード表) → 資料3 とたどらせる。
+	// 301 LED照合: 資料2 (ランプ変換表 → ダイヤルデコード表・基準カラー表) とたどらせる。
 	// **各段でプレイヤーに引かせられるか**を見る。キーワードもダイヤル位置も
 	// ナビが先に言ってしまうと、資料をたどる工程が丸ごと消える。
 	"301": {
@@ -210,9 +210,10 @@ var simScripts = map[string]simScript{
 			// **誤答を肯定した直後に別の数字を指示する**形になり、
 			// ログを読んで不具合と誤解する (実測 2026-08-25)。
 			{Trigger: "player_message",
-				Player: "表を引きました。ダイヤルは${sim_rotary}、基準色は白です。どうぞ"},
+				Player: "ダイヤルは${sim_rotary}に合わせました。どうぞ"},
+			// 聞き直し。末尾の文字を具体的に案内できるか
 			{Trigger: "player_message",
-				Player: "基準色が白のときはどう見ればいいですか。どうぞ"},
+				Player: "基準カラーの表はどこを見ればいいですか。どうぞ"},
 			// 台本の最後。課題を解いたあとの遷移で、次の課題も
 			// 「ランプはどうなっている?」から入るかを見る (決定32)。
 			{Trigger: "silence_after_stage"},
@@ -715,7 +716,7 @@ func TestSheetNamePattern(t *testing.T) {
 			t.Errorf("拾えていない: %q", s)
 		}
 	}
-	for _, s := range []string{"手元の資料3を見ろ", "同じ資料2のデコード表を見てくれ", "資料1の表の同じ行の色の線を切れ"} {
+	for _, s := range []string{"手元の資料3を見ろ", "同じ資料2のダイヤルデコード表を見てくれ", "資料1の表の同じ行の色の線を切れ"} {
 		if sheetNamePattern.MatchString(s) {
 			t.Errorf("誤検出: %q", s)
 		}

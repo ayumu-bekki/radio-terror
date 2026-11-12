@@ -19,15 +19,19 @@ import (
 // kLED A(赤) は**常時消灯のダミー**で、パターンには含めない。
 type codebookEntry struct {
 	pattern int
-	// word は資料2 の変換表が返すキーワード
+	// word は資料2 のランプ変換表が返すキーワード
 	word string
-	// rotary は word の頭文字をデコード表で引いたダイヤル位置 (0-5)
+	// rotary は word の先頭の文字をダイヤルデコード表で引いたダイヤル位置 (0-5)
 	rotary int
-	// cut はデコード表の基準色と資料3 の分岐まで解いた最終的な切断色
+	// cut は word の末尾の文字を基準カラー表で引いた色 (そのまま切る線)
 	cut string
 }
 
-// codebookTable は資料2・資料3 を解いた結果の一覧。
+// codebookTable は資料2 を解いた結果の一覧。
+//
+// 切る線 (cut) は**キーワードの末尾文字を基準カラー表で引いた色そのもの**。
+// 以前は基準色にランプの状態で変わる分岐表があったが、紙資料に無く、
+// 白の基準色が青になって食い違った (2026-11-13 に廃止)。
 //
 // **全消灯 (0b0000) は載せない**。ランプが1つも点かない状態は故障と
 // 見分けがつかず、プレイヤーが「装置が壊れた」と報告して止まる。
@@ -36,21 +40,21 @@ type codebookEntry struct {
 // そこから表示を逆引きするため (ADR S-1)、対応が1通りしか無い色があると
 // 表示が毎回同じになって暗記されうる。
 var codebookTable = []codebookEntry{
-	{pattern: 0b0001, word: "ZONE", rotary: 5, cut: "D"},   // Z→5 / E→白 / 白は緑消灯→青
-	{pattern: 0b0010, word: "BOMB", rotary: 0, cut: "A"},   // B→0 / B→青 / 青は白消灯→赤
-	{pattern: 0b0011, word: "LEAD", rotary: 2, cut: "C"},   // L→2 / D→緑 / 緑は白点灯→緑
-	{pattern: 0b0100, word: "PROBE", rotary: 3, cut: "E"},  // P→3 / E→白 / 白は緑点灯→白
-	{pattern: 0b0101, word: "BOARD", rotary: 0, cut: "C"},  // B→0 / D→緑 / 緑は白点灯→緑
-	{pattern: 0b0110, word: "XENON", rotary: 5, cut: "A"},  // X→5 / N→緑 / 緑は白消灯→赤
-	{pattern: 0b0111, word: "WAVE", rotary: 5, cut: "E"},   // W→5 / E→白 / 白は緑点灯→白
-	{pattern: 0b1000, word: "ZERO", rotary: 5, cut: "D"},   // Z→5 / O→白 / 白は緑消灯→青
-	{pattern: 0b1001, word: "MODULE", rotary: 2, cut: "D"}, // M→2 / E→白 / 白は緑消灯→青
-	{pattern: 0b1010, word: "QUIET", rotary: 3, cut: "D"},  // Q→3 / T→白 / 白は緑消灯→青
-	{pattern: 0b1011, word: "INDEX", rotary: 1, cut: "C"},  // I→1 / X→緑 / 緑は白点灯→緑
-	{pattern: 0b1100, word: "HANDLE", rotary: 1, cut: "E"}, // H→1 / E→白 / 白は緑点灯→白
-	{pattern: 0b1101, word: "LEVER", rotary: 2, cut: "B"},  // L→2 / R→黄 / 黄は緑点灯→黄
-	{pattern: 0b1110, word: "SENSOR", rotary: 4, cut: "B"}, // S→4 / R→黄 / 黄は緑点灯→黄
-	{pattern: 0b1111, word: "INPUT", rotary: 1, cut: "E"},  // I→1 / T→白 / 白は緑点灯→白
+	{pattern: 0b0001, word: "ZONE", rotary: 5, cut: "E"},   // Z→5 / E→白
+	{pattern: 0b0010, word: "BOMB", rotary: 0, cut: "D"},   // B→0 / B→青
+	{pattern: 0b0011, word: "LEAD", rotary: 2, cut: "C"},   // L→2 / D→緑
+	{pattern: 0b0100, word: "PANEL", rotary: 3, cut: "D"},  // P→3 / L→青
+	{pattern: 0b0101, word: "BOARD", rotary: 0, cut: "C"},  // B→0 / D→緑
+	{pattern: 0b0110, word: "XENON", rotary: 5, cut: "C"},  // X→5 / N→緑
+	{pattern: 0b0111, word: "OMEGA", rotary: 3, cut: "A"},  // O→3 / A→赤
+	{pattern: 0b1000, word: "GRIP", rotary: 1, cut: "A"},   // G→1 / P→赤
+	{pattern: 0b1001, word: "MODULE", rotary: 2, cut: "E"}, // M→2 / E→白
+	{pattern: 0b1010, word: "WIRING", rotary: 5, cut: "D"}, // W→5 / G→青
+	{pattern: 0b1011, word: "SPARK", rotary: 4, cut: "A"},  // S→4 / K→赤
+	{pattern: 0b1100, word: "HANDLE", rotary: 1, cut: "E"}, // H→1 / E→白
+	{pattern: 0b1101, word: "LEVER", rotary: 2, cut: "B"},  // L→2 / R→黄
+	{pattern: 0b1110, word: "SENSOR", rotary: 4, cut: "B"}, // S→4 / R→黄
+	{pattern: 0b1111, word: "TIMER", rotary: 4, cut: "B"},  // T→4 / R→黄
 }
 
 // codebookBitColors は pattern の各bitに対応する kLED の色記号。

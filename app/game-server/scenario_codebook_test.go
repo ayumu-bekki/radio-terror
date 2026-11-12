@@ -29,11 +29,11 @@ var letterRanges = []struct {
 	{'V', 'Z', 5},
 }
 
-// letterColors は資料2 デコード表の「末尾文字 → 基準色」対応 (docs/printed_materials.md §3.3)。
+// letterColors は資料2 基準カラー表の「末尾文字 → 色」対応 (docs/printed_materials.md §3.3)。
 // A から5色を循環で割り当てる (資料1 のモールス対照表と同じ割り当て方)。
 var letterColors = []string{"A", "D", "B", "C", "E"} // 赤・青・黄・緑・白
 
-// rotaryForLetter は資料2 デコード表の区間から頭文字のダイヤル位置を引く。
+// rotaryForLetter は資料2 ダイヤルデコード表の区間から頭文字のダイヤル位置を引く。
 func rotaryForLetter(letter rune) int {
 	for _, r := range letterRanges {
 		if letter >= r.from && letter <= r.to {
@@ -43,7 +43,7 @@ func rotaryForLetter(letter rune) int {
 	return -1
 }
 
-// baseColorForLetter は資料2 デコード表の循環割当から末尾文字の基準色を引く。
+// baseColorForLetter は資料2 基準カラー表の循環割当から末尾文字の基準色を引く。
 func baseColorForLetter(letter rune) string {
 	return letterColors[int(letter-'A')%len(letterColors)]
 }
@@ -54,43 +54,26 @@ func baseColorForLetter(letter rune) string {
 // 対照表 (scenario_codebook.go) は解いた結果だけを持つため、
 // 途中の変換規則を書き換えても Go 側は静かに通ってしまう。
 // **プレイヤーは紙どおりに解く**ので、ここがずれると理不尽に失敗する。
-// 資料2 のデコード表・資料3 の手順をテスト側で再現し、突き合わせる。
+// 資料2 のダイヤルデコード表・基準カラー表の手順をテスト側で再現し、突き合わせる。
 func TestCodebookMatchesPrintedRules(t *testing.T) {
 	for _, entry := range codebookTable {
 		word := entry.word
 
-		// 資料2 デコード表 前半: 頭文字 → ダイヤル位置
+		// 資料2 ダイヤルデコード表: 先頭の文字 → ダイヤル位置
 		wantRotary := rotaryForLetter(rune(word[0]))
 		if wantRotary != entry.rotary {
-			t.Errorf("%s: 頭文字 %c のダイヤルは資料3 では %d だが表は %d",
+			t.Errorf("%s: 先頭の文字 %c のダイヤルは資料2 では %d だが表は %d",
 				word, word[0], wantRotary, entry.rotary)
 		}
 
-		// 資料2 デコード表 後半: 末尾文字 → 基準色
+		// 資料2 基準カラー表: 末尾の文字 → 色
 		last := rune(word[len(word)-1])
 		baseColor := baseColorForLetter(last)
 
-		// 資料3: 基準色とランプの状態で最終的な切る線が決まる。
-		//   基準色が 白(E) / 黄(B) → **緑のランプ**を見る。消えていれば青(D)
-		//   それ以外               → **白のランプ**を見る。消えていれば赤(A)
-		lit := map[string]bool{}
-		for _, color := range strings.Split(entry.litColors(), ",") {
-			lit[color] = true
-		}
-		var wantCut string
-		if baseColor == "E" || baseColor == "B" {
-			wantCut = baseColor
-			if !lit["C"] { // 緑が消灯
-				wantCut = "D" // 青
-			}
-		} else {
-			wantCut = baseColor
-			if !lit["E"] { // 白が消灯
-				wantCut = "A" // 赤
-			}
-		}
+		// 基準カラー表の色がそのまま切る線 (分岐表は廃止。2026-11-13)
+		wantCut := baseColor
 		if wantCut != entry.cut {
-			t.Errorf("%s (%s): 紙どおりに解くと %s だが表は %s (基準色 %s)",
+			t.Errorf("%s (%s): 紙どおりに解くと %s だが表は %s (基準カラー %s)",
 				word, entry.patternText(), wantCut, entry.cut, baseColor)
 		}
 	}
