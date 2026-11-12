@@ -117,7 +117,7 @@ type healthView struct {
 	// 「置いたつもりで置けていない」を画面から気付けるようにする
 	Jamming int
 	Ambient int
-	Uneasy  int
+	Event   int
 }
 
 // entryView は交信ログ1行。
@@ -512,6 +512,6 @@ func buildHealthView(h APIHealthSnapshot, assets map[string]int) healthView {
 		HasError:    h.ErrorCount > 0,
 		Jamming:     assets[crosstalkJamming],
 		Ambient:     assets[crosstalkAmbient],
-		Uneasy:      assets[crosstalkUneasy],
+		Event:       assets[crosstalkEvent],
 	}
 }

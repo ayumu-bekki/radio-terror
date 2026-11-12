@@ -15,7 +15,6 @@ random = { normal = 2, hard = 2 }
 [crosstalk]
 jamming = 1
 ambient = 1
-uneasy = 1
 
 # 難易度で変える入力量 (docs/scenario_design.md §4.2)。
 # **ステージ定義に数値を直書きしない** — 直書きすると難易度を跨いで

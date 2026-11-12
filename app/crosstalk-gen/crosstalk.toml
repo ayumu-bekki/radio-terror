@@ -9,7 +9,7 @@
 #
 # 設定を変えて試したいときはこのファイルだけを編集する。
 # 個別に生成し直す場合は -only で名前を絞る:
-#   go run . -only aserase_A,kuromaku
+#   go run . -only aserase_A,uneasy_bessgenba
 
 [defaults]
 # 接続先 (Gemini Enterprise Agent Platform)。
@@ -217,21 +217,10 @@ text    = "[low, subdued] 巡回中、B棟3階の窓、施錠確認できず。[
 voice   = "Gacrux"
 
 # ---------------------------------------------------------------------------
-# 3. 不穏系 (uneasy) — 2ファイル
-#    世界観を深める。色や操作の指示は一切しない。
+# 3. 別現場の通信 (uneasy) — 1ファイル
+#    ランダム再生はしない。他チームの失敗 (exploded) を契機にだけ流す。
+#    色や操作の指示は一切しない。
 # ---------------------------------------------------------------------------
-
-[[uneasy]]
-name    = "kuromaku"
-role    = "黒幕らしき独り言"
-context = """
-誰にも聞かせるつもりのない独り言。無線のPTTを誤って押している。
-自分に言い聞かせるような小声。途中で不安が漏れる。
-"""
-text = "[muttering] ……気づかれてる? [pause] [nervously] いや、まだだ。[reassuring himself] まだ大丈夫……"
-# ヒバリ黒幕説と響き合わせるが、ナビゲーターとは別の声にして
-# 音で直接確定させない (navigator_design.md §2.2)。
-voice = "Umbriel"
 
 [[uneasy]]
 # このファイル名は固定。crosstalk.go の crosstalkEventFile が名前で参照し、

@@ -16,7 +16,9 @@ import (
 const (
 	crosstalkJamming = "jamming" // 邪魔者系: ゲームに絡む罠。色を指定する
 	crosstalkAmbient = "ambient" // 環境ボイス系: 無害な生活ノイズ
-	crosstalkUneasy  = "uneasy"  // 不穏系: 世界観を深める。色・操作の指示はしない
+	// crosstalkEvent は「別現場の通信」の置き場。ランダム再生はせず、
+	// 他チームの失敗を契機にイベント駆動でのみ流す (kuromaku は廃止)。
+	crosstalkEvent = "uneasy"
 )
 
 // 無線が塞がっているときの待ち方。
@@ -31,7 +33,7 @@ const (
 )
 
 // crosstalkEventFile は「別現場の通信」のアセット名。
-// ランダム再生に加え、他チームのCoreの exploded を契機にイベント駆動でも流す。
+// ランダム再生はせず、他チームのCoreの exploded を契機にイベント駆動でのみ流す。
 const crosstalkEventFile = "uneasy_bessgenba"
 
 // CrosstalkLibrary は事前生成済みの混線音声アセットを管理する。
@@ -48,17 +50,17 @@ const crosstalkEventFile = "uneasy_bessgenba"
 //	│   └── sasayaki_A.ogg ...
 //	├── ambient/   … 環境ボイス系。{name}.ogg
 //	│   ├── chushajo.ogg, keisatsu.ogg, hall_staff.ogg, ...
-//	└── uneasy/    … 不穏系。{name}.ogg
-//	    ├── kuromaku.ogg
+//	└── uneasy/    … 別現場の通信 (イベント駆動専用)
 //	    └── uneasy_bessgenba.ogg
 type CrosstalkLibrary struct {
 	root string
 
 	// jamming は 名前 → 色 → ファイルパス
 	jamming map[string]map[string]string
-	// ambient / uneasy は 名前 → ファイルパス
+	// ambient は 名前 → ファイルパス
 	ambient map[string]string
-	uneasy  map[string]string
+	// event はイベント駆動専用の音声 (名前 → ファイルパス)。ランダム再生には使わない
+	event map[string]string
 }
 
 // LoadCrosstalkLibrary は混線音声アセットの一覧を読み込む。
@@ -69,7 +71,7 @@ func LoadCrosstalkLibrary(root string) *CrosstalkLibrary {
 		root:    root,
 		jamming: make(map[string]map[string]string),
 		ambient: make(map[string]string),
-		uneasy:  make(map[string]string),
+		event:   make(map[string]string),
 	}
 
 	// 邪魔者系: {name}_{色}.ogg を name ごとにまとめる
@@ -93,13 +95,13 @@ func LoadCrosstalkLibrary(root string) *CrosstalkLibrary {
 		base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		lib.ambient[base] = path
 	}
-	for _, path := range listOggFiles(filepath.Join(root, crosstalkUneasy)) {
+	for _, path := range listOggFiles(filepath.Join(root, crosstalkEvent)) {
 		base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		lib.uneasy[base] = path
+		lib.event[base] = path
 	}
 
-	log.Printf("[crosstalk] loaded assets: jamming=%d ambient=%d uneasy=%d",
-		len(lib.jamming), len(lib.ambient), len(lib.uneasy))
+	log.Printf("[crosstalk] loaded assets: jamming=%d ambient=%d event=%d",
+		len(lib.jamming), len(lib.ambient), len(lib.event))
 	return lib
 }
 
@@ -114,7 +116,7 @@ func (l *CrosstalkLibrary) Counts() map[string]int {
 	return map[string]int{
 		crosstalkJamming: len(l.jamming),
 		crosstalkAmbient: len(l.ambient),
-		crosstalkUneasy:  len(l.uneasy),
+		crosstalkEvent:   len(l.event),
 	}
 }
 
@@ -177,14 +179,9 @@ func (l *CrosstalkLibrary) PickAmbient(rng *rand.Rand) (string, bool) {
 	return pickRandomValue(l.ambient, rng)
 }
 
-// PickUneasy は不穏系のアセットを選ぶ。
-func (l *CrosstalkLibrary) PickUneasy(rng *rand.Rand) (string, bool) {
-	return pickRandomValue(l.uneasy, rng)
-}
-
 // EventFile は「別現場の通信」のアセットを返す (イベント駆動再生用)。
 func (l *CrosstalkLibrary) EventFile() (string, bool) {
-	path, ok := l.uneasy[crosstalkEventFile]
+	path, ok := l.event[crosstalkEventFile]
 	return path, ok
 }
 
@@ -252,7 +249,6 @@ func (s *CrosstalkScheduler) Start(ctx context.Context, session *GameSession, se
 
 	go s.runSchedule(scheduleCtx, session, sender, crosstalkJamming, plan.Jamming, countdown)
 	go s.runSchedule(scheduleCtx, session, sender, crosstalkAmbient, plan.Ambient, countdown)
-	go s.runSchedule(scheduleCtx, session, sender, crosstalkUneasy, plan.Uneasy, countdown)
 }
 
 // Stop はセッションの混線スケジュールを停止する。
@@ -425,9 +421,6 @@ func (s *CrosstalkScheduler) pick(session *GameSession, kind string) (string, bo
 
 	case crosstalkAmbient:
 		return s.lib.PickAmbient(s.rng)
-
-	case crosstalkUneasy:
-		return s.lib.PickUneasy(s.rng)
 
 	default:
 		return "", false

@@ -105,7 +105,7 @@ setInterval(refresh, 2000);
     <span class="k">混線アセット</span>
     {{/* 0件だとその種別は無言でスキップされる。気付けるよう警告色にする */}}
     <span class="v{{if not .Health.Jamming}} warn{{end}}">
-      邪魔 {{.Health.Jamming}} / 環境 {{.Health.Ambient}} / 不穏 {{.Health.Uneasy}}
+      邪魔 {{.Health.Jamming}} / 環境 {{.Health.Ambient}} / 別現場 {{.Health.Event}}
     </span>
   </div>
   {{if .Health.LastMessage}}

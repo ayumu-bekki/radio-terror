@@ -231,7 +231,6 @@ type ComposeRule struct {
 type CrosstalkRule struct {
 	Jamming int `toml:"jamming"` // 邪魔者系
 	Ambient int `toml:"ambient"` // 環境ボイス系
-	Uneasy  int `toml:"uneasy"`  // 不穏系
 }
 
 // ScenarioLibrary はロード済みのステージ・難易度テンプレートを保持する。

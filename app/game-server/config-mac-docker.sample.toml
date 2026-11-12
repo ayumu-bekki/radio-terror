@@ -68,7 +68,7 @@ addr = "valkey:6379"
 
 [assets]
 # 混線音声・効果音アセットの配置。
-#   {dir}/crosstalk/{jamming,ambient,uneasy}/*.ogg
+#   {dir}/crosstalk/{jamming,ambient,uneasy(イベント専用)}/*.ogg
 #   {dir}/sfx/success.ogg, {dir}/sfx/failure.ogg
 # 未制作でもサーバーは起動する (該当の再生がスキップされる)。
 dir = "assets"

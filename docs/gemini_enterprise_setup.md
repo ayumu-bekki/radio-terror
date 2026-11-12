@@ -198,7 +198,7 @@ game-server より切り分けが簡単で、失敗しても影響がない。
 ```bash
 cd app/crosstalk-gen
 export GOOGLE_APPLICATION_CREDENTIALS=../secrets/geap-sa.json
-go run . -only kuromaku -force
+go run . -only uneasy_bessgenba -force
 ```
 
 成功すると以下のように出る。
@@ -206,7 +206,7 @@ go run . -only kuromaku -force
 ```
 接続先: Gemini Enterprise Agent Platform (project=radio-terror location=us-central1)
 レート制御: 間隔 4000ms / 並列 1 / リトライ上限 3回 / リクエスト上限 40回
-[ok]    uneasy/kuromaku.ogg  4.2s  8.5KB  (2.1s)
+[ok]    uneasy/uneasy_bessgenba.ogg  4.2s  8.5KB  (2.1s)
 APIリクエスト消費: 1回
 ```
 

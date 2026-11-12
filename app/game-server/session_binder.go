@@ -110,7 +110,7 @@ func (b *SessionBinder) PlayingSessions(excludeDeviceID string) []*GameSession {
 			continue
 		}
 		session.mu.Lock()
-		playing := session.State == deviceStatePlaying
+		playing := session.State == deviceStatePlaying && !session.Finished
 		session.mu.Unlock()
 		if playing {
 			list = append(list, session)

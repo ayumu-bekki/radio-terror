@@ -208,11 +208,11 @@ TTS API は同一リクエストでも `400 INVALID_ARGUMENT` を返すことが
 サーバー起動ログで件数を確認する。
 
 ```
-[crosstalk] loaded assets: jamming=3 ambient=13 uneasy=2
+[crosstalk] loaded assets: jamming=3 ambient=13 event=1
 ```
 
 **`uneasy_bessgenba` は名前固定。** `crosstalk.go` の `crosstalkEventFile` が
-名前で参照し、他チームの `exploded` を契機にイベント駆動再生される。
+名前で参照し、他チームの `exploded` を契機にイベント駆動でのみ再生される(ランダム再生はしない)。
 
 **`[[jamming]]` の `name` に `_` は使えない。** サーバーが最後の `_` で
 色サフィックスを切り出すため、名前に `_` があると解釈がずれる (起動時に検証される)。

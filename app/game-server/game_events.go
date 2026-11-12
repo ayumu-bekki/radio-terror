@@ -194,7 +194,9 @@ func (c *GameCoordinator) HandleDeviceMessage(ctx context.Context, msg *deviceMe
 		c.playEndingLater(ctx, sender, session, endingExploded)
 
 		// 他チームのCoreの爆発を契機に「別現場の通信」を流す (§5.1 イベント駆動)
-		if c.crosstalk != nil {
+		// マネージャーの強制破裂はプレイヤーの失敗ではないので流さない。
+		// 受け手は Playing 中 (終了済みを除く) の他セッションだけ
+		if c.crosstalk != nil && msg.Reason != "forced" {
 			c.crosstalk.NotifyExplosion(ctx, session.DeviceID, c.binder.PlayingSessions(session.DeviceID))
 		}
 

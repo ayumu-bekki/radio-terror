@@ -13,7 +13,7 @@ assets/
 ├── crosstalk/
 │   ├── jamming/   … 邪魔者系。色バリエーションを持つため {name}_{色}.ogg
 │   ├── ambient/   … 環境ボイス系。{name}.ogg
-│   └── uneasy/    … 不穏系。{name}.ogg
+│   └── uneasy/    … 別現場の通信 (イベント駆動専用)
 ├── sfx/
 │   ├── success.ogg … 解除成功の効果音
 │   └── failure.ogg … 失敗の効果音
@@ -63,16 +63,15 @@ assets/
 
 セリフは `docs/operation_flow.md` §5.1 の表を参照。
 
-## 不穏系 (uneasy) — 2ファイル
+## 別現場の通信 (uneasy) — 1ファイル
 
-世界観を深める。**色や操作の指示は一切しない**。
+**色や操作の指示は一切しない**。
 
 | ファイル名 | 役 |
 |---|---|
-| `kuromaku.ogg` | 黒幕らしき独り言 |
 | `uneasy_bessgenba.ogg` | 別現場の通信 |
 
-`uneasy_bessgenba.ogg` はランダム再生に加え、**他チームのCoreが実際に爆発した直後**に
+**ランダム再生はしない。** 他チームのCoreが実際に爆発した直後にだけ、
 Playing中の他チームの無線へ流す (イベント駆動)。ファイル名はサーバー実装が
 この名前で参照するため変更しないこと。
 

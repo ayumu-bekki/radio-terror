@@ -67,7 +67,7 @@ func TestJobsMatchAssetConvention(t *testing.T) {
 	for _, j := range jobs {
 		count[j.Category]++
 	}
-	for cat, want := range map[string]int{catJamming: 15, catAmbient: 13, catUneasy: 2} {
+	for cat, want := range map[string]int{catJamming: 15, catAmbient: 13, catUneasy: 1} {
 		if count[cat] != want {
 			t.Errorf("%s = %d, want %d", cat, count[cat], want)
 		}
@@ -291,7 +291,7 @@ func TestWriteToRealAssetLayout(t *testing.T) {
 		os.MkdirAll(filepath.Dir(p), 0o755)
 		os.WriteFile(p, data, 0o644)
 	}
-	for cat, want := range map[string]int{"jamming": 15, "ambient": 13, "uneasy": 2} {
+	for cat, want := range map[string]int{"jamming": 15, "ambient": 13, "uneasy": 1} {
 		es, _ := os.ReadDir(filepath.Join(dir, cat))
 		if len(es) != want {
 			t.Errorf("%s: %d files, want %d", cat, len(es), want)

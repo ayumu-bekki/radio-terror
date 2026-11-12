@@ -26,7 +26,7 @@ func main() {
 	var (
 		configPath = flag.String("config", "crosstalk.toml", "設定ファイルのパス")
 		outDir     = flag.String("out", "../game-server/assets/crosstalk", "出力先ディレクトリ")
-		only       = flag.String("only", "", "生成対象を名前で絞る (カンマ区切り。例: aserase_A,kuromaku)")
+		only       = flag.String("only", "", "生成対象を名前で絞る (カンマ区切り。例: aserase_A,uneasy_bessgenba)")
 		category   = flag.String("category", "", "カテゴリで絞る (jamming/ambient/uneasy/announce/reask/ending)")
 		dryRun     = flag.Bool("dry-run", false, "APIを呼ばず、生成されるプロンプトとファイル名だけ表示する")
 		force      = flag.Bool("force", false, "既存ファイルがあっても再生成する (skip_existing を無視)")
