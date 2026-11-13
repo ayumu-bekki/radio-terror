@@ -70,6 +70,9 @@ tbody tr:hover td { background: #f0f4f9; }
 
 .warn { color: #8a6215; }
 .err { color: #9d2626; font-weight: 600; }
+.mode-burst { color: var(--danger-fg); font-weight: 700; }
+.mode-quiet { color: var(--info-fg); font-weight: 700; }
+.quiet-on { color: var(--info-fg); font-weight: 700; }
 .muted { color: var(--text-muted); }
 /* answer は運営だけが見る正解。目立たせるが赤 (異常) とは分ける */
 .answer { font-family: ui-monospace, monospace; font-size: .78rem; color: #7a4e00;

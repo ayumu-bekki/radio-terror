@@ -3580,8 +3580,10 @@ grep で当たる `InteractionStatus` は **Live API (WebSocket) の応答フィ
   通常は破裂の2秒後に流すが、クワイエットは**爆発音が破裂の代わり**なので、破裂の時刻ちょうどから流す
   (`playEndingLater`)。解除成功には何も足さない
 - **切り替えはゲームサーバー側**: `config.toml` の `[game] quiet_mode` が起動時の初期値、
-  稼働中は **Management Console のヘルス欄のボタン** (`POST /manager/api/quiet-mode?enabled=true|false`)。
-  再起動すると config の値へ戻る。起動ログ `[boot] quiet mode:` で初期値を確かめられる
+  稼働中は **Management Console のヘルス欄「演出効果モード」のボタン** (`POST /manager/api/quiet-mode?enabled=true|false`)。
+  再起動すると config の値へ戻る。
+  **表示は「風船爆破モード (赤太字)」/「クワイエットモード (青太字)」の二択**にした — 「クワイエットモード ON/OFF」だと
+  どちらが風船を割る側か分からず設定ミスしそうだった (2026-11-13)。起動ログ `[boot] quiet mode:` で初期値を確かめられる
 - **セッション開始時に確定する**: `BuiltSession.QuietMode` に写し、`session_start` の `quiet_mode` で
   Core へ送る。**切り替えは次のセッションから効く** (進行中のセッションは開始時の値のまま。
   途中で変わると Core とサーバーの認識がずれる)。Valkey のセッションにも残るので再起動後も保たれる
