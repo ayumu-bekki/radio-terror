@@ -501,3 +501,59 @@ func TestEndingWaitsAfterEvent(t *testing.T) {
 		})
 	}
 }
+
+// クワイエットモードの爆発は、破裂の2秒後ではなく**破裂の瞬間から**流れること
+// (音声の先頭が爆発音なので、風船が割れる時刻に鳴らす。ADR G-10)。
+func TestQuietEndingStartsAtDetonation(t *testing.T) {
+	const after = 600 * time.Millisecond
+	const detonate = 200 // ms
+
+	store := NewMemoryStore()
+	devices := NewDeviceRegistry()
+	bridges := NewBridgeRegistry()
+	ch := bridges.Register("bridge-1")
+	defer bridges.Unregister("bridge-1", ch)
+
+	game := NewGameCoordinator(devices, bridges, nil, store, rand.New(rand.NewSource(1)))
+	logs := NewSessionLogStore(store)
+	game.SetSessionLogStore(logs)
+	game.endingAfter = after
+	game.SetEndingPlayer(NewEndingPlayer(
+		writeEndingAssets(t, endingTestOwl), []NavigatorCharacter{endingTestOwl},
+		logs, nil, rand.New(rand.NewSource(1))))
+	devices.Register("0001", &fakeDeviceConn{})
+
+	session := &GameSession{
+		SessionID: "s-1", DeviceID: "0001", BridgeID: "bridge-1",
+		State: deviceStatePlaying, RemainingMS: 10000,
+		StartedAt: time.Now(), Character: endingTestOwl,
+		Built: &BuiltSession{DetonateDelayMS: detonate, QuietMode: true},
+	}
+	session.progress.Reset()
+	game.binder.Bind("bridge-1", "0001", session)
+
+	start := time.Now()
+	game.HandleDeviceMessage(context.Background(), &deviceMessage{
+		Type: msgExploded, DeviceID: "0001", RemainingMS: 10000,
+	})
+
+	select {
+	case <-ch:
+		got := time.Since(start)
+		if got < detonate*time.Millisecond || after <= got {
+			t.Errorf("流れるまで %v (破裂の %dms 後 〜 endingAfter 未満のはず)", got, detonate)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("終幕が流れない")
+	}
+}
+
+// クワイエットモードの切り替えが、次に組むセッションのペイロードへ載ること。
+func TestQuietModeInSessionStartPayload(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		built := &BuiltSession{QuietMode: on}
+		if got := built.SessionStartPayload("0001")["quiet_mode"]; got != on {
+			t.Errorf("quiet_mode = %v, want %v", got, on)
+		}
+	}
+}

@@ -177,6 +177,7 @@ func main() {
 	game := NewGameCoordinator(devices, bridges, builder, store, rng)
 	game.SetSessionLogStore(sessionLogs)
 	game.SetNavigatorConfig(navigatorCfg)
+	game.SetQuietMode(cfg.Game.QuietMode)
 
 	// 保存済みセッションを復元する。進行状態は Core からの device_status で再同期する
 	// (docs/scenario_design.md §6)。

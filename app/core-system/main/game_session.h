@@ -225,6 +225,9 @@ struct SessionConfig {
   std::string session_id;
   int32_t countdown_ms = 0;
   int32_t detonate_delay_ms = 0;
+  /// **風船を割らない**クワイエットモード。true のときソレノイドを駆動しない
+  /// (ADR G-10)。赤点灯・閃光・ブザーなど破裂以外の演出は通常どおり行う
+  bool quiet_mode = false;
   std::vector<StageConfig> stages;
 };
 

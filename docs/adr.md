@@ -35,7 +35,7 @@
 | 9 | core-system (ファームウェア) | `C-1` 〜 `C-16` (19件) |
 | 10 | WebSocket / デバイス通信 | `W-1` 〜 `W-4` (4件) |
 | 11 | Management Console | `M-1` 〜 `M-5` (5件) |
-| 12 | 生成AI基盤 (Gemini Enterprise) | `G-1` 〜 `G-9` (10件。G-5b を含む) |
+| 12 | 生成AI基盤 (Gemini Enterprise) | `G-1` 〜 `G-10` (11件。G-5b を含む) |
 | 13 | 紙資料 | `D-1` 〜 `D-9` (9件) |
 | 14 | 検証の進め方 | `V-1` 〜 `V-5` (5件) |
 | 15 | 運用上の前提 | (箇条書き) |
@@ -2838,6 +2838,9 @@ LEDの出力ピンはこの5本がすべてなので、順序を問わない初�
 駆動は単一関数に集約し、**Detonating 状態からのみ**呼べる。二重駆動はフラグで防ぐ。
 **この安全ガードを緩めないこと。**
 
+クワイエットモード (G-10) のセッションは、このガードの内側で**駆動だけを飛ばす**
+(Detonating 限定・二重駆動防止はそのまま)。
+
 > 出典: GS 決定16
 
 ### C-6b. ミスには必ず音のフィードバックを付ける
@@ -3566,6 +3569,32 @@ grep で当たる `InteractionStatus` は **Live API (WebSocket) の応答フィ
   キャラシートの「解除成功」「爆発」の節、`directorNotes` の終幕分、効果音の連結 (`speakTTS` の `prefixPCM`)、
   `TestSimulateEndings` と、それを検査していたテスト。名乗らない・「どうぞ」を付けない・「爆発」と言わない・
   「お疲れ」を言わない、は事前収録の台詞への検査 (`TestEndingLinesOfRealCharacters`) に移した
+
+### G-10. クワイエットモード — 風船を割らず、無線の爆発音で代える
+
+風船の破裂が NG の会場 (音・飛散など) で使う、サーバー側のスイッチ。ON のセッションは
+**失敗してもソレノイドを駆動せず**、終幕の音声の先頭へ**爆発音を足して**流す。
+
+- **流れ**: 失敗確定 (赤点灯+ブザー) → `detonate_delay_ms` (破裂の時刻) → **爆発音 → 約0.8秒の無音 →
+  失敗ファンファーレ (`failure.ogg`) → ナビの声**。ここまで**1本の音声**で送る (間に別送の隙間を作らない)。
+  通常は破裂の2秒後に流すが、クワイエットは**爆発音が破裂の代わり**なので、破裂の時刻ちょうどから流す
+  (`playEndingLater`)。解除成功には何も足さない
+- **切り替えはゲームサーバー側**: `config.toml` の `[game] quiet_mode` が起動時の初期値、
+  稼働中は **Management Console のヘルス欄のボタン** (`POST /manager/api/quiet-mode?enabled=true|false`)。
+  再起動すると config の値へ戻る。起動ログ `[boot] quiet mode:` で初期値を確かめられる
+- **セッション開始時に確定する**: `BuiltSession.QuietMode` に写し、`session_start` の `quiet_mode` で
+  Core へ送る。**切り替えは次のセッションから効く** (進行中のセッションは開始時の値のまま。
+  途中で変わると Core とサーバーの認識がずれる)。Valkey のセッションにも残るので再起動後も保たれる
+- **ファーム**: `FireSolenoid` だけが `quiet_mode` を見て **GPIO を上げない**。ログは `solenoid skipped (quiet mode)`。
+  閃光 (白100ms) と待機の時間割は通常どおり進める — 駆動の**タイミングと長さには手を入れない** (C-6・C-6c)。
+  `quiet_mode` を省略した `session_start` は false (従来どおり割る)。**Detonating 限定・二重駆動防止の
+  ガードは緩めていない**。マネージャーの強制爆破 (`force_detonate`) も同じ経路で駆動を飛ばす
+- **爆発音**: `assets/sfx/explosion.ogg` (元は `small_explosion1.mp3`。**48kHz mono Ogg Opus**・約2.1秒に
+  変換、ピークは -1.5dB で頭打ち回避)。未配置なら通常の失敗の音声になる (ログ `[ending] sfx not available`)
+- **爆発の台詞は変えない**: 事前収録の `exploded_lines` はそのまま使う (「爆発」と言わない台詞なので、
+  破裂が無くても矛盾しない)。爆発音は台詞の外側で足す
+- **未検証: 実機での聞こえ方** (爆発音の音量・無音0.8秒の間・ファンファーレとの被り)。
+  調整値は `quietExplosionGap` (`navigator_ending.go`)
 
 ## 13. 紙資料
 

@@ -57,7 +57,7 @@ func writeEndingAssets(t *testing.T, c NavigatorCharacter) string {
 	if err != nil {
 		t.Fatalf("encodePCMToOggOpus: %v", err)
 	}
-	for _, name := range []string{sfxSuccessFile, sfxFailureFile} {
+	for _, name := range []string{sfxSuccessFile, sfxFailureFile, sfxExplosionFile} {
 		if err := os.WriteFile(filepath.Join(assetDir, "sfx", name), sfx, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -108,7 +108,7 @@ func TestEndingPlaysSfxAndSpeechAsOne(t *testing.T) {
 	e := NewEndingPlayer(writeEndingAssets(t, endingTestOwl), []NavigatorCharacter{endingTestOwl},
 		logs, crosstalk, rand.New(rand.NewSource(1)))
 
-	if !e.Play(NewAudioSender(bridges, "bridge-1"), newEndingTestSession(), endingDefused) {
+	if !e.Play(NewAudioSender(bridges, "bridge-1"), newEndingTestSession(), endingDefused, false) {
 		t.Fatal("Play が false")
 	}
 
@@ -174,7 +174,7 @@ func TestEndingFallsBackToSfxOnly(t *testing.T) {
 	assetDir := writeEndingAssets(t, NavigatorCharacter{ID: "other"})
 	e := NewEndingPlayer(assetDir, []NavigatorCharacter{endingTestOwl}, nil, nil, rand.New(rand.NewSource(1)))
 
-	if e.Play(NewAudioSender(bridges, "bridge-1"), newEndingTestSession(), endingExploded) {
+	if e.Play(NewAudioSender(bridges, "bridge-1"), newEndingTestSession(), endingExploded, false) {
 		t.Error("台詞が無いのに true を返した")
 	}
 	select {
@@ -199,7 +199,7 @@ func TestEndingConsoleModeLogsOnly(t *testing.T) {
 	session := newEndingTestSession()
 	session.ConsoleMode = true
 
-	e.Play(NewAudioSender(bridges, "bridge-1"), session, endingExploded)
+	e.Play(NewAudioSender(bridges, "bridge-1"), session, endingExploded, false)
 
 	select {
 	case <-ch:
@@ -310,4 +310,40 @@ func extractTTSTags(reply string) []string {
 		rest = rest[open+close:]
 	}
 	return tags
+}
+
+// クワイエットモードの爆発は、爆発音 → 無音 → 失敗ファンファーレ → 台詞 の順で
+// 1本に連結されて届くこと。通常の爆発や解除成功には爆発音を足さない。
+func TestEndingQuietExplosionPrependsBoom(t *testing.T) {
+	// 台詞1秒 + 失敗0.5秒 + (爆発音0.5秒 + 間 quietExplosionGap)
+	const base = 1500 * time.Millisecond
+	const boom = 500*time.Millisecond + quietExplosionGap
+
+	for _, tc := range []struct {
+		name  string
+		kind  string
+		quiet bool
+		want  time.Duration
+	}{
+		{"静音の爆発", endingExploded, true, base + boom},
+		{"通常の爆発", endingExploded, false, base},
+		{"静音でも解除成功には足さない", endingDefused, true, base},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bridges := NewBridgeRegistry()
+			ch := bridges.Register("bridge-1")
+			defer bridges.Unregister("bridge-1", ch)
+
+			e := NewEndingPlayer(writeEndingAssets(t, endingTestOwl), []NavigatorCharacter{endingTestOwl},
+				nil, nil, rand.New(rand.NewSource(1)))
+			if !e.Play(NewAudioSender(bridges, "bridge-1"), newEndingTestSession(), tc.kind, tc.quiet) {
+				t.Fatal("Play が false")
+			}
+			sent := <-ch
+			got := oggOpusDuration(sent.Data)
+			if d := got - tc.want; d < -150*time.Millisecond || 150*time.Millisecond < d {
+				t.Errorf("再生時間 %v, want %v 前後", got, tc.want)
+			}
+		})
+	}
 }

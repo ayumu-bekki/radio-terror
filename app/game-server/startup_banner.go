@@ -22,6 +22,7 @@ func logStartupBanner(configPath string, cfg *Config) {
 	log.Printf("[boot] config: %s", configPath)
 	log.Printf("[boot] manager secret words: %s", describeSecretWords(cfg.Manager.SecretWord))
 	log.Printf("[boot] gemini: %s", describeGeminiModels(cfg.Gemini))
+	log.Printf("[boot] quiet mode: %v (true なら風船を割らず爆発音を流す)", cfg.Game.QuietMode)
 	log.Printf("[boot] gemini limits: %s", describeGeminiLimits(cfg.Gemini))
 }
 

@@ -23,6 +23,7 @@ type Config struct {
 	Assets       AssetsConfig        `toml:"assets"`
 	Announce     AnnounceConfig      `toml:"announce"`
 	Manager      ManagerConfig       `toml:"manager"`
+	Game         GameConfig          `toml:"game"`
 	MissionSheet MissionSheet        `toml:"mission_sheet"`
 }
 
@@ -66,6 +67,13 @@ func (c AnnounceConfig) Interval() time.Duration {
 		return announceIntervalDefault
 	}
 	return time.Duration(c.IntervalMin) * time.Minute
+}
+
+// GameConfig はゲーム進行の設定。
+type GameConfig struct {
+	// QuietMode の起動時の初期値。true なら風船を割らない (ADR G-10)。
+	// 稼働中は Management Console から切り替えられる (再起動で config の値に戻る)。
+	QuietMode bool `toml:"quiet_mode"`
 }
 
 // ManagerConfig はマネージャーの音声コマンド設定 (docs/operation_flow.md §7)。

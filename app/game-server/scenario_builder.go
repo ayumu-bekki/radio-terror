@@ -160,11 +160,15 @@ type BuiltStage struct {
 // 同一の抽選結果から機械的に生成するため、実機の状態とナビゲーターの知識は
 // 構造的に一致する (docs/scenario_design.md §2)。
 type BuiltSession struct {
-	SessionID       string        `json:"session_id"`
-	Difficulty      string        `json:"difficulty"`
-	CountdownMS     int           `json:"countdown_ms"`
-	DetonateDelayMS int           `json:"detonate_delay_ms"`
-	Stages          []*BuiltStage `json:"stages"`
+	SessionID       string `json:"session_id"`
+	Difficulty      string `json:"difficulty"`
+	CountdownMS     int    `json:"countdown_ms"`
+	DetonateDelayMS int    `json:"detonate_delay_ms"`
+	// QuietMode は風船を割らないクワイエットモード (ADR G-10)。
+	// セッション開始時に確定し、Core へ送って (ソレノイドを駆動しない)、
+	// 終幕の再生 (爆発音を先頭に置く) にも使う。抽選とは無関係。
+	QuietMode bool          `json:"quiet_mode"`
+	Stages    []*BuiltStage `json:"stages"`
 
 	Crosstalk CrosstalkRule `json:"crosstalk"`
 }
@@ -182,6 +186,7 @@ func (s *BuiltSession) SessionStartPayload(deviceID string) map[string]any {
 		"session_id":        s.SessionID,
 		"countdown_ms":      s.CountdownMS,
 		"detonate_delay_ms": s.DetonateDelayMS,
+		"quiet_mode":        s.QuietMode,
 		"stages":            stages,
 	}
 }

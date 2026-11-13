@@ -174,6 +174,7 @@ Playing中の他チームの無線へ流す(2026-11-13。それまでは不穏�
   assets/crosstalk/ambient/{name}.ogg
   assets/crosstalk/uneasy/uneasy_bessgenba.ogg … 別現場の通信 (イベント駆動専用)
   assets/sfx/success.ogg, assets/sfx/failure.ogg
+  assets/sfx/explosion.ogg … 爆発音 (クワイエットモードの爆発だけ。ADR G-10)
   ```
 
   形式は **Ogg Opus**(radio-bridge がそのままキューへ積んで再生する)。
@@ -249,6 +250,10 @@ Playing中の他チームの無線へ流す(2026-11-13。それまでは不穏�
 `assets/ending/<キャラID>_<defused|exploded>_<n>.ogg` に置き、実行時はランダムに1本選ぶ。
 **流すのは解除・破裂の2秒後**(すぐだとタイミングが悪い。2026-10-03)。`exploded` は
 ソレノイド駆動前に届くので、破裂(`detonate_delay_ms`)を待ってから2秒 = 受信から約4秒後。
+**クワイエットモード**(風船を割らない会場向け。2026-11-13。ADR G-10)では、爆発のときだけ
+音声の先頭に爆発音 (`assets/sfx/explosion.ogg`) を足し、**破裂の時刻から**
+「爆発音 → 失敗ファンファーレ → ナビの声」を1本で流す。ソレノイドは駆動しない。
+切り替えは Management Console のヘルス欄 (次のセッションから効く)。
 台詞は「直前の交信に触れない」形で、どの回にも流せる。台詞の正本はキャラクター定義の
 `defused_lines` / `exploded_lines`(音声は `crosstalk-gen` の `ending` カテゴリ)。
 
@@ -448,5 +453,6 @@ go run . -category announce -out ../game-server/assets
 | 25 | 開始時の第一声は**先に生成し、Core の開始に合わせて流す**(2026-10-09) | 以前は `session_start` を送ったあとで第一声を生成していたため、ブザーから声までが生成待ちで空き、生成が失敗するとゲームだけが進んで無言になった。<br>**開始前に生成 + TTS まで終え**(`session_ready` の再生・猶予と並行)、用意できてから `session_start` を送る。声は `session_accepted` (Core がブザーを鳴らす直前に送る) の約100ms後に流す。固定の待ち時間ではなく Core の応答を合図にする。<br>**生成AIで作ることは変えない**(動作確認を兼ねるためプリセットにしない)。<br>**用意できなければ開始しない**: `session_abort` で Core を Setup へ戻しバインドを外す。マネージャーへはカラスが理由を返す(運営マニュアル §4.4)。<br>`countdownStartDelay` は **5秒のまま**。生成が猶予内に終わらなければ**最大10秒**(`firstSpeechMaxWait`)まで開始を遅らせ、それでも間に合わなければ取りやめる。<br>未確認(実機): `session_accepted` からブザー・声までの間隔(`firstSpeechAfterBuzzer`)と、生成が猶予 (5秒) 内に収まる頻度と、10秒の追加待ちが要る頻度(ログ `first speech prepared in`)。 |
 | 26 | デバッグ開始が青点滅のまま始まらない不具合を修正(2026-10-22) | デバッグ開始 (`/manager/debug`) で、Core が Pending (青点滅) のまま開始しなかった。ログは `first speech prepared in 2.775s (err=context canceled)`。開始処理に HTTP リクエストの context (`r.Context()`) を渡しており、第一声の用意 (決定25) の途中でリクエストが取り消されると生成が打ち切られていた。さらに `cancelStart` は context の取り消しを「リセット済み」とみなして**何も片付けずに戻っていた**ため、`session_abort` が送られず、バインドも残った。<br>**2点直した**: (1) デバッグ開始・コンソール開始は `context.WithoutCancel` で切り離して渡す (混線・無応答監視は元から切り離してあり、第一声の用意だけが漏れていた)。(2) `cancelStart` は取り消されてもセッションが残っていれば `session_abort` とバインド解除を行う。音声申告の経路は元から長寿命の context なので影響しない。回帰は `TestStartCancelledByCallerReleasesDevice` (ADR P-12・M-6) |
 | 27 | 「別現場の通信」は他チームの失敗時にだけ流す(2026-11-13) | 爆発の通信 `uneasy_bessgenba` が不穏系のランダム再生に入っており、他チームが失敗していないのに「解体失敗、総員退避」が流れた(不穏系は2本で約半分の確率)。ランダム再生から外し、`NotifyExplosion` のイベント駆動だけにした。不穏系のもう1本 `kuromaku` は役割が薄いため廃止し、不穏系の回数枠 (`[crosstalk] uneasy`) も無くした。ライブラリは `uneasy/` を「イベント専用」として読み、`PickUneasy` と不穏系のスケジュールを削除。管理画面の件数表示は「不穏」から「別現場」へ  。受け手は Playing かつ未終了のセッションに限定し、強制破裂 (`forced`) では流さない。`assets/` 直下の古い `jamming/`・`uneasy/` は未使用のため削除 |
+| 28 | クワイエットモード(2026-11-13) | 風船の破裂が NG の会場向け。失敗時にソレノイドを動かさず、無線から爆発音を先に流してから「失敗ファンファーレ → ナビの声」へつなぐ。サーバー側のスイッチ (config の初期値 + Management Console で切替、次のセッションから有効)。詳細は ADR G-10 |
 
 <!-- EOF -->

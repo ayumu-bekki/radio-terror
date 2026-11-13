@@ -26,7 +26,13 @@ const (
 const (
 	sfxSuccessFile = "success.ogg"
 	sfxFailureFile = "failure.ogg"
+	// sfxExplosionFile はクワイエットモードで風船の代わりに鳴らす爆発音 (ADR G-10)。
+	sfxExplosionFile = "explosion.ogg"
 )
+
+// quietExplosionGap はクワイエットモードで爆発音と失敗ファンファーレの間に置く無音。
+// 爆発音の余韻が消える前にファンファーレが被ると、どちらも聞き取れない。
+const quietExplosionGap = 800 * time.Millisecond
 
 // endingDelayAfterEvent は解除・破裂から終幕の音声を流すまでの間。
 // すぐ流すと達成感・衝撃を味わう間が無い (実機で確認。2026-10-03)。
@@ -128,8 +134,11 @@ func NewEndingPlayer(assetDir string, characters []NavigatorCharacter, logs *Ses
 // 効果音は台詞の前へ連結して**1つの音声として**送る (間に無音を挟まない)。
 // 台詞が無い・デコードできないときは効果音だけ、効果音も無いときは台詞だけを送る。
 //
+// quiet が true で kind が爆発のとき、効果音の先頭に爆発音を足す
+// (風船を割らないクワイエットモード。ADR G-10)。
+//
 // コンソールモード (音声なし) では会話ログへ台詞を残すだけにする。
-func (e *EndingPlayer) Play(sender *AudioSender, session *GameSession, kind string) bool {
+func (e *EndingPlayer) Play(sender *AudioSender, session *GameSession, kind string, quiet bool) bool {
 	if e == nil || session == nil {
 		return false
 	}
@@ -159,7 +168,16 @@ func (e *EndingPlayer) Play(sender *AudioSender, session *GameSession, kind stri
 	if kind == endingDefused {
 		sfxName = sfxSuccessFile
 	}
-	data, duration := e.compose(clip, ok, loadSFXPCM(e.sfxDir, sfxName))
+	sfx := loadSFXPCM(e.sfxDir, sfxName)
+	// クワイエットモードの爆発は、風船の代わりに爆発音を先頭へ置く (ADR G-10)。
+	// 爆発音 → 無音 → 失敗ファンファーレ → ナビの声 を**1本の音声として**送る。
+	if quiet && kind == endingExploded {
+		if boom := loadSFXPCM(e.sfxDir, sfxExplosionFile); len(boom) > 0 {
+			gap := make([]int16, int(quietExplosionGap*sampleRate/time.Second))
+			sfx = append(append(append(make([]int16, 0, len(boom)+len(gap)+len(sfx)), boom...), gap...), sfx...)
+		}
+	}
+	data, duration := e.compose(clip, ok, sfx)
 	if len(data) == 0 {
 		log.Printf("[ending] nothing to send: device=%s kind=%s", session.DeviceID, kind)
 		return false

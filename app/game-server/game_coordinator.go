@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -117,6 +118,10 @@ type GameCoordinator struct {
 	// endingAfter は解除・破裂から終幕の音声を流すまでの間 (既定 endingDelayAfterEvent)
 	endingAfter time.Duration
 
+	// quietMode は風船を割らないクワイエットモード (ADR G-10)。
+	// **次に始まるセッションから**効く (進行中のセッションは開始時の値のまま)。
+	quietMode atomic.Bool
+
 	// testResponder は疎通確認応答 (カラス)。セッション開始時に文脈を破棄する。
 	testResponder *TestResponder
 	// reask は事前収録の聞き直し。開始の差し戻しを音声にできなかったときにカラスが流す。
@@ -145,6 +150,17 @@ func NewGameCoordinator(
 
 		endingAfter: endingDelayAfterEvent,
 	}
+}
+
+// SetQuietMode はクワイエットモードを切り替える。次のセッション開始から有効。
+func (c *GameCoordinator) SetQuietMode(on bool) {
+	c.quietMode.Store(on)
+	log.Printf("[game] quiet mode: %v", on)
+}
+
+// QuietMode は現在のクワイエットモードを返す。
+func (c *GameCoordinator) QuietMode() bool {
+	return c.quietMode.Load()
 }
 
 // Binder はバインド表を返す。
@@ -279,6 +295,7 @@ func (c *GameCoordinator) StartSessionWith(
 	if err != nil {
 		return fmt.Errorf("build session: %w", err)
 	}
+	built.QuietMode = c.quietMode.Load()
 
 	// ナビゲーターの明示指定。未知のIDは抽選結果のままにする
 	// (デバッグ開始を止めるほどのことではない)
@@ -876,8 +893,14 @@ func (c *GameCoordinator) announceReady(ctx context.Context, sender *AudioSender
 // 待っている間に中断された (リセット・再起動) セッションには流さない。
 func (c *GameCoordinator) playEndingLater(ctx context.Context, sender *AudioSender, session *GameSession, kind string) {
 	wait := c.endingAfter
+	quiet := session.Built != nil && session.Built.QuietMode
 	if kind == endingExploded && session.Built != nil {
 		wait += time.Duration(session.Built.DetonateDelayMS) * time.Millisecond
+		if quiet {
+			// クワイエットモードは破裂が無い。爆発音そのものが「破裂」なので、
+			// 音声の先頭に爆発音を置き、破裂の瞬間 (ソレノイドを駆動する時刻) から流す。
+			wait = time.Duration(session.Built.DetonateDelayMS) * time.Millisecond
+		}
 	}
 	ctx = context.WithoutCancel(ctx)
 	time.AfterFunc(wait, func() {
@@ -887,7 +910,7 @@ func (c *GameCoordinator) playEndingLater(ctx context.Context, sender *AudioSend
 			}
 		}()
 		if c.sessionFor(session.DeviceID) == session {
-			c.endings.Play(sender, session, kind)
+			c.endings.Play(sender, session, kind, quiet)
 		} else {
 			log.Printf("[game] ending skipped (session released): device=%s kind=%s", session.DeviceID, kind)
 		}

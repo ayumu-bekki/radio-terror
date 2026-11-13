@@ -604,6 +604,10 @@ ParseResult ParseSessionJson(const std::string& json_text, SessionConfig* out) {
     return MakeError("parse_error", "detonate_delay_ms must be non-negative");
   }
 
+  // クワイエットモード (ADR G-10)。省略時は false (従来どおり風船を割る)
+  config.quiet_mode =
+      cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "quiet_mode"));
+
   const cJSON* stages = cJSON_GetObjectItemCaseSensitive(root, "stages");
   if (!cJSON_IsArray(stages) || cJSON_GetArraySize(stages) == 0) {
     cJSON_Delete(root);

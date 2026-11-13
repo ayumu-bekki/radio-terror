@@ -69,6 +69,16 @@ async function detonate(deviceId) {
   refresh();
 }
 
+// 次のセッション開始から効く。進行中のセッションには影響しない
+async function setQuietMode(on) {
+  const msg = on
+    ? 'クワイエットモードを ON にします。\n次のセッションから、失敗しても風船を割らず、無線から爆発音を流します。'
+    : 'クワイエットモードを OFF にします。\n次のセッションから、失敗すると風船が割れます。';
+  if (!confirm(msg + '\n(進行中のセッションは変わりません)')) return;
+  await fetch('/manager/api/quiet-mode?enabled=' + on, { method: 'POST' });
+  refresh();
+}
+
 async function abort(deviceId) {
   if (!confirm('CoreID ' + deviceId + ' をリセットしますか?')) return;
   const res = await fetch('/manager/api/abort?device_id=' + encodeURIComponent(deviceId),
@@ -106,6 +116,16 @@ setInterval(refresh, 2000);
     {{/* 0件だとその種別は無言でスキップされる。気付けるよう警告色にする */}}
     <span class="v{{if not .Health.Jamming}} warn{{end}}">
       邪魔 {{.Health.Jamming}} / 環境 {{.Health.Ambient}} / 別現場 {{.Health.Event}}
+    </span>
+  </div>
+  <div>
+    <span class="k">クワイエットモード</span>
+    {{/* 次のセッション開始から効く。進行中のセッションは開始時の値のまま */}}
+    <span class="v">
+      {{- if .QuietMode}}<span class="warn">ON (風船を割らない)</span>
+      {{- else}}OFF (風船を割る)
+      {{- end}}
+      <button onclick="setQuietMode({{if .QuietMode}}false{{else}}true{{end}})">{{if .QuietMode}}OFF にする{{else}}ON にする{{end}}</button>
     </span>
   </div>
   {{if .Health.LastMessage}}

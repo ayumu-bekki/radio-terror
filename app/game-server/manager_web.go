@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -137,6 +138,7 @@ func (w *ManagerWeb) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/manager/history/", w.handleSessionPage)
 	mux.HandleFunc("/manager/api/abort", w.handleAbort)
 	mux.HandleFunc("/manager/api/detonate", w.handleDetonate)
+	mux.HandleFunc("/manager/api/quiet-mode", w.handleQuietMode)
 	mux.HandleFunc("/manager/api/transcript", w.handleTranscript)
 
 	// デバッグ用。**既存ページからリンクは張らない** (URLを直接叩いて使う)
@@ -158,6 +160,9 @@ type dashboardData struct {
 	Sessions []sessionView
 	Devices  []deviceView
 	Bridges  []bridgeView
+
+	// QuietMode は風船を割らないクワイエットモード (次のセッションから効く)
+	QuietMode bool
 
 	// Health は外部API・音声アセットの状況 (§9 のマネージャー介入の判断材料)。
 	Health healthView
@@ -189,6 +194,8 @@ func (w *ManagerWeb) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		Devices:  buildDeviceViews(nonConsoleDeviceStatus(w.devices.AllStatus()), w.devices.IsConnected),
 		Bridges:  buildBridgeViews(w.bridges.IDs(), w.game.Bindings()),
 		Health:   buildHealthView(w.health.Snapshot(), w.crosstalk.Counts()),
+
+		QuietMode: w.game.QuietMode(),
 	}
 
 	// 表示するログのセッションを決める。指定が無ければ先頭の進行中セッション
@@ -592,6 +599,22 @@ func (w *ManagerWeb) handleAbort(rw http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(rw, "サーバー側のセッションは終了しました。ただしデバイスへは届いていません: %v", err)
 		return
 	}
+	rw.WriteHeader(http.StatusNoContent)
+}
+
+// handleQuietMode はクワイエットモードの切り替え (?enabled=true|false)。
+// 次のセッション開始から効く。進行中のセッションは変えない。
+func (w *ManagerWeb) handleQuietMode(rw http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(rw, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	on, err := strconv.ParseBool(r.URL.Query().Get("enabled"))
+	if err != nil {
+		http.Error(rw, "enabled must be true or false", http.StatusBadRequest)
+		return
+	}
+	w.game.SetQuietMode(on)
 	rw.WriteHeader(http.StatusNoContent)
 }
 

@@ -16,7 +16,8 @@ assets/
 │   └── uneasy/    … 別現場の通信 (イベント駆動専用)
 ├── sfx/
 │   ├── success.ogg … 解除成功の効果音
-│   └── failure.ogg … 失敗の効果音
+│   ├── failure.ogg … 失敗の効果音
+│   └── explosion.ogg … 爆発音 (クワイエットモードの爆発の先頭に足す。ADR G-10)
 ├── announce/
 │   └── station_id.ogg … 自動送信局アナウンス (15分ごと)
 ├── reask/

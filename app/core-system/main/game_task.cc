@@ -952,8 +952,14 @@ void GameTask::FireSolenoid() {
   }
   solenoid_fired_ = true;
 
-  ESP_LOGI(TAG, "solenoid fire");
-  gpio_set_level(Esp32Pin::kSolenoid, 1);
+  // クワイエットモードでは出力を上げない。タイミングと長さは通常どおり進める
+  // (閃光の時間割を変えない。C-6c)。ここ以外にソレノイドへ書く場所は無い
+  if (session_.quiet_mode) {
+    ESP_LOGI(TAG, "solenoid skipped (quiet mode)");
+  } else {
+    ESP_LOGI(TAG, "solenoid fire");
+    gpio_set_level(Esp32Pin::kSolenoid, 1);
+  }
 
   // 破裂の瞬間に白の最高光度を焚く (§4.1)。
   // ソレノイドと**同時に**始め、閃光ぶん待ってから状態の色 (赤点灯) へ戻す。
