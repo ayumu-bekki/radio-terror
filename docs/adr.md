@@ -3597,8 +3597,10 @@ grep で当たる `InteractionStatus` は **Live API (WebSocket) の応答フィ
   閃光 (白100ms) と待機の時間割は通常どおり進める — 駆動の**タイミングと長さには手を入れない** (C-6・C-6c)。
   `quiet_mode` を省略した `session_start` は false (従来どおり割る)。**Detonating 限定・二重駆動防止の
   ガードは緩めていない**。マネージャーの強制爆破 (`force_detonate`) も同じ経路で駆動を飛ばす
-- **爆発音**: `assets/sfx/explosion.ogg` (元は `small_explosion1.mp3`。**48kHz mono Ogg Opus**・約2.1秒に
-  変換、ピークは -1.5dB で頭打ち回避)。未配置なら通常の失敗の音声になる (ログ `[ending] sfx not available`)
+- **爆発音**: `assets/sfx/explosion.ogg` (元は `small_explosion1.mp3`。**24kHz mono Ogg Opus**・約2.1秒、
+  ピークは -0.4dB)。未配置なら通常の失敗の音声になる (ログ `[ending] sfx not available`)。
+  **24kHz 以外だとデコードできず無言で飛ばす** (ログ `[ending] WARN sfx decode failed`)。当初 48kHz で置いて
+  実機で爆発音が鳴らなかった (2026-11-16。元の 48kHz 版から -1.5dB で 24kHz に変換し直した)
 - **爆発の台詞は変えない**: 事前収録の `exploded_lines` はそのまま使う (「爆発」と言わない台詞なので、
   破裂が無くても矛盾しない)。爆発音は台詞の外側で足す
 - **未検証: 実機での聞こえ方** (爆発音の音量・無音0.8秒の間・ファンファーレとの被り)。

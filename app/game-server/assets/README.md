@@ -28,6 +28,15 @@ assets/
 
 形式は **Ogg Opus** (radio-bridge がそのままキューへ積んで再生する)。
 
+**`sfx/` は 24kHz mono で作る。** 終幕の台詞と連結するためサーバーがデコードし、
+ヘッダの入力レート (OpusHead) が 24000 以外だと**読めずに無言でスキップする**
+(ログは `[ending] WARN sfx decode failed`)。`explosion.ogg` を 48kHz で置いたため、
+クワイエットモードで爆発音が鳴らなかった (2026-11-16)。持ち込みの音源は変換してから置く:
+
+```bash
+ffmpeg -i 元の音源 -ar 24000 -ac 1 -c:a libopus sfx/explosion.ogg
+```
+
 ## 邪魔者系 (jamming) — 3パターン × 5色 = 15ファイル
 
 色を指定する部分は5色分を事前生成し、再生時にサーバーが「現在の正解以外」の色の
